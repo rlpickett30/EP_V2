@@ -1,0 +1,117 @@
+{
+    "system": {
+        "version": "1.0",
+        "description": "TDOA detector configuration registry"
+    },
+
+    "pipeline": {
+        "enabled": true,
+
+        "debug_mode": true,
+        "save_debug_plots": true,
+        "save_intermediate_data": false,
+
+        "sample_rate": 96000,
+
+        "minimum_event_duration_ms": 20,
+        "maximum_event_duration_ms": 5000,
+
+        "consensus_mode": "all",
+
+        "required_onset_detectors": 2,
+        "required_offset_detectors": 1
+    },
+
+    "active_detectors": {
+        "onset": [
+            "energy_threshold",
+            "sign_pattern"
+        ],
+
+        "offset": [
+            "energy_threshold",
+            "sign_pattern"
+        ]
+    },
+
+    "energy_threshold_onset": {
+        "enabled": true,
+
+        "threshold": 0.015,
+
+        "moving_average_window": 64,
+
+        "minimum_consecutive_samples": 8,
+
+        "backtrack_enabled": true,
+        "backtrack_samples": 32,
+
+        "publish_debug": true
+    },
+
+    "sign_pattern_onset": {
+        "enabled": true,
+
+        "positive_run_required": 6,
+        "negative_run_required": 6,
+
+        "minimum_peak_amplitude": 0.01,
+
+        "search_window": 64,
+
+        "publish_debug": true
+    },
+
+    "energy_threshold_offset": {
+        "enabled": true,
+
+        "threshold": 0.008,
+
+        "silence_duration_samples": 128,
+
+        "moving_average_window": 64,
+
+        "publish_debug": true
+    },
+
+    "sign_pattern_offset": {
+        "enabled": true,
+
+        "minimum_quiet_cycles": 4,
+
+        "maximum_noise_amplitude": 0.005,
+
+        "search_window": 64,
+
+        "publish_debug": true
+    },
+
+    "future_detectors": {
+        "spectral_peak": {
+            "enabled": false
+        },
+
+        "cross_correlation": {
+            "enabled": false
+        },
+
+        "matched_filter": {
+            "enabled": false
+        },
+
+        "ml_detector": {
+            "enabled": false
+        }
+    },
+
+    "output": {
+        "emit_candidate_events": true,
+        "emit_confirmed_events": true,
+
+        "include_detector_metadata": true,
+        "include_confidence_scores": true,
+
+        "export_sample_indices": true,
+        "export_time_seconds": true
+    }
+}

@@ -1,0 +1,23 @@
+{
+    "recordings_root": "recordings",
+
+    "sample_rate": 96000,
+
+    "channels": 1,
+
+    "recording_duration_sec": 15,
+
+    "recording_interval_sec": 300,
+
+    "tdoa_recording_duration_sec": 10,
+
+    "storage_retention_days": 7,
+
+    "bird_recording_retention_days": 30,
+
+    "recycler_interval_sec": 3600,
+
+    "require_pps_lock": false,
+
+    "debug": true
+}

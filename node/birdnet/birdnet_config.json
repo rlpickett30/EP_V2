@@ -1,0 +1,22 @@
+{
+    "recordings_path": "recordings",
+    
+    "location_mode": "auto",
+
+    "default_latitude": 37.2753,
+    "default_longitude": -107.8801,
+
+    "current_latitude": 37.2753,
+    "current_longitude": -107.8801,
+
+    "gps_acquired": false,
+
+    "week_mode": "auto",
+    "manual_week": 48,
+
+    "min_confidence": 0.25,
+
+    "use_gps_updates": true,
+
+    "debug": true
+}

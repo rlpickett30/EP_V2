@@ -1,0 +1,177 @@
+{
+    "subsystem": "registry",
+    "version": "2.0",
+    "platform_registry": {
+        "debug": true,
+        "registry": {
+            "allow_unknown_nodes": true,
+            "allow_unknown_gui_clients": true,
+            "require_node_id": true,
+            "require_gui_id": true,
+            "default_node_trust": "provisional",
+            "default_gui_trust": "provisional"
+        },
+        "known_nodes": {},
+        "known_gui_clients": {},
+        "allowed_node_roles": [
+            "field_node",
+            "base_station",
+            "test_node"
+        ],
+        "allowed_gui_roles": [
+            "primary_gui",
+            "web_interface",
+            "test_interface"
+        ],
+        "valid_device_roles": {
+            "NODE": {
+                "description": "A field device that sends environmental, acoustic, telemetry, or state data into the EnviroPulse platform.",
+                "registration_event": "node_register"
+            },
+            "GUI": {
+                "description": "A user interface device that receives platform updates and may request mode or routing changes.",
+                "registration_event": "gui_register"
+            }
+        },
+        "registration_events": {
+            "node_register": {
+                "required_role": "NODE",
+                "description": "Registers a node as a known EnviroPulse platform communication device."
+            },
+            "gui_register": {
+                "required_role": "GUI",
+                "description": "Registers a GUI as a known EnviroPulse platform communication device."
+            }
+        },
+        "registration_status": {
+            "active": "ACTIVE",
+            "rejected": "REJECTED"
+        },
+        "required_registration_fields": [
+            "event_type",
+            "device_id",
+            "device_role"
+        ],
+        "optional_registration_fields": [
+            "device_name",
+            "ip_address",
+            "port",
+            "software_version",
+            "notes"
+        ],
+        "state": {
+            "publish_only_on_change": true,
+            "include_previous_value": true,
+            "include_state_snapshot": true,
+            "default_source_type": "node"
+        },
+        "state_event_map": {
+            "bmp390_online": "SERVER_BMP390_ONLINE",
+            "bmp390_offline": "SERVER_BMP390_OFFLINE",
+            "sht45_online": "SERVER_SHT45_ONLINE",
+            "sht45_offline": "SERVER_SHT45_OFFLINE",
+            "pps_lock": "SERVER_PPS_LOCK",
+            "pps_lost": "SERVER_PPS_LOST",
+            "gps_lock": "SERVER_GPS_LOCK",
+            "gps_lost": "SERVER_GPS_LOST",
+            "gps_coord": "SERVER_GPS_COORD",
+            "rtk_online": "SERVER_RTK_ONLINE"
+        },
+        "state_defaults": {
+            "bmp390_online": false,
+            "sht45_online": false,
+            "pps_locked": false,
+            "gps_locked": false,
+            "gps_coord": null,
+            "rtk_online": false,
+            "tdoa_capable": false
+        },
+        "event": {
+            "publish_all_valid_events": true,
+            "include_original_payload": true,
+            "include_event_snapshot": true,
+            "default_source_type": "node"
+        },
+        "platform_event_map": {
+            "weather": "SERVER_WEATHER",
+            "gps_coord": "SERVER_GPS_COORD",
+            "avis_lite": "SERVER_AVIS_LITE",
+            "tdoa_calc": "SERVER_TDOA_CALC"
+        },
+        "required_event_fields": {
+            "weather": [
+                "node_id"
+            ],
+            "gps_coord": [
+                "node_id"
+            ],
+            "avis_lite": [
+                "node_id"
+            ],
+            "tdoa_calc": [
+                "node_id"
+            ]
+        },
+        "mode": {
+            "publish_only_on_change": true,
+            "include_previous_value": true,
+            "include_mode_snapshot": true,
+            "default_target_type": "node"
+        },
+        "mode_event_map": {
+            "energy_offset": "SERVER_ENERGY_OFFSET",
+            "energy_onset": "SERVER_ENERGY_ONSET",
+            "pattern_offset": "SERVER_PATTERN_OFFSET",
+            "pattern_onset": "SERVER_PATTERN_ONSET",
+            "onset_feature": "SERVER_ONSET_FEATURE",
+            "amp_feature": "SERVER_AMP_FEATURE",
+            "enable_wifi": "SERVER_ENABLE_WIFI",
+            "disable_wifi": "SERVER_DISABLE_WIFI",
+            "enable_lora": "SERVER_ENABLE_LORA",
+            "disable_lora": "SERVER_DISABLE_LORA"
+        },
+        "mode_defaults": {
+            "onset_method": "energy_onset",
+            "offset_method": "energy_offset",
+            "feature_mode": "onset_feature",
+            "wifi_enabled": true,
+            "lora_enabled": false
+        },
+        "allowed_modes": {
+            "onset_method": [
+                "energy_onset",
+                "pattern_onset"
+            ],
+            "offset_method": [
+                "energy_offset",
+                "pattern_offset"
+            ],
+            "feature_mode": [
+                "onset_feature",
+                "amp_feature"
+            ],
+            "wifi": [
+                "enable_wifi",
+                "disable_wifi"
+            ],
+            "lora": [
+                "enable_lora",
+                "disable_lora"
+            ]
+        },
+        "tdoa": {
+            "enabled": true,
+            "publish_only_on_transition": true,
+            "minimum_requirements": {
+                "pps_locked": true,
+                "gps_locked": true,
+                "gps_coord_required": true,
+                "rtk_online_required": false
+            }
+        },
+        "tdoa_event_map": {
+            "node_tdoa_capable": "SERVER_NODE_TDOA_CAPABLE",
+            "node_tdoa_capable_lost": "SERVER_NODE_TDOA_CAPABLE_LOST"
+        }
+    }
+}
