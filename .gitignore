@@ -41,3 +41,13 @@ tmp/
 temp/
 *.bak
 *.old
+
+# Sandbox / experiments
+sandbox/
+
+# Office temporary lock files
+~$*
+.$*
+
+# Draw.io backup files
+*.bkp
