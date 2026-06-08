@@ -3,14 +3,29 @@
 #
 # EnviroPulse V2
 #
-# Responsibilities:
-#   - Document Journal communication
-#   - Register Journal subscriptions
+# Subsystem:
+#   Journal
+#
+# Role:
+#   Event Services
+#
+# Purpose:
+#   Own Journal event subscriptions.
+#
+# Does:
+#   - Document Journal event communication
+#   - Register Journal subscriptions with the Event Bus
+#   - Subscribe directly to observed platform events
 #
 # Does NOT:
 #   - Publish events
 #   - Make decisions
 #   - Store data
+#   - Import Communication event services
+#   - Perform Event Bus delivery logic
+#
+# Owner:
+#   journal_dispatcher.py
 #
 # ============================================================
 
@@ -23,17 +38,30 @@ class JournalEventServices:
     #
     # SUBSCRIPTIONS
     #
-    # ALL PLATFORM EVENTS
+    # GUI_REGISTER
     #
     # Published By:
-    #     Any subsystem
+    #     Communication listener after UDP decode
     #
     # Consumed By:
     #     Journal
     #
     # Purpose:
-    #     Record platform history for debugging,
-    #     auditing, replay, and analysis.
+    #     Prove that the GUI startup registration event crossed
+    #     from GUI UDP output into the Server local event bus.
+    #
+    # --------------------------------------------------------
+    #
+    # COMMUNICATION_STATE
+    #
+    # Published By:
+    #     Communication dispatcher
+    #
+    # Consumed By:
+    #     Journal
+    #
+    # Purpose:
+    #     Record Communication receive statistics while testing.
     #
     # ========================================================
     #
@@ -47,7 +75,8 @@ class JournalEventServices:
 
     SUBSCRIPTIONS = [
 
-        "*"
+        "GUI_REGISTER",
+        "COMMUNICATION_STATE"
 
     ]
 
@@ -69,18 +98,9 @@ class JournalEventServices:
         dispatcher
     ):
 
-        #
-        # Depending on how your EventBus evolves:
-        #
-        # Option 1:
-        # subscribe("*", ...)
-        #
-        # Option 2:
-        # manually subscribe every event
-        #
-        # For now we leave the implementation
-        # here so ownership stays with
-        # Event Services.
-        #
+        for event_name in self.SUBSCRIPTIONS:
 
-        pass
+            self.event_bus.subscribe(
+                event_name,
+                dispatcher.handle_event
+            )

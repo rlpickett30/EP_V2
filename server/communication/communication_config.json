@@ -7,7 +7,7 @@
         "listen_host": "0.0.0.0",
         "listen_port": 5005,
         "send_host": "127.0.0.1",
-        "send_port": 5005,
+        "send_port": 5006,
         "max_packet_size": 4096
     },
 

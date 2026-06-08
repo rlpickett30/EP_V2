@@ -40,11 +40,11 @@
 #
 # ============================================================
 
-from event_matching import (
+from TDOA.event_matching import (
     EventMatcher
 )
 
-from matching_consensus import (
+from TDOA.matching_consensus import (
     MatchingConsensus
 )
 

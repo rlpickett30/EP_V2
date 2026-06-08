@@ -46,23 +46,23 @@
 
 from typing import Optional, Callable, List
 
-from energy_threshold_onset import (
+from TDOA.energy_threshold_onset import (
     detect_energy_threshold_onsets
 )
 
-from energy_threshold_offset import (
+from TDOA.energy_threshold_offset import (
     detect_energy_threshold_offsets
 )
 
-from sign_pattern_onset import (
+from TDOA.sign_pattern_onset import (
     detect_sign_pattern_onsets
 )
 
-from sign_pattern_offset import (
+from TDOA.sign_pattern_offset import (
     detect_sign_pattern_offsets
 )
 
-from general_features import (
+from TDOA.general_features import (
     extract_general_features
 )
 

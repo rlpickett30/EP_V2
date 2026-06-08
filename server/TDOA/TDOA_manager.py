@@ -39,19 +39,19 @@ import copy
 import logging
 from typing import Any, Optional
 
-from TDOA_event_detection import (
+from TDOA.TDOA_event_detection import (
     TDOAEventDetection
 )
 
-from TDOA_event_analysis import (
+from TDOA.TDOA_event_analysis import (
     TDOAEventAnalysis
 )
 
-from TDOA_event_solver import (
+from TDOA.TDOA_event_solver import (
     TDOAEventSolver
 )
 
-from solver_consensus import (
+from TDOA.solver_consensus import (
     SolverConsensus
 )
 

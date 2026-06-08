@@ -3,18 +3,44 @@
 #
 # EnviroPulse V2
 #
-# Responsibilities:
+# Subsystem:
+#   Communication
+#
+# Role:
+#   Helper Script
+#
+# Purpose:
+#   Persist queued outbound Communication messages.
+#
+# Expected config source:
+#   communication_config.json
+#
+# Expected config section:
+#   config["queue"]
+#
+# Does:
+#   - Create the outbound queue file when missing
 #   - Persist outbound messages
 #   - Retrieve queued messages
 #   - Remove sent messages
+#   - Clear the outbound queue
 #   - Provide queue statistics
 #
 # Does NOT:
 #   - Send messages
 #   - Retry messages
-#   - Make decisions
+#   - Decide when messages should be queued
+#   - Decide when messages should be flushed
 #   - Publish events
+#   - Manage communication state
 #
+# Owner:
+#   sender_manager.py
+#
+# ============================================================
+
+# ============================================================
+# IMPORT SUPPORT LIBRARIES
 # ============================================================
 
 import json
@@ -24,6 +50,10 @@ from pathlib import Path
 from typing import List
 from typing import Dict
 
+
+# ============================================================
+# CLASS DEFINITIONS
+# ============================================================
 
 class SenderDatabase:
 
@@ -107,7 +137,7 @@ class SenderDatabase:
         )
 
     # ========================================================
-    # RETRIEVE
+    # RETRIEVE ALL
     # ========================================================
 
     def retrieve_all(
@@ -160,3 +190,4 @@ class SenderDatabase:
         return len(
             self._load()
         )
+

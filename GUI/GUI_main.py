@@ -3,17 +3,44 @@
 #
 # EnviroPulse V2 GUI
 #
-# Responsibilities:
+# Subsystem:
+#   Main
+#
+# Role:
+#   Startup Script
+#
+# Purpose:
+#   Start the EnviroPulse GUI platform.
+#
+# Expected config source:
+#   None
+#
+# Expected config section:
+#   None
+#
+# Does:
+#   - Create Qt Application
 #   - Create Event Bus
-#   - Create Subsystems
-#   - Start Subsystems
-#   - Start Qt Application
+#   - Create top-level GUI subsystems
+#   - Start top-level GUI subsystems
+#   - Start Qt event loop
 #
 # Does NOT:
 #   - Route events
 #   - Manage state
-#   - Know subsystem internals
+#   - Know subsystem managers
+#   - Know helper scripts
+#   - Know Communication sender internals
+#   - Know Communication listener internals
+#   - Manage subsystem workflow
 #
+# Owner:
+#   Platform entry point
+#
+# ============================================================
+
+# ============================================================
+# IMPORT SUPPORT LIBRARIES
 # ============================================================
 
 import sys
@@ -21,19 +48,18 @@ import logging
 
 from PyQt6.QtWidgets import QApplication
 
+# ============================================================
+# IMPORT DEFINITIONS FROM OTHER ENVIROPULSE SCRIPTS
+# ============================================================
+
 from GUI_event_bus import EventBus
 
-from communication.communication_state_manager import (
-    CommunicationStateManager
+from gui_registration_helper import (
+    publish_gui_registration
 )
 
-
-from communication.sender.sender_dispatcher import (
-    SenderDispatcher
-)
-
-from communication.listener.listener_dispatcher import (
-    ListenerDispatcher
+from communication.communication_dispatcher import (
+    CommunicationDispatcher
 )
 
 from node_repository.node_repository_dispatcher import (
@@ -90,29 +116,11 @@ def main():
     event_bus = EventBus()
 
     # --------------------------------------------------------
-    # COMMUNICATION STATE
+    # COMMUNICATION
     # --------------------------------------------------------
 
-    communication_state = (
-        CommunicationStateManager()
-    )
-
-    # --------------------------------------------------------
-    # SENDER
-    # --------------------------------------------------------
-
-    sender = SenderDispatcher(
-    event_bus=event_bus
-    )
-
-    # --------------------------------------------------------
-    # LISTENER
-    # --------------------------------------------------------
-
-    listener = (
-        ListenerDispatcher(
-            communication_state_manager=
-                communication_state,
+    communication = (
+        CommunicationDispatcher(
             event_bus=event_bus
         )
     )
@@ -147,19 +155,25 @@ def main():
         )
     )
 
-    # --------------------------------------------------------
+        # --------------------------------------------------------
     # START SUBSYSTEMS
     # --------------------------------------------------------
 
-    sender.start()
-
-    listener.start()
+    communication.start()
 
     node_repository.start()
 
     journal.start()
 
     interface.start()
+
+    # --------------------------------------------------------
+    # GUI REGISTRATION
+    # --------------------------------------------------------
+
+    publish_gui_registration(
+        event_bus=event_bus
+    )
 
     # --------------------------------------------------------
     # SHOW GUI
@@ -171,11 +185,13 @@ def main():
         "EnviroPulse GUI Running"
     )
 
+    # --------------------------------------------------------
+    # START QT EVENT LOOP
+    # --------------------------------------------------------
+
     sys.exit(
         app.exec()
     )
-
-
 # ============================================================
 # ENTRY
 # ============================================================

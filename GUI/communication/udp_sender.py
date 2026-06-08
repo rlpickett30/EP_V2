@@ -3,27 +3,53 @@
 #
 # EnviroPulse V2
 #
-# UDP Message Sender
+# Subsystem:
+#   Communication
 #
-# Responsibilities:
-#   - Serialize message
-#   - Send UDP packet
-#   - Report success/failure
+# Role:
+#   Helper Script
+#
+# Purpose:
+#   Serialize outbound messages and send them as UDP packets.
+#
+# Expected config source:
+#   communication_config.json
+#
+# Expected config section:
+#   config["udp"]
+#
+# Does:
+#   - Serialize outbound messages as JSON
+#   - Send UDP packets
+#   - Report send success or failure
+#   - Allow destination updates
+#   - Close the UDP socket
 #
 # Does NOT:
 #   - Retry messages
 #   - Queue messages
 #   - Store messages
-#   - Make decisions
+#   - Decide when messages should be sent
 #   - Publish events
-#   - Manage state
+#   - Manage communication state
 #
+# Owner:
+#   sender_manager.py
+#
+# ============================================================
+
+# ============================================================
+# IMPORT SUPPORT LIBRARIES
 # ============================================================
 
 import json
 import socket
 import logging
 
+
+# ============================================================
+# CLASS DEFINITIONS
+# ============================================================
 
 class UDPSender:
 
@@ -71,13 +97,14 @@ class UDPSender:
         except Exception as error:
 
             logging.exception(
-                f"UDP Send Error: {error}"
+                f"[Communication] UDP Send Error: "
+                f"{error}"
             )
 
             return False
 
     # ========================================================
-    # DESTINATION
+    # SET DESTINATION
     # ========================================================
 
     def set_destination(
@@ -89,6 +116,10 @@ class UDPSender:
         self.host = host
         self.port = port
 
+    # ========================================================
+    # GET DESTINATION
+    # ========================================================
+
     def get_destination(
         self
     ) -> dict:
@@ -97,13 +128,16 @@ class UDPSender:
 
             "host": self.host,
             "port": self.port
+
         }
 
     # ========================================================
-    # SHUTDOWN
+    # CLOSE
     # ========================================================
 
-    def close(self):
+    def close(
+        self
+    ):
 
         try:
 
