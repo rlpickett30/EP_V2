@@ -1,0 +1,304 @@
+GUI EVENT CONTRACTS
+EnviroPulse V2
+
+Document Status: Active bookkeeping contract
+Document Scope: GUI-originated events and verified GUI communication behavior currently observed in the system.
+Last Updated: 2026-06-08
+
+============================================================
+HEADING STANDARD
+============================================================
+
+This document records only events that are currently known to exist in the running GUI system.
+
+Each event contract must include:
+
+1. Publication event name.
+2. Publishing subsystem.
+3. Payload format expected.
+4. Current subscribers.
+5. Description of publication.
+
+Contract rules:
+
+1. Add only verified events.
+2. Do not document planned events as active contracts.
+3. Do not rename an event in this document unless the implementation has also changed.
+4. If an event is converted before transmission, preserve both the local source event name and the outbound event name.
+5. Payload fields must match the currently observed journal payloads.
+6. Unknown subscribers must be marked as unknown, not guessed.
+7. Server-side behavior must not be assumed from GUI-side transmission alone.
+8. EVENT_SENT is treated as a communication confirmation event, not as the original GUI command event.
+
+============================================================
+KNOWN EVENT INDEX
+============================================================
+
+GUI Publisher:
+
+1. GUI_REGISTER
+2. FEATURE_MODE_CHANGE
+3. NETWORK_MODE_CHANGE
+4. DETECTION_MODE_CHANGE
+
+Communication Publisher:
+
+5. EVENT_SENT
+
+============================================================
+BODY: CONTRACTS ARRANGED BY PUBLISHING SUBSYSTEM
+============================================================
+
+============================================================
+PUBLISHING SUBSYSTEM: GUI
+============================================================
+
+------------------------------------------------------------
+EVENT CONTRACT: GUI_REGISTER
+------------------------------------------------------------
+
+Publication Event Name:
+GUI_REGISTER
+
+Publishing Subsystem:
+GUI
+
+Payload Format Expected:
+{
+    'gui_id': str,
+    'gui_name': str,
+    'gui_version': str,
+    'role': str
+}
+
+Currently Observed Payload:
+{
+    'gui_id': 'gui_01',
+    'gui_name': 'EnviroPulse GUI',
+    'gui_version': '2.0',
+    'role': 'operator_interface'
+}
+
+Current Subscribers:
+Unknown from current journal evidence.
+
+Description of Publication:
+The GUI publishes GUI_REGISTER when the EnviroPulse GUI starts and identifies itself to the internal system as an operator interface. The current journal confirms publication from source gui at startup.
+
+Observed Journal Evidence:
+Time: 2026-06-08T10:49:26
+Source: gui
+Event: GUI_REGISTER
+
+------------------------------------------------------------
+EVENT CONTRACT: FEATURE_MODE_CHANGE
+------------------------------------------------------------
+
+Publication Event Name:
+FEATURE_MODE_CHANGE
+
+Publishing Subsystem:
+GUI
+
+Payload Format Expected:
+{
+    'mode_category': str,
+    'command': str,
+    'requested_mode': str,
+    'target': str,
+    'target_node': str
+}
+
+Currently Observed Payload:
+{
+    'mode_category': 'feature',
+    'command': 'ONSET_FEATURE',
+    'requested_mode': 'onset_feature',
+    'target': 'server',
+    'target_node': ''
+}
+
+Current Subscribers:
+gui_communication_sender
+
+Description of Publication:
+The GUI publishes FEATURE_MODE_CHANGE when the operator selects a feature-mode command. The current observed command requests ONSET_FEATURE, with requested_mode set to onset_feature and target set to server. The communication sender converts this local GUI event into outbound event_type GUI_FEATURE_MODE_CHANGE before transmission.
+
+Outbound Communication Mapping Currently Observed:
+Local Source Event Name: FEATURE_MODE_CHANGE
+Outbound Event Type: GUI_FEATURE_MODE_CHANGE
+Verified By: gui_communication_sender
+Outbound Target: server
+
+Observed Journal Evidence:
+Time: 2026-06-08T10:49:29
+Source: gui
+Event: FEATURE_MODE_CHANGE
+
+------------------------------------------------------------
+EVENT CONTRACT: NETWORK_MODE_CHANGE
+------------------------------------------------------------
+
+Publication Event Name:
+NETWORK_MODE_CHANGE
+
+Publishing Subsystem:
+GUI
+
+Payload Format Expected:
+{
+    'mode_category': str,
+    'command': str,
+    'requested_mode': str,
+    'target': str,
+    'target_node': str
+}
+
+Currently Observed Payload:
+{
+    'mode_category': 'network',
+    'command': 'ENABLE_LORA',
+    'requested_mode': 'lora_enabled',
+    'target': 'node',
+    'target_node': ''
+}
+
+Current Subscribers:
+gui_communication_sender
+
+Description of Publication:
+The GUI publishes NETWORK_MODE_CHANGE when the operator selects a network-mode command. The current observed command requests ENABLE_LORA, with requested_mode set to lora_enabled and target set to node. The communication sender converts this local GUI event into outbound event_type GUI_NETWORK_MODE_CHANGE before transmission.
+
+Outbound Communication Mapping Currently Observed:
+Local Source Event Name: NETWORK_MODE_CHANGE
+Outbound Event Type: GUI_NETWORK_MODE_CHANGE
+Verified By: gui_communication_sender
+Outbound Target: server
+
+Observed Journal Evidence:
+Time: 2026-06-08T10:50:05
+Source: gui
+Event: NETWORK_MODE_CHANGE
+
+------------------------------------------------------------
+EVENT CONTRACT: DETECTION_MODE_CHANGE
+------------------------------------------------------------
+
+Publication Event Name:
+DETECTION_MODE_CHANGE
+
+Publishing Subsystem:
+GUI
+
+Payload Format Expected:
+{
+    'mode_category': str,
+    'command': str,
+    'requested_mode': str,
+    'target': str,
+    'target_node': str
+}
+
+Currently Observed Payload:
+{
+    'mode_category': 'detection',
+    'command': 'PATTERN_ONSET',
+    'requested_mode': 'pattern_onset',
+    'target': 'server',
+    'target_node': ''
+}
+
+Current Subscribers:
+gui_communication_sender
+
+Description of Publication:
+The GUI publishes DETECTION_MODE_CHANGE when the operator selects a detection-mode command. The current observed command requests PATTERN_ONSET, with requested_mode set to pattern_onset and target set to server. The communication sender converts this local GUI event into outbound event_type GUI_DETECTION_MODE_CHANGE before transmission.
+
+Outbound Communication Mapping Currently Observed:
+Local Source Event Name: DETECTION_MODE_CHANGE
+Outbound Event Type: GUI_DETECTION_MODE_CHANGE
+Verified By: gui_communication_sender
+Outbound Target: server
+
+Observed Journal Evidence:
+Time: 2026-06-08T10:50:06
+Source: gui
+Event: DETECTION_MODE_CHANGE
+
+============================================================
+PUBLISHING SUBSYSTEM: COMMUNICATION
+============================================================
+
+------------------------------------------------------------
+EVENT CONTRACT: EVENT_SENT
+------------------------------------------------------------
+
+Publication Event Name:
+EVENT_SENT
+
+Publishing Subsystem:
+Communication
+
+Payload Format Expected:
+{
+    'message': {
+        'event_type': str,
+        'source': str,
+        'timestamp': str,
+        'payload': dict,
+        'source_event_type': str,
+        'verified_by': str,
+        'target': str
+    },
+    'tx_count': int,
+    'tx_errors': int,
+    'last_tx_time': str
+}
+
+Currently Observed Payload Pattern:
+EVENT_SENT has been observed after GUI mode-change events are transmitted by the communication sender. The nested message preserves the original GUI payload, records the source_event_type, adds the outbound GUI_* event_type, and records gui_communication_sender as the verifier.
+
+Current Subscribers:
+Unknown from current journal evidence.
+
+Description of Publication:
+The communication subsystem publishes EVENT_SENT after it sends an outbound message. The current journal confirms EVENT_SENT publications for FEATURE_MODE_CHANGE, NETWORK_MODE_CHANGE, and DETECTION_MODE_CHANGE transmissions. This event currently confirms local transmission behavior only. It does not prove final server-side handling beyond the sender's completed send action.
+
+Observed Journal Evidence:
+Time: 2026-06-08T10:49:29
+Source: communication
+Event: EVENT_SENT
+Source Event Type: FEATURE_MODE_CHANGE
+Outbound Event Type: GUI_FEATURE_MODE_CHANGE
+
+Time: 2026-06-08T10:50:05
+Source: communication
+Event: EVENT_SENT
+Source Event Type: NETWORK_MODE_CHANGE
+Outbound Event Type: GUI_NETWORK_MODE_CHANGE
+
+Time: 2026-06-08T10:50:06
+Source: communication
+Event: EVENT_SENT
+Source Event Type: DETECTION_MODE_CHANGE
+Outbound Event Type: GUI_DETECTION_MODE_CHANGE
+
+============================================================
+CURRENT VERIFIED OUTBOUND GUI EVENT TYPES
+============================================================
+
+1. GUI_FEATURE_MODE_CHANGE
+2. GUI_NETWORK_MODE_CHANGE
+3. GUI_DETECTION_MODE_CHANGE
+
+These are currently observed as outbound communication event_type values inside EVENT_SENT payloads. They are not the original local GUI publication event names.
+
+============================================================
+OPEN UNKNOWNS
+============================================================
+
+1. Current subscriber for GUI_REGISTER is not proven by the provided journal evidence.
+2. Current subscriber for EVENT_SENT is not proven by the provided journal evidence.
+3. Server-side receive behavior is not documented here unless verified by server journal evidence.
+4. Server-side handling behavior is not documented here unless verified by server-side event publication or state change evidence.
+
