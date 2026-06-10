@@ -3,32 +3,37 @@
 #
 # EnviroPulse V2
 #
-# Communication Event Services
+# Subsystem:
+#   Communication
 #
-# Owner:
-#   - Communication subsystem
+# Role:
+#   Event Services
 #
-# Responsibilities:
+# Purpose:
+#   Own Communication event names, subscriptions, and publications.
+#
+# Does:
 #   - Document Communication event flow
-#   - Register Communication subscriptions
-#   - Publish Communication events
-#   - Keep listener, sender, and internal communication events organized
-#   - Maintain verified SERVER_ event conversion names
+#   - Register Communication subscriptions with the Event Bus
+#   - Publish accepted inbound listener events
+#   - Publish internal Communication state events
+#   - Keep current GUI inbound events organized
 #
 # Does NOT:
 #   - Send UDP packets
 #   - Receive UDP packets
 #   - Decode packets
 #   - Store queued messages
-#   - Make routing decisions
-#   - Manage communication state
+#   - Make mode decisions
+#   - Apply GUI commands
+#   - Manage node registry state
+#   - Perform Event Bus delivery logic
 #
-# Notes:
-#   - Listener events are inbound events received from GUI or node.
-#   - Sender events are outbound local requests that become verified SERVER_ events.
-#   - Communication internal events describe communication health and transport state.
-#   - This file should be updated every time a Communication event is added,
-#     removed, or renamed.
+# Owner:
+#   communication_dispatcher.py
+#
+# Current Scope:
+#   Server-side GUI receive verification.
 #
 # ============================================================
 
@@ -36,149 +41,141 @@
 class CommunicationEventServices:
 
     # ========================================================
-    # COMMUNICATION EVENT INDEX
+    # EVENT COMMUNICATION INDEX
     # ========================================================
     #
-    # INTERNAL COMMUNICATION EVENTS
+    # LISTENER PUBLICATIONS
     #
-    # These events describe Communication subsystem behavior.
+    # GUI_REGISTER
     #
-    # PUBLICATIONS:
+    # Published By:
+    #     Communication listener after UDP decode
     #
-    #   NETWORK_CONNECTED
-    #   NETWORK_DISCONNECTED
-    #   NETWORK_DISABLED
-    #   NETWORK_ENABLED
-    #   EVENT_SENT
-    #   EVENT_QUEUED
-    #   QUEUE_FLUSHED
-    #   COMMUNICATION_STATE
+    # Consumed By:
+    #     Journal
     #
-    # ========================================================
+    # Purpose:
+    #     Record that the GUI registered with the Server.
     #
-    # LISTENER EVENTS
+    # --------------------------------------------------------
     #
-    # Listener receives outside messages from GUI or node.
-    # Listener publishes the decoded and verified local event name.
+    # GUI_FEATURE_MODE_CHANGE
     #
-    # LISTENER PUBLICATIONS:
+    # Published By:
+    #     Communication listener after UDP decode
     #
-    #   BMP390_ONLINE
-    #   BMP390_OFFLINE
+    # Consumed By:
+    #     Journal
     #
-    #   SHT45_ONLINE
-    #   SHT45_OFFLINE
+    # Purpose:
+    #     Record a GUI feature mode-change command received by
+    #     the Server.
     #
-    #   RTK_ONLINE
+    # --------------------------------------------------------
     #
-    #   PPS_LOCK
-    #   PPS_LOST
+    # GUI_NETWORK_MODE_CHANGE
     #
-    #   GPS_LOCK
-    #   GPS_LOST
-    #   GPS_COORD
+    # Published By:
+    #     Communication listener after UDP decode
     #
-    #   WEATHER
-    #   AVIS_LITE
-    #   TDOA_CALC
+    # Consumed By:
+    #     Journal
     #
-    #   NODE_REGISTER
-    #   GUI_REGISTER
+    # Purpose:
+    #     Record a GUI network mode-change command received by
+    #     the Server.
     #
-    #   ENABLE_WIFI
-    #   DISABLE_WIFI
+    # --------------------------------------------------------
     #
-    #   ENABLE_LORA
-    #   DISABLE_LORA
+    # GUI_DETECTION_MODE_CHANGE
     #
-    #   ENERGY_ONSET
-    #   ENERGY_OFFSET
+    # Published By:
+    #     Communication listener after UDP decode
     #
-    #   PATTERN_ONSET
-    #   PATTERN_OFFSET
+    # Consumed By:
+    #     Journal
     #
-    #   ONSET_FEATURE
-    #   AMP_FEATURE
+    # Purpose:
+    #     Record a GUI detection mode-change command received by
+    #     the Server.
     #
     # ========================================================
     #
-    # SENDER EVENTS
+    # INTERNAL PUBLICATIONS
     #
-    # Sender receives local events that must be sent outward.
-    # Sender converts them into verified SERVER_ events before sending.
+    # NETWORK_CONNECTED
     #
-    # SENDER SUBSCRIPTIONS:
+    # Published By:
+    #     Communication dispatcher or manager
     #
-    #   BMP390_ONLINE
-    #   BMP390_OFFLINE
+    # Consumed By:
+    #     Journal
     #
-    #   SHT45_ONLINE
-    #   SHT45_OFFLINE
+    # Purpose:
+    #     Record that Communication transport is available.
     #
-    #   RTK_ONLINE
+    # --------------------------------------------------------
     #
-    #   PPS_LOCK
-    #   PPS_LOST
+    # NETWORK_DISCONNECTED
     #
-    #   GPS_LOCK
-    #   GPS_LOST
-    #   GPS_COORD
+    # Published By:
+    #     Communication dispatcher or manager
     #
-    #   WEATHER
-    #   AVIS_LITE
-    #   TDOA_CALC
+    # Consumed By:
+    #     Journal
     #
-    #   NODE_REGISTER
+    # Purpose:
+    #     Record that Communication transport is unavailable.
     #
-    # SENDER VERIFIED OUTBOUND EVENTS:
+    # --------------------------------------------------------
     #
-    #   SERVER_BMP390_ONLINE
-    #   SERVER_BMP390_OFFLINE
+    # COMMUNICATION_STATE
     #
-    #   SERVER_SHT45_ONLINE
-    #   SERVER_SHT45_OFFLINE
+    # Published By:
+    #     Communication dispatcher or manager
     #
-    #   SERVER_RTK_ONLINE
+    # Consumed By:
+    #     Journal
     #
-    #   SERVER_PPS_LOCK
-    #   SERVER_PPS_LOST
-    #
-    #   SERVER_GPS_LOCK
-    #   SERVER_GPS_LOST
-    #   SERVER_GPS_COORD
-    #
-    #   SERVER_WEATHER
-    #   SERVER_AVIS_LITE
-    #   SERVER_TDOA_CALC
-    #
-    #   SERVER_NODE_REGISTER
+    # Purpose:
+    #     Record current Communication subsystem state.
     #
     # ========================================================
     #
-    # MODE EVENTS
+    # SENDER SUBSCRIPTIONS
     #
-    # These are command-style events. Listener may publish them locally
-    # when they arrive from GUI. Sender may send them outward if another
-    # platform member needs to receive them.
-    #
-    # MODE EVENTS:
-    #
-    #   ENABLE_WIFI
-    #   DISABLE_WIFI
-    #
-    #   ENABLE_LORA
-    #   DISABLE_LORA
-    #
-    #   ENERGY_ONSET
-    #   ENERGY_OFFSET
-    #
-    #   PATTERN_ONSET
-    #   PATTERN_OFFSET
-    #
-    #   ONSET_FEATURE
-    #   AMP_FEATURE
+    # None for current server GUI receive verification.
     #
     # ========================================================
+    #
+    # PUBLICATIONS
+    #
+    # Listener:
+    #     GUI_REGISTER
+    #     GUI_FEATURE_MODE_CHANGE
+    #     GUI_NETWORK_MODE_CHANGE
+    #     GUI_DETECTION_MODE_CHANGE
+    #
+    # Internal:
+    #     NETWORK_CONNECTED
+    #     NETWORK_DISCONNECTED
+    #     COMMUNICATION_STATE
+    #
+    # ========================================================
+
+    # ========================================================
+    # LISTENER PUBLICATIONS
+    # ========================================================
+
+    LISTENER_PUBLICATIONS = [
+
+        "GUI_REGISTER",
+
+        "GUI_FEATURE_MODE_CHANGE",
+        "GUI_NETWORK_MODE_CHANGE",
+        "GUI_DETECTION_MODE_CHANGE"
+
+    ]
 
     # ========================================================
     # INTERNAL PUBLICATIONS
@@ -188,233 +185,23 @@ class CommunicationEventServices:
 
         "NETWORK_CONNECTED",
         "NETWORK_DISCONNECTED",
-
-        "NETWORK_ENABLED",
-        "NETWORK_DISABLED",
-
-        "EVENT_SENT",
-        "EVENT_QUEUED",
-        "QUEUE_FLUSHED",
-
-        "COMMUNICATION_STATE"
+        
+        "COMMUNICATION_STATE",
+        
+        "EVENT_SENT"
 
     ]
 
     # ========================================================
-    # LISTENER PUBLICATIONS
+    # MODE SUBSCRIPTIONS
     # ========================================================
 
-    LISTENER_PUBLICATIONS = [
+    MODE_SUBSCRIPTIONS = [
 
-        # --------------------------------------------
-        # State
-        # --------------------------------------------
-
-        "BMP390_ONLINE",
-        "BMP390_OFFLINE",
-
-        "SHT45_ONLINE",
-        "SHT45_OFFLINE",
-
-        "RTK_ONLINE",
-
-        "PPS_LOCK",
-        "PPS_LOST",
-
-        "GPS_LOCK",
-        "GPS_LOST",
-        "GPS_COORD",
-
-        # --------------------------------------------
-        # Event
-        # --------------------------------------------
-
-        "WEATHER",
-        "AVIS_LITE",
-        "TDOA_CALC",
-
-        "NODE_REGISTER",
-        "GUI_REGISTER",
-
-        # --------------------------------------------
-        # Mode
-        # --------------------------------------------
-
-        "ENABLE_WIFI",
-        "DISABLE_WIFI",
-
-        "ENABLE_LORA",
-        "DISABLE_LORA",
-
-        "ENERGY_ONSET",
-        "ENERGY_OFFSET",
-
-        "PATTERN_ONSET",
-        "PATTERN_OFFSET",
-
-        "ONSET_FEATURE",
-        "AMP_FEATURE"
+        "COMMUNICATION_CHANGE_MODE",
+        "SEND_NODE_CHANGE_MODE"
 
     ]
-
-    # ========================================================
-    # SENDER SUBSCRIPTIONS
-    # ========================================================
-
-    SENDER_SUBSCRIPTIONS = [
-
-        # --------------------------------------------
-        # State
-        # --------------------------------------------
-
-        "BMP390_ONLINE",
-        "BMP390_OFFLINE",
-
-        "SHT45_ONLINE",
-        "SHT45_OFFLINE",
-
-        "RTK_ONLINE",
-
-        "PPS_LOCK",
-        "PPS_LOST",
-
-        "GPS_LOCK",
-        "GPS_LOST",
-        "GPS_COORD",
-
-        # --------------------------------------------
-        # Event
-        # --------------------------------------------
-
-        "WEATHER",
-        "AVIS_LITE",
-        "TDOA_CALC",
-
-        "NODE_REGISTER",
-
-        # --------------------------------------------
-        # Mode
-        # --------------------------------------------
-
-        "ENABLE_WIFI",
-        "DISABLE_WIFI",
-
-        "ENABLE_LORA",
-        "DISABLE_LORA",
-
-        "ENERGY_ONSET",
-        "ENERGY_OFFSET",
-
-        "PATTERN_ONSET",
-        "PATTERN_OFFSET",
-
-        "ONSET_FEATURE",
-        "AMP_FEATURE"
-
-    ]
-
-    # ========================================================
-    # VERIFIED SERVER EVENT MAP
-    # ========================================================
-    #
-    # These are the events that sender converts before sending.
-    #
-    # Example:
-    #
-    #   GPS_LOCK  -> SERVER_GPS_LOCK
-    #
-    # This protects the rest of the platform from confusing raw local
-    # events with verified server-bound communication events.
-    #
-    # ========================================================
-
-    SERVER_EVENT_MAP = {
-
-        # --------------------------------------------
-        # State
-        # --------------------------------------------
-
-        "BMP390_ONLINE":
-            "SERVER_BMP390_ONLINE",
-
-        "BMP390_OFFLINE":
-            "SERVER_BMP390_OFFLINE",
-
-        "SHT45_ONLINE":
-            "SERVER_SHT45_ONLINE",
-
-        "SHT45_OFFLINE":
-            "SERVER_SHT45_OFFLINE",
-
-        "RTK_ONLINE":
-            "SERVER_RTK_ONLINE",
-
-        "PPS_LOCK":
-            "SERVER_PPS_LOCK",
-
-        "PPS_LOST":
-            "SERVER_PPS_LOST",
-
-        "GPS_LOCK":
-            "SERVER_GPS_LOCK",
-
-        "GPS_LOST":
-            "SERVER_GPS_LOST",
-
-        "GPS_COORD":
-            "SERVER_GPS_COORD",
-
-        # --------------------------------------------
-        # Event
-        # --------------------------------------------
-
-        "WEATHER":
-            "SERVER_WEATHER",
-
-        "AVIS_LITE":
-            "SERVER_AVIS_LITE",
-
-        "TDOA_CALC":
-            "SERVER_TDOA_CALC",
-
-        "NODE_REGISTER":
-            "SERVER_NODE_REGISTER",
-
-        # --------------------------------------------
-        # Mode
-        # --------------------------------------------
-
-        "ENABLE_WIFI":
-            "SERVER_ENABLE_WIFI",
-
-        "DISABLE_WIFI":
-            "SERVER_DISABLE_WIFI",
-
-        "ENABLE_LORA":
-            "SERVER_ENABLE_LORA",
-
-        "DISABLE_LORA":
-            "SERVER_DISABLE_LORA",
-
-        "ENERGY_ONSET":
-            "SERVER_ENERGY_ONSET",
-
-        "ENERGY_OFFSET":
-            "SERVER_ENERGY_OFFSET",
-
-        "PATTERN_ONSET":
-            "SERVER_PATTERN_ONSET",
-
-        "PATTERN_OFFSET":
-            "SERVER_PATTERN_OFFSET",
-
-        "ONSET_FEATURE":
-            "SERVER_ONSET_FEATURE",
-
-        "AMP_FEATURE":
-            "SERVER_AMP_FEATURE"
-
-    }
 
     # ========================================================
     # ALL PUBLICATIONS
@@ -422,8 +209,8 @@ class CommunicationEventServices:
 
     PUBLICATIONS = (
 
-        INTERNAL_PUBLICATIONS
-        + LISTENER_PUBLICATIONS
+        LISTENER_PUBLICATIONS
+        + INTERNAL_PUBLICATIONS
 
     )
 
@@ -433,7 +220,7 @@ class CommunicationEventServices:
 
     SUBSCRIPTIONS = (
 
-        SENDER_SUBSCRIPTIONS
+        MODE_SUBSCRIPTIONS
 
     )
 
@@ -455,10 +242,19 @@ class CommunicationEventServices:
 
         for event_name in self.SUBSCRIPTIONS:
 
-            self.event_bus.subscribe(
-                event_name,
-                dispatcher.handle_outbound_event
-            )
+            if event_name == "COMMUNICATION_CHANGE_MODE":
+
+                self.event_bus.subscribe(
+                    event_name,
+                    dispatcher.handle_communication_change_mode
+                )
+                
+            elif event_name == "SEND_NODE_CHANGE_MODE":
+
+                self.event_bus.subscribe(
+                    event_name,
+                    dispatcher.handle_send_node_change_mode
+                )
 
     # ========================================================
     # CAN PUBLISH
@@ -470,68 +266,6 @@ class CommunicationEventServices:
     ) -> bool:
 
         return event_name in self.PUBLICATIONS
-
-    # ========================================================
-    # CAN SEND
-    # ========================================================
-
-    def can_send(
-        self,
-        event_name: str
-    ) -> bool:
-
-        return event_name in self.SERVER_EVENT_MAP
-
-    # ========================================================
-    # GET SERVER EVENT TYPE
-    # ========================================================
-
-    def get_server_event_type(
-        self,
-        event_name: str
-    ) -> str:
-
-        return self.SERVER_EVENT_MAP.get(
-            event_name,
-            event_name
-        )
-
-    # ========================================================
-    # BUILD SERVER EVENT
-    # ========================================================
-
-    def build_server_event(
-        self,
-        event: dict
-    ) -> dict:
-
-        event_copy = dict(
-            event
-        )
-
-        original_event_type = event_copy.get(
-            "event_type"
-        )
-
-        server_event_type = (
-            self.get_server_event_type(
-                original_event_type
-            )
-        )
-
-        event_copy[
-            "source_event_type"
-        ] = original_event_type
-
-        event_copy[
-            "event_type"
-        ] = server_event_type
-
-        event_copy[
-            "verified_by"
-        ] = "communication_sender"
-
-        return event_copy
 
     # ========================================================
     # PUBLISH
@@ -596,48 +330,6 @@ class CommunicationEventServices:
         )
 
     # ========================================================
-    # PUBLISH EVENT SENT
-    # ========================================================
-
-    def publish_event_sent(
-        self,
-        event: dict
-    ):
-
-        self.publish(
-            "EVENT_SENT",
-            event
-        )
-
-    # ========================================================
-    # PUBLISH EVENT QUEUED
-    # ========================================================
-
-    def publish_event_queued(
-        self,
-        event: dict
-    ):
-
-        self.publish(
-            "EVENT_QUEUED",
-            event
-        )
-
-    # ========================================================
-    # PUBLISH QUEUE FLUSHED
-    # ========================================================
-
-    def publish_queue_flushed(
-        self,
-        event: dict
-    ):
-
-        self.publish(
-            "QUEUE_FLUSHED",
-            event
-        )
-
-    # ========================================================
     # PUBLISH COMMUNICATION STATE
     # ========================================================
 
@@ -649,11 +341,38 @@ class CommunicationEventServices:
         event = {
 
             "event_type": "COMMUNICATION_STATE",
-            "communication_state": state
+            "source": "communication",
+            "payload": state
 
         }
 
         self.publish(
             "COMMUNICATION_STATE",
+            event
+        )
+        
+    # ========================================================
+    # PUBLISH EVENT SENT
+    # ========================================================
+
+    def publish_event_sent(
+        self,
+        payload: dict
+    ):
+        """
+        Publish EVENT_SENT after Communication successfully sends
+        an outbound message.
+        """
+
+        event = {
+
+            "event_type": "EVENT_SENT",
+            "source": "communication",
+            "payload": payload or {}
+
+        }
+
+        self.publish(
+            "EVENT_SENT",
             event
         )

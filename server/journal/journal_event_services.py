@@ -29,7 +29,6 @@
 #
 # ============================================================
 
-
 class JournalEventServices:
 
     # ========================================================
@@ -49,6 +48,48 @@ class JournalEventServices:
     # Purpose:
     #     Prove that the GUI startup registration event crossed
     #     from GUI UDP output into the Server local event bus.
+    #
+    # --------------------------------------------------------
+    #
+    # GUI_FEATURE_MODE_CHANGE
+    #
+    # Published By:
+    #     Communication listener after UDP decode
+    #
+    # Consumed By:
+    #     Journal
+    #
+    # Purpose:
+    #     Record GUI feature mode-change commands received by
+    #     the Server from the operator interface.
+    #
+    # --------------------------------------------------------
+    #
+    # GUI_NETWORK_MODE_CHANGE
+    #
+    # Published By:
+    #     Communication listener after UDP decode
+    #
+    # Consumed By:
+    #     Journal
+    #
+    # Purpose:
+    #     Record GUI network mode-change commands received by
+    #     the Server from the operator interface.
+    #
+    # --------------------------------------------------------
+    #
+    # GUI_DETECTION_MODE_CHANGE
+    #
+    # Published By:
+    #     Communication listener after UDP decode
+    #
+    # Consumed By:
+    #     Journal
+    #
+    # Purpose:
+    #     Record GUI detection mode-change commands received by
+    #     the Server from the operator interface.
     #
     # --------------------------------------------------------
     #
@@ -74,9 +115,17 @@ class JournalEventServices:
     # ========================================================
 
     SUBSCRIPTIONS = [
-
-        "GUI_REGISTER",
-        "COMMUNICATION_STATE"
+        "REGISTRY_UPDATED",
+        "GUI_REGISTER",#
+        "GUI_FEATURE_MODE_CHANGE",#
+        "TDOA_CHANGE_MODE",
+        "TDOA_MODE_UPDATE",
+        "GUI_NETWORK_MODE_CHANGE",#
+        "GUI_DETECTION_MODE_CHANGE",#
+        "COMMUNICATION_STATE",
+        "SEND_NODE_CHANGE_MODE",
+        "COMMUNICATION_CHANGE_MODE",
+        "EVENT_SENT"
 
     ]
 

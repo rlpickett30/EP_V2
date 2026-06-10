@@ -153,7 +153,7 @@ class TDOADispatcher:
 
         if not self.subscribed:
             self.event_services.register_subscriptions(
-                callback=self.handle_event
+                dispatcher=self
             )
 
             self.subscribed = True
@@ -303,7 +303,115 @@ class TDOADispatcher:
         logging.warning(
             f"TDOA dispatcher received unknown event_type: {event_type}"
         )
+    
+    # ========================================================
+    # MODE HANDLING
+    # ========================================================
 
+    def handle_tdoa_change_mode(self, event):
+        """
+        Handle Registry-approved TDOA_CHANGE_MODE events.
+        
+        Expected event shape:
+            {
+                "event_type": "TDOA_CHANGE_MODE",
+                "source": "platform_registry",
+                "payload": {
+                    "reason": "GUI_FEATURE_MODE_CHANGE",
+                    "mode_payload": {
+                        "incoming_event": "onset_feature",
+                        "mode": {
+                            "feature_mode": "onset_feature"
+                        }
+                    }
+                }
+            }
+        """
+
+        payload = event.get("payload", {})
+
+        mode_payload = payload.get("mode_payload", {})
+
+        if not isinstance(mode_payload, dict):
+            logging.warning(
+                "TDOA_CHANGE_MODE rejected. Missing or invalid mode_payload."
+            )
+            return
+
+        mode_update = self._extract_mode_update_from_registry_payload(
+            mode_payload
+        )
+
+        if mode_update is None:
+            logging.warning(
+                f"TDOA_CHANGE_MODE rejected. No usable mode update found: {mode_payload}"
+            )
+            return
+
+        mode_name = mode_update.get("mode_name")
+        mode_value = mode_update.get("mode_value")
+
+        try:
+            result = self.manager.update_mode(
+                mode_name=mode_name,
+                mode_value=mode_value
+            )
+
+            if result is None:
+                return
+
+            result["source_event_type"] = event.get("event_type")
+            result["source_reason"] = payload.get("reason")
+            result["registry_mode_payload"] = mode_payload
+
+            self.event_services.publish_tdoa_mode_update(
+                result
+            )
+        
+            logging.info(
+                f"[TDOA] Applied mode change: {mode_name} = {mode_value}"
+            )
+
+        except Exception as error:
+            logging.exception(
+                f"TDOA mode update failed: {mode_name}"
+            )
+
+        # Keep this simple for now. We can add a real failure publisher later.
+        return
+    def _extract_mode_update_from_registry_payload(self, mode_payload):
+        """
+        Convert Registry-approved mode payload into the manager update shape.
+
+        TDOA manager expects:
+            mode_name
+            mode_value
+        """
+
+        mode = mode_payload.get("mode", {})
+
+        if not isinstance(mode, dict):
+            return None
+
+        if "onset_method" in mode:
+            return {
+                "mode_name": mode.get("onset_method"),
+                "mode_value": mode.get("onset_method")
+            }
+
+        if "offset_method" in mode:
+            return {
+                "mode_name": mode.get("offset_method"),
+                "mode_value": mode.get("offset_method")
+            }
+
+        if "feature_mode" in mode:
+            return {
+                "mode_name": mode.get("feature_mode"),
+                "mode_value": mode.get("feature_mode")
+            }
+
+        return None
     # ========================================================
     # STATE EVENT HANDLERS
     # ========================================================

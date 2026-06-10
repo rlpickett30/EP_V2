@@ -340,6 +340,158 @@ class CommunicationDispatcher:
             self.publish_communication_state()
 
     # ========================================================
+    # HANDLE COMMUNICATION CHANGE MODE
+    # ========================================================
+
+    def handle_communication_change_mode(
+        self,
+        event: dict
+    ):
+        """
+        Handle Registry-approved communication mode changes.
+        
+        Current inbound event:
+            COMMUNICATION_CHANGE_MODE
+            
+            Expected event shape:
+                {
+                    "source": "platform_registry",
+                    "payload": {
+                        "reason": "GUI_NETWORK_MODE_CHANGE",
+                        "mode_payload": {
+                            "incoming_event": "enable_wifi",
+                            "mode": {
+                                "wifi_enabled": True
+                            }
+                        }
+                    }
+                }
+        """
+
+        try:
+
+            payload = event.get(
+                "payload",
+                {}
+            )
+
+            mode_payload = payload.get(
+                "mode_payload",
+                {}
+            )
+
+            if not isinstance(
+                mode_payload,
+                dict
+            ):
+
+                self.state.rx_errors += 1
+
+                logging.warning(
+                    "[Communication] COMMUNICATION_CHANGE_MODE missing mode_payload."
+                )
+
+                self.publish_communication_state()
+
+                return
+
+            incoming_event = mode_payload.get(
+                "incoming_event"
+            )
+
+            mode = mode_payload.get(
+                "mode",
+                {}
+            )
+
+            if not incoming_event:
+
+                self.state.rx_errors += 1
+
+                logging.warning(
+                    "[Communication] COMMUNICATION_CHANGE_MODE missing incoming_event."
+                )
+
+                self.publish_communication_state()
+                
+                return
+
+            self._apply_communication_mode_change(
+                incoming_event=incoming_event,
+                mode=mode,
+                mode_payload=mode_payload
+            )
+
+            self.publish_communication_state()
+
+            logging.info(
+                f"[Communication] Applied mode change: {incoming_event}"
+            )
+
+        except Exception as error:
+
+            self.state.rx_errors += 1
+
+            logging.exception(
+                f"[Communication] COMMUNICATION_CHANGE_MODE failed: {error}"
+            )
+
+            self.publish_communication_state()
+
+    # ========================================================
+    # APPLY COMMUNICATION MODE CHANGE
+    # ========================================================
+
+    def _apply_communication_mode_change(
+        self,
+        incoming_event: str,
+        mode: dict,
+        mode_payload: dict
+    ):
+        """
+        Apply a Registry-approved communication mode change locally.
+        """
+
+        if incoming_event == "enable_wifi":
+
+            self.wifi_enabled = True
+
+        elif incoming_event == "disable_wifi":
+
+            self.wifi_enabled = False
+
+        elif incoming_event == "enable_lora":
+
+            self.lora_enabled = True
+
+        elif incoming_event == "disable_lora":
+
+            self.lora_enabled = False
+
+        else:
+
+            raise ValueError(
+                f"Unknown communication mode event: {incoming_event}"
+            )
+
+        if isinstance(
+            mode,
+            dict
+        ):
+
+            if "wifi_enabled" in mode:
+
+                self.wifi_enabled = bool(
+                    mode.get("wifi_enabled")
+                )
+
+            if "lora_enabled" in mode:
+
+                self.lora_enabled = bool(
+                    mode.get("lora_enabled")
+                )
+
+    # ========================================================
     # SEND EVENT
     # ========================================================
 
@@ -526,6 +678,122 @@ class CommunicationDispatcher:
         elif event_type == "DISABLE_LORA":
 
             self.lora_enabled = False
+            
+    # ========================================================
+    # HANDLE SEND NODE CHANGE MODE
+    # ========================================================
+
+    def handle_send_node_change_mode(
+        self,
+        event: dict
+    ):
+        """
+        Handle Registry-approved node mode changes.
+
+        Current inbound event:
+            SEND_NODE_CHANGE_MODE
+
+        Purpose:
+            Convert approved node mode command into an outbound
+            node command package and send it through Communication.
+        """
+
+        try:
+
+            payload = event.get(
+                "payload",
+                {}
+            )
+
+            mode_payload = payload.get(
+                "mode_payload",
+                {}
+            )
+
+            if not isinstance(
+                mode_payload,
+                dict
+            ):
+
+                self.state.tx_errors += 1
+
+                logging.warning(
+                    "[Communication] SEND_NODE_CHANGE_MODE missing mode_payload."
+                )
+
+                self.publish_communication_state()
+
+                return
+
+            node_id = mode_payload.get(
+                "node_id"
+            )
+
+            incoming_event = mode_payload.get(
+                "incoming_event"
+            )
+
+            mode = mode_payload.get(
+                "mode",
+                {}
+            )
+
+            if not node_id:
+
+                self.state.tx_errors += 1
+
+                logging.warning(
+                    "[Communication] SEND_NODE_CHANGE_MODE missing node_id."
+                )
+
+                self.publish_communication_state()
+
+                return
+
+            if not incoming_event:
+
+                self.state.tx_errors += 1
+
+                logging.warning(
+                    "[Communication] SEND_NODE_CHANGE_MODE missing incoming_event."
+                )
+
+                self.publish_communication_state()
+
+                return
+
+            outbound_event = {
+                "event_type": "NODE_CHANGE_MODE",
+                "source": "communication",
+                "target_node": node_id,
+                "command": incoming_event,
+                "mode": mode,
+                "requested_by": mode_payload.get(
+                    "requested_by"
+                ),
+                "source_event_type": "SEND_NODE_CHANGE_MODE",
+                "registry_mode_payload": mode_payload
+            }
+
+            self.send_event(
+                outbound_event
+            )
+
+            self.publish_communication_state()
+
+            logging.info(
+                f"[Communication] Node mode command sent or queued: {incoming_event}"
+            )
+
+        except Exception as error:
+
+            self.state.tx_errors += 1
+
+            logging.exception(
+                f"[Communication] SEND_NODE_CHANGE_MODE failed: {error}"
+            )
+
+            self.publish_communication_state()
 
     # ========================================================
     # CAN SEND NOW

@@ -9,36 +9,19 @@
 # Role:
 #   Dispatcher
 #
-# Purpose:
-#   Own the Platform Registry subsystem workflow.
-#   This dispatcher receives raw platform events, coordinates
-#   registry managers, and publishes only server-approved events.
+# Current Purpose:
+#   Own the minimal Platform Registry workflow.
 #
-# Expected config source:
-#   platform_registry_config.json
+# Currently Known Events:
+#   Subscribes:
+#       GUI_REGISTER
 #
-# Expected config section:
-#   config["platform_registry"]
+#   Publishes:
+#       REGISTRY_UPDATED
 #
-# Does:
-#   - Start Platform Registry event subscriptions
-#   - Route state events to the state manager
-#   - Route platform events to the event manager
-#   - Route mode events to the mode manager
-#   - Route registration events to the registry manager
-#   - Route updated state snapshots to the TDOA manager
-#   - Publish server-approved Registry events
-#
-# Does NOT:
-#   - Perform manager work directly
-#   - Send UDP messages directly
-#   - Solve TDOA
-#   - Maintain sensor state internally
-#   - Maintain node identity internally
-#   - Let raw node events leave Registry as platform truth
-#
-# Owner:
-#   Main / Platform Registry subsystem root
+# Philosophy:
+#   This dispatcher only handles events that are currently implemented.
+#   Future events should be added only when they become real.
 #
 # ============================================================
 
@@ -55,23 +38,9 @@ from platform_registry.platform_registry_registry_manager import (
     PlatformRegistryRegistryManager
 )
 
-from platform_registry.platform_registry_state_manager import (
-    PlatformRegistryStateManager
-)
-
 from platform_registry.platform_registry_mode_manager import (
     PlatformRegistryModeManager
 )
-
-from platform_registry.platform_registry_event_manager import (
-    PlatformRegistryEventManager
-)
-
-from platform_registry.platform_registry_TDOA_manager import (
-    PlatformRegistryTDOAManager
-)
-
-
 # ============================================================
 # IMPORT SUPPORT LIBRARIES
 # ============================================================
@@ -87,10 +56,15 @@ from pathlib import Path
 
 class PlatformRegistryDispatcher:
     """
-    Owns Platform Registry workflow.
+    Owns the Platform Registry subsystem workflow.
 
-    Registry is the trust boundary between raw incoming node/interface
-    events and server-approved platform truth.
+    Current responsibility:
+        - Start Platform Registry event subscriptions.
+        - Handle GUI_REGISTER.
+        - Register or update the GUI in the registry manager.
+        - Publish REGISTRY_UPDATED through event services.
+
+    This dispatcher intentionally does not handle future server events yet.
     """
 
     # ========================================================
@@ -118,7 +92,9 @@ class PlatformRegistryDispatcher:
             False
         )
 
-        self.logger = logging.getLogger(self.__class__.__name__)
+        self.logger = logging.getLogger(
+            self.__class__.__name__
+        )
 
         self.event_services = PlatformRegistryEventServices(
             event_bus=self.event_bus,
@@ -129,22 +105,10 @@ class PlatformRegistryDispatcher:
             config=self.config
         )
 
-        self.state_manager = PlatformRegistryStateManager(
-            config=self.config
-        )
-
         self.mode_manager = PlatformRegistryModeManager(
             config=self.config
         )
-
-        self.event_manager = PlatformRegistryEventManager(
-            config=self.config
-        )
-
-        self.tdoa_manager = PlatformRegistryTDOAManager(
-            config=self.config
-        )
-
+        
         self.started = False
 
     # ========================================================
@@ -156,16 +120,19 @@ class PlatformRegistryDispatcher:
         Start Platform Registry event subscriptions.
         """
 
+        if self.started:
+            self._debug_log(
+                "Platform Registry Dispatcher already started."
+            )
+            return
+
         self.event_services.register_subscriptions(self)
+
         self.started = True
 
         self._debug_log(
             "Platform Registry Dispatcher started."
         )
-
-    # ========================================================
-    # STOP
-    # ========================================================
 
     def stop(self):
         """
@@ -180,316 +147,164 @@ class PlatformRegistryDispatcher:
 
     def get_platform_snapshot(self):
         """
-        Return combined Registry snapshot.
+        Return the current registry snapshot.
         """
 
         return {
-            "registry": self.registry_manager.get_registry_snapshot(),
-            "state": self.state_manager.get_platform_state_snapshot(),
-            "mode": self.mode_manager.get_platform_mode_snapshot(),
-            "tdoa": self.tdoa_manager.get_tdoa_status_snapshot()
+            "registry": self.registry_manager.get_registry_snapshot()
         }
 
     # ========================================================
     # EVENT HANDLERS
     # ========================================================
 
-    def handle_registry_event(self, *args):
+    def handle_gui_register(self, *args):
         """
-        Handle registration events.
+        Handle GUI_REGISTER.
 
-        Expected events:
-            node_register
-            gui_register
-        """
-
-        event_name, payload = self._parse_event_args(args)
-
-        if event_name is None:
-            self._publish_validation_failed(
-                "Registry event rejected. Missing event name.",
-                payload
-            )
-            return
-
-        if event_name == "node_register":
-            result = self.registry_manager.register_node(payload)
-
-            self._publish_manager_result(
-                result=result,
-                success_event_key="SERVER_NODE_REGISTERED",
-                publish_method=self.event_services.publish_registry_event,
-                original_payload=payload
-            )
-            return
-
-        if event_name == "gui_register":
-            result = self.registry_manager.register_gui(payload)
-
-            self._publish_manager_result(
-                result=result,
-                success_event_key="SERVER_GUI_REGISTERED",
-                publish_method=self.event_services.publish_registry_event,
-                original_payload=payload
-            )
-            return
-
-        self._publish_validation_failed(
-            f"Unknown registry event: {event_name}",
-            payload
-        )
-
-    def handle_state_event(self, *args):
-        """
-        Handle state events.
-
-        Raw event enters Registry.
-        State Manager updates canonical truth.
-        Dispatcher publishes SERVER_* state event.
-        Dispatcher then asks TDOA Manager whether capability changed.
-        """
-
-        event_name, payload = self._parse_event_args(args)
-
-        if not self._prepare_node_source(event_name, payload):
-            return
-
-        state_result = self.state_manager.handle_state_event(
-            event_name=event_name,
-            payload=payload
-        )
-
-        if not state_result["success"]:
-            self._publish_validation_failed(
-                state_result["reason"],
-                payload
-            )
-            return
-
-        if state_result["publish"]:
-            self.event_services.publish_state(
-                state_result["server_event_key"],
-                state_result["server_payload"]
-            )
-
-        self._evaluate_tdoa_after_state_update(state_result)
-
-    def handle_platform_event(self, *args):
-        """
-        Handle occurrence-based platform events.
-
-        Expected examples:
-            weather
-            gps_coord
-            avis_lite
-            tdoa_calc
-        """
-
-        event_name, payload = self._parse_event_args(args)
-
-        if not self._prepare_node_source(event_name, payload):
-            return
-
-        event_result = self.event_manager.handle_platform_event(
-            event_name=event_name,
-            payload=payload
-        )
-
-        if not event_result["success"]:
-            self._publish_validation_failed(
-                event_result["reason"],
-                payload
-            )
-            return
-
-        if event_result["publish"]:
-            self.event_services.publish_registry_event(
-                event_result["server_event_key"],
-                event_result["server_payload"]
-            )
-
-    def handle_mode_event(self, *args):
-        """
-        Handle GUI/user requested node behavior changes.
-
-        Mode Manager validates and updates desired node mode.
-        Dispatcher publishes SERVER_* command event.
-        Sender should subscribe to these command events.
-        """
-
-        event_name, payload = self._parse_event_args(args)
-
-        if not self._prepare_node_source(event_name, payload):
-            return
-
-        mode_result = self.mode_manager.handle_mode_event(
-            event_name=event_name,
-            payload=payload
-        )
-
-        if not mode_result["success"]:
-            self._publish_validation_failed(
-                mode_result["reason"],
-                payload
-            )
-            return
-
-        if mode_result["publish"]:
-            event_key = self._normalize_mode_event_key(
-                mode_result["server_event_key"]
-            )
-
-            self.event_services.publish_mode_command(
-                event_key,
-                mode_result["server_payload"]
-            )
-
-    def handle_tdoa_event(self, *args):
-        """
-        Handle externally published TDOA capability events.
-
-        Most TDOA capability events should be created internally after
-        state updates. This method exists because Event Services may also
-        subscribe to raw node_tdoa_capable / node_tdoa_capable_lost.
-        """
-
-        event_name, payload = self._parse_event_args(args)
-
-        if event_name not in [
-            "node_tdoa_capable",
-            "node_tdoa_capable_lost"
-        ]:
-            self._publish_validation_failed(
-                f"Unknown TDOA event: {event_name}",
-                payload
-            )
-            return
-
-        self.event_services.publish_tdoa_event(
-            self._tdoa_raw_to_server_key(event_name),
-            payload
-        )
-
-    # ========================================================
-    # TDOA WORKFLOW
-    # ========================================================
-
-    def _evaluate_tdoa_after_state_update(self, state_result):
-        """
-        Evaluate whether a state change caused a TDOA capability transition.
-        """
-
-        node_id = state_result.get("node_id")
-        state_snapshot = state_result.get("state_snapshot")
-
-        if not node_id or state_snapshot is None:
-            return
-
-        tdoa_result = self.tdoa_manager.evaluate_node_state(
-            node_id=node_id,
-            node_state=state_snapshot
-        )
-
-        if not tdoa_result["success"]:
-            self._publish_validation_failed(
-                tdoa_result["reason"],
-                state_snapshot
-            )
-            return
-
-        if tdoa_result["publish"]:
-            self.event_services.publish_tdoa_event(
-                tdoa_result["server_event_key"],
-                tdoa_result["server_payload"]
-            )
-
-    # ========================================================
-    # SOURCE PREPARATION
-    # ========================================================
-
-    def _prepare_node_source(self, event_name, payload):
-        """
-        Ensure a node source exists before passing event to managers.
-
-        V2.0 behavior:
-            If unknown nodes are allowed, create a provisional node record.
-            If not allowed, reject the event.
-        """
-
-        if payload is None:
-            payload = {}
-
-        node_id = payload.get("node_id")
-
-        if not node_id:
-            self._publish_validation_failed(
-                f"{event_name} rejected. Missing node_id.",
-                payload
-            )
-            return False
-
-        if self.registry_manager.node_known(node_id):
-            return True
-
-        register_result = self.registry_manager.register_node(
+        Expected event envelope:
             {
-                "node_id": node_id,
-                "node_name": payload.get("node_name", node_id),
-                "node_role": payload.get("node_role", "field_node"),
-                "source": payload.get("source", "auto_registered"),
-                "capabilities": payload.get("capabilities", {})
+                "event_type": "GUI_REGISTER",
+                "source": "gui",
+                "payload": {
+                    "gui_id": "...",
+                    ...
+                }
             }
-        )
 
-        if not register_result["success"]:
-            self._publish_validation_failed(
-                register_result["reason"],
-                payload
-            )
-            return False
-
-        self.event_services.publish_registry_event(
-            "SERVER_NODE_REGISTERED",
-            register_result
-        )
-
-        return True
-
-    # ========================================================
-    # RESULT PUBLICATION HELPERS
-    # ========================================================
-
-    def _publish_manager_result(
-        self,
-        result,
-        success_event_key,
-        publish_method,
-        original_payload
-    ):
-        """
-        Publish successful manager result or validation failure.
+        Also supports direct payload delivery:
+            {
+                "gui_id": "...",
+                ...
+            }
         """
 
-        if not result["success"]:
-            self._publish_validation_failed(
-                result["reason"],
-                original_payload
+        event_name, payload = self._parse_event_args(args)
+
+        if not self._event_is_gui_register(event_name):
+            self._debug_log(
+                f"Ignored unknown registry event: {event_name}"
             )
             return
 
-        publish_method(
-            success_event_key,
+        if not payload:
+            self._debug_log(
+                "GUI_REGISTER ignored. Missing payload."
+            )
+            return
+
+        result = self.registry_manager.register_gui(payload)
+
+        self.event_services.publish_registry_updated(
             result
         )
 
-    def _publish_validation_failed(self, reason, payload=None):
+        self._debug_log(
+            "GUI_REGISTER handled. REGISTRY_UPDATED published."
+        )
+        
+    def handle_gui_mode_change(self, *args):
         """
-        Publish validation failure through Event Services.
+        Handle known GUI mode-change events.
+        
+        Current known inbound event:
+            GUI_FEATURE_MODE_CHANGE
+
+        Current outbound event:
+            TDOA_CHANGE_MODE
         """
 
-        self.event_services.publish_validation_failed(
-            reason=reason,
-            payload=payload or {}
+        event_name, payload = self._parse_event_args(args)
+
+        if not self._event_is_gui_mode_change(event_name):
+            self._debug_log(
+                f"Ignored unknown GUI mode event: {event_name}"
+            )
+            return
+
+        if not payload:
+            self._debug_log(
+                "GUI mode change ignored. Missing payload."
+            )
+            return
+
+        mode_event_name = self._gui_command_to_mode_event(
+            payload.get("command")
+        )
+
+        if mode_event_name is None:
+            self._debug_log(
+                f"GUI mode change ignored. Unknown command: {payload.get('command')}"
+            )
+            return
+
+        mode_payload = self._build_mode_payload_from_gui_payload(
+            gui_event_name=event_name,
+            mode_event_name=mode_event_name,
+            gui_payload=payload
+        )
+
+        result = self.mode_manager.handle_mode_event(
+            event_name=mode_event_name,
+            payload=mode_payload
+        )
+
+        if not result.get("success"):
+            self._debug_log(
+                f"Mode manager rejected mode change: {result.get('reason')}"
+            )
+            return
+
+        if not result.get("publish"):
+            self._debug_log(
+                "Mode manager accepted mode change but did not publish because mode was unchanged."
+            )
+            return
+
+        server_payload = result.get("server_payload")
+
+        if server_payload is None:
+            self._debug_log(
+                "Mode manager returned no server payload."
+            )
+            return
+
+        server_payload["source_event_type"] = event_name
+        server_payload["source_command"] = payload.get("command")
+        server_payload["source_requested_mode"] = payload.get("requested_mode")
+        server_payload["source_mode_category"] = payload.get("mode_category")
+
+        source_event_type = str(event_name).strip().upper()
+
+        if source_event_type == "GUI_NETWORK_MODE_CHANGE":
+
+            if self._network_mode_target_is_node(payload):
+                self.event_services.publish_send_node_change_mode(
+                    server_payload
+                )
+
+                self._debug_log(
+                    "GUI_NETWORK_MODE_CHANGE handled. SEND_NODE_CHANGE_MODE published."
+                )
+
+                return
+
+            self.event_services.publish_communication_change_mode(
+                server_payload
+            )
+
+            self._debug_log(
+                "GUI_NETWORK_MODE_CHANGE handled. COMMUNICATION_CHANGE_MODE published."
+            )
+
+            return
+
+        self.event_services.publish_tdoa_change_mode(
+            server_payload
+        )
+
+        self._debug_log(
+            f"{source_event_type} handled. TDOA_CHANGE_MODE published."
         )
 
     # ========================================================
@@ -506,64 +321,193 @@ class PlatformRegistryDispatcher:
 
             handler(event_name, payload)
 
-        If only payload is provided, event_name must be inside payload as:
-            event_type
+        Returns:
             event_name
-            incoming_event
+            payload
         """
 
         if len(args) == 2:
             event_name = args[0]
-            payload = args[1] or {}
-            return event_name, payload
+            raw_payload = args[1] or {}
 
-        if len(args) == 1:
-            payload = args[0] or {}
-
-            event_name = (
-                payload.get("event_type")
-                or payload.get("event_name")
-                or payload.get("incoming_event")
+            return self._extract_event_name_and_payload(
+                fallback_event_name=event_name,
+                raw_payload=raw_payload
             )
 
-            return event_name, payload
+        if len(args) == 1:
+            raw_payload = args[0] or {}
+
+            return self._extract_event_name_and_payload(
+                fallback_event_name=None,
+                raw_payload=raw_payload
+            )
 
         return None, {}
 
-    def _normalize_mode_event_key(self, event_key):
+    def _extract_event_name_and_payload(
+        self,
+        fallback_event_name,
+        raw_payload
+    ):
         """
-        Convert mode manager keys to Event Services publication keys.
+        Extract the event name and payload from either:
 
-        Current mode manager returns:
-            SERVER_ENERGY_ONSET
-
-        Current Event Services expects:
-            SERVER_ENERGY_ONSET_COMMAND
-        """
-
-        if event_key in self.event_services.publications:
-            return event_key
-
-        command_key = f"{event_key}_COMMAND"
-
-        if command_key in self.event_services.publications:
-            return command_key
-
-        return event_key
-
-    def _tdoa_raw_to_server_key(self, event_name):
-        """
-        Convert raw TDOA event name to server event key.
+            - a direct payload
+            - an event envelope with a payload field
         """
 
-        if event_name == "node_tdoa_capable":
-            return "SERVER_NODE_TDOA_CAPABLE"
+        if not isinstance(raw_payload, dict):
+            return fallback_event_name, {}
 
-        if event_name == "node_tdoa_capable_lost":
-            return "SERVER_NODE_TDOA_CAPABLE_LOST"
+        event_name = (
+            raw_payload.get("event_type")
+            or raw_payload.get("event_name")
+            or fallback_event_name
+        )
 
-        return "SERVER_REGISTRY_WARNING"
+        inner_payload = raw_payload.get("payload")
 
+        if isinstance(inner_payload, dict):
+            payload = dict(inner_payload)
+
+            payload.setdefault(
+                "event_type",
+                event_name
+            )
+
+            for metadata_key in [
+                "source",
+                "timestamp",
+                "timestamp_utc"
+            ]:
+                if metadata_key in raw_payload and metadata_key not in payload:
+                    payload[metadata_key] = raw_payload.get(metadata_key)
+
+            return event_name, payload
+
+        payload = dict(raw_payload)
+
+        if event_name is not None:
+            payload.setdefault(
+                "event_type",
+                event_name
+            )
+
+        return event_name, payload
+
+    # ========================================================
+    # EVENT TYPE CHECKS
+    # ========================================================
+
+    def _event_is_gui_register(self, event_name):
+        """
+        Return True when event is GUI_REGISTER.
+        """
+
+        if event_name is None:
+            return False
+
+        return str(event_name).strip().upper() == "GUI_REGISTER"
+    
+    def _event_is_gui_mode_change(self, event_name):
+        """
+        Return True when event is GUI_FEATURE_MODE_CHANGE.
+        """
+
+        if event_name is None:
+            return False
+
+        return str(event_name).strip().upper() in [
+            "GUI_FEATURE_MODE_CHANGE",
+            "GUI_DETECTION_MODE_CHANGE",
+            "GUI_NETWORK_MODE_CHANGE"
+        ]
+
+    def _gui_command_to_mode_event(self, command):
+        """
+        Convert GUI command labels into mode manager event names.
+        """
+
+        if command is None:
+            return None
+        
+        command_map = {
+            "ONSET_FEATURE": "onset_feature",
+            "AMP_FEATURE": "amp_feature",
+            "ENERGY_ONSET": "energy_onset",
+            "PATTERN_ONSET": "pattern_onset",
+            "ENERGY_OFFSET": "energy_offset",
+            "PATTERN_OFFSET": "pattern_offset",
+            "ENABLE_WIFI": "enable_wifi",
+            "DISABLE_WIFI": "disable_wifi",
+            "ENABLE_LORA": "enable_lora",
+            "DISABLE_LORA": "disable_lora"
+        }
+
+        return command_map.get(
+            str(command).strip().upper()
+        )
+
+
+    def _build_mode_payload_from_gui_payload(
+        self,
+            gui_event_name,
+            mode_event_name,
+            gui_payload
+        ):
+        """
+        Convert GUI mode payload into the payload expected by
+        PlatformRegistryModeManager.
+        """
+
+        target_node = gui_payload.get("target_node")
+
+        if target_node:
+            node_id = target_node
+        else:
+            node_id = "tdoa"
+
+        return {
+            "node_id": node_id,
+            "destination": gui_payload.get("target", "server"),
+            "requested_by": gui_payload.get("gui_id", "gui"),
+            "timestamp_utc": gui_payload.get("timestamp_utc"),
+            "mode_category": gui_payload.get("mode_category"),
+            "command": gui_payload.get("command"),
+            "requested_mode": gui_payload.get("requested_mode"),
+            "target": gui_payload.get("target"),
+            "target_node": target_node,
+            "source_event_type": gui_event_name,
+            "incoming_event": mode_event_name
+        }
+    
+    def _network_mode_target_is_node(self, gui_payload):
+        """
+        Return True when a network mode command is intended for a node.
+
+        Routing rule:
+            - If target_node is populated, route to sender.
+            - If target says node/nodes/field_node/field_nodes, route to sender.
+            - Otherwise, treat it as a server communication mode change.
+        """
+
+        target_node = gui_payload.get("target_node")
+
+        target = str(
+            gui_payload.get("target", "")
+        ).strip().lower()
+
+        if target_node:
+            return True
+
+        return target in [
+            "node",
+            "nodes",
+            "field_node",
+            "field_nodes"
+        ]
+    
     # ========================================================
     # CONFIG
     # ========================================================
@@ -571,10 +515,6 @@ class PlatformRegistryDispatcher:
     def _load_config(self, config_path):
         """
         Load Platform Registry config.
-
-        Note:
-            platform_registry_config.json must be one valid JSON object.
-            Multiple separate JSON objects in one file will fail.
         """
 
         path = Path(config_path)
