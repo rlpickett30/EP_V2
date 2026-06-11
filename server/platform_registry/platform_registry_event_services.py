@@ -31,7 +31,17 @@
 # ============================================================
 
 GUI_REGISTER = "GUI_REGISTER"
+NODE_REGISTER = "NODE_REGISTER"
 REGISTRY_UPDATED = "REGISTRY_UPDATED"
+SERVER_NODE_REGISTER = "SERVER_NODE_REGISTER"
+
+RTK_STATE = "RTK_STATE"
+GPS_STATE = "GPS_STATE"
+PPS_STATE = "PPS_STATE"
+ENVIRO_STATE = "ENVIRO_STATE"
+NODE_STATE_UPDATED = "NODE_STATE_UPDATED"
+NODE_TDOA_STATE = "NODE_TDOA_STATE"
+
 GUI_FEATURE_MODE_CHANGE = "GUI_FEATURE_MODE_CHANGE"
 TDOA_CHANGE_MODE = "TDOA_CHANGE_MODE"
 GUI_DETECTION_MODE_CHANGE = "GUI_DETECTION_MODE_CHANGE"
@@ -86,6 +96,11 @@ class PlatformRegistryEventServices:
         )
         
         self.event_bus.subscribe(
+            NODE_REGISTER,
+            dispatcher.handle_node_register
+        )
+        
+        self.event_bus.subscribe(
             GUI_FEATURE_MODE_CHANGE,
             dispatcher.handle_gui_mode_change
         )
@@ -99,9 +114,33 @@ class PlatformRegistryEventServices:
             GUI_NETWORK_MODE_CHANGE,
             dispatcher.handle_gui_mode_change
         )
+        
+        self.event_bus.subscribe(
+            RTK_STATE,
+            dispatcher.handle_node_state
+        )
+
+        self.event_bus.subscribe(
+            GPS_STATE,
+            dispatcher.handle_node_state
+        )
+
+        self.event_bus.subscribe(
+            PPS_STATE,
+            dispatcher.handle_node_state
+        )
+
+        self.event_bus.subscribe(
+            ENVIRO_STATE,
+            dispatcher.handle_node_state
+        )
 
         self._debug_print(
             "Subscribed to GUI_REGISTER"
+        )
+        
+        self._debug_print(
+            "Subscribed to NODE_REGISTER"
         )
         
         self._debug_print(
@@ -116,21 +155,36 @@ class PlatformRegistryEventServices:
             "Subscribed to GUI_NETWORK_MODE_CHANGE"
         )
         
+        self._debug_print(
+            "Subscribed to RTK_STATE"
+        )
+
+        self._debug_print(
+            "Subscribed to GPS_STATE"
+        )
+
+        self._debug_print(
+            "Subscribed to PPS_STATE"
+        )
+
+        self._debug_print(
+            "Subscribed to ENVIRO_STATE"
+        )
         
     # ========================================================
     # PUBLICATIONS
     # ========================================================
     
-    def publish_registry_updated(self, registry_result):
+    def publish_registry_updated(self, registry_result, reason=GUI_REGISTER):
         """
         Publish REGISTRY_UPDATED after the registry manager accepts
-        or updates a GUI registration.
+        or updates a platform registration.
         """
 
         event_package = {
             "source": "platform_registry",
             "payload": {
-                "reason": GUI_REGISTER,
+                "reason": reason,
                 "registry_result": registry_result
             }
         }
@@ -142,30 +196,68 @@ class PlatformRegistryEventServices:
 
         self._debug_print(
             "Published REGISTRY_UPDATED"
-        )
+            )
 
+    def publish_server_node_register(self, registry_result):
+        """
+        Publish SERVER_NODE_REGISTER after the registry manager accepts
+        or refreshes a node registration.
+        """
 
-    def publish_tdoa_change_mode(self, mode_payload):
-        """
-        Publish TDOA_CHANGE_MODE after the registry accepts a GUI mode request.
-        """
+        record = registry_result.get(
+            "record",
+            {}
+        ) or {}
 
         event_package = {
             "source": "platform_registry",
             "payload": {
-                "reason": mode_payload.get("source_event_type"),
-                "mode_payload": mode_payload
+                "reason": NODE_REGISTER,
+                "action": registry_result.get("action"),
+                "node_id": registry_result.get("identity_id"),
+                "node_name": record.get("node_name"),
+                "node_role": record.get("node_role"),
+                "device_id": record.get("device_id"),
+                "device_role": record.get("device_role"),
+                "trust": record.get("trust"),
+                "capabilities": record.get("capabilities", {}),
+                "registered_at_utc": record.get("registered_at_utc"),
+                "last_seen_utc": record.get("last_seen_utc"),
+                "registration_count": record.get("registration_count"),
+                "registry_record": record
             }
         }
 
         self.event_bus.publish(
-            TDOA_CHANGE_MODE,
+            SERVER_NODE_REGISTER,
             event_package
         )
 
         self._debug_print(
-            "Published TDOA_CHANGE_MODE"
+            "Published SERVER_NODE_REGISTER"
         )
+    
+        def publish_tdoa_change_mode(self, mode_payload):
+            """
+            Publish TDOA_CHANGE_MODE after the registry accepts a GUI mode request.
+            """
+
+            event_package = {
+                "source": "platform_registry",
+                "payload": {
+                    "reason": mode_payload.get("source_event_type"),
+                    "mode_payload": mode_payload
+                }
+            }
+
+            self.event_bus.publish(
+                TDOA_CHANGE_MODE,
+                event_package
+            )
+
+            self._debug_print(
+                "Published TDOA_CHANGE_MODE"
+            )
         
     def publish_communication_change_mode(self, mode_payload):
         """
@@ -212,7 +304,69 @@ class PlatformRegistryEventServices:
         self._debug_print(
             "Published SEND_NODE_CHANGE_MODE"
         )
-        
+    
+    def publish_node_state_updated(self, state_result):
+        """
+        Publish NODE_STATE_UPDATED after Platform Registry accepts
+        and stores a node state update.
+        """
+
+        server_payload = state_result.get(
+            "server_payload",
+            {}
+        ) or {}
+
+        event_package = {
+            "event_type": NODE_STATE_UPDATED,
+            "source": "platform_registry",
+            "payload": server_payload
+        }
+
+        self.event_bus.publish(
+            NODE_STATE_UPDATED,
+            event_package
+        )
+
+        self._debug_print(
+            "Published NODE_STATE_UPDATED"
+        )
+    def publish_node_tdoa_state(self, tdoa_result):
+        """
+        Publish NODE_TDOA_STATE after Platform Registry determines
+        a node's TDOA readiness state.
+        """
+
+        event_package = {
+            "event_type": NODE_TDOA_STATE,
+            "source": "platform_registry",
+            "payload": {
+                "reason": tdoa_result.get(
+                    "reason"
+                ),
+                "node_id": tdoa_result.get(
+                    "node_id"
+                ),
+                "changed": tdoa_result.get(
+                    "changed"
+                ),
+                "tdoa_state": tdoa_result.get(
+                    "tdoa_state"
+                ),
+                "previous_tdoa_state": tdoa_result.get(
+                    "previous_tdoa_state"
+                )
+            }
+        }
+
+        self.event_bus.publish(
+            NODE_TDOA_STATE,
+            event_package
+        )
+
+        self._debug_print(
+            "Published NODE_TDOA_STATE"
+        )
+    
     # ========================================================
     # DEBUG
     # ========================================================

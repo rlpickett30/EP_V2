@@ -1,7 +1,7 @@
 # ============================================================
 # database_event_services.py
 #
-# EnviroPulse V2.0
+# EnviroPulse V2
 #
 # Subsystem:
 #   Database
@@ -10,44 +10,68 @@
 #   Event Services
 #
 # Purpose:
-#   Connect the database subsystem to the EnviroPulse event bus.
-#
-# Expected config source:
-#   None
-#
-# Expected config section:
-#   None
+#   Own Database event names, subscriptions, and publications.
 #
 # Does:
-#   - Subscribes the database dispatcher to archive-worthy events
-#   - Publishes database status events
-#   - Publishes database warning events
+#   - Document Database event flow
+#   - Register Database subscriptions with the Event Bus
+#   - Route accepted database events to the Database dispatcher
 #
 # Does NOT:
-#   - Interpret event payloads
-#   - Write database records
-#   - Open SQLite connections
-#   - Create database tables
-#   - Maintain live system state
+#   - Write directly to the database
+#   - Decide whether records already exist
+#   - Modify registry state
+#   - Publish registry events
+#   - Perform Event Bus delivery logic
 #
 # Owner:
 #   database_dispatcher.py
 #
+# Current Scope:
+#   Subscribe to SERVER_NODE_REGISTER so the database can create
+#   or update known node records.
+#
 # ============================================================
-
-# ============================================================
-# IMPORT SUPPORT LIBRARIES
-# ============================================================
-
-import logging
-from datetime import datetime, timezone
 
 
 # ============================================================
-# CLASS DEFINITIONS
+# EVENT NAMES
+# ============================================================
+
+SERVER_NODE_REGISTER = "SERVER_NODE_REGISTER"
+DATABASE_UPDATED = "DATABASE_UPDATED"
+
+# ============================================================
+# DATABASE EVENT SERVICES
 # ============================================================
 
 class DatabaseEventServices:
+    """
+    Owns Database event bus subscriptions and publications.
+
+    Current responsibility:
+        - Subscribe dispatcher to SERVER_NODE_REGISTER.
+    """
+
+    # ========================================================
+    # SUBSCRIPTIONS
+    # ========================================================
+
+    SUBSCRIPTIONS = [
+
+        SERVER_NODE_REGISTER
+
+    ]
+
+    # ========================================================
+    # PUBLICATIONS
+    # ========================================================
+
+    PUBLICATIONS = [
+        
+        DATABASE_UPDATED
+    
+    ]
 
     # ========================================================
     # INIT
@@ -56,199 +80,102 @@ class DatabaseEventServices:
     def __init__(
         self,
         event_bus,
-        dispatcher,
-        debug: bool = False
+        config=None
     ):
 
         self.event_bus = event_bus
-        self.dispatcher = dispatcher
-        self.debug = debug
+        self.config = config or {}
 
-        self.archive_event_names = [
-            "node_register",
-            "node_registration",
-            "node_registry_update",
+        database_config = self.config.get(
+            "database",
+            {}
+        )
 
-            "avis_lite",
-            "avis_detection",
-            "birdnet_detection",
-
-            "gps_coord",
-
-            "weather",
-            "weather_event",
-            "weather_record",
-
-            "telemetry",
-            "telemetry_event",
-            "node_health",
-            "pps_status",
-
-            "tdoa_calc",
-            "tdoa_result",
-            "tdoa_candidate",
-
-            "system_log",
-            "system_warning",
-            "system_error"
-        ]
+        self.debug = database_config.get(
+            "debug",
+            False
+        )
 
     # ========================================================
-    # PUBLIC API
+    # REGISTER SUBSCRIPTIONS
     # ========================================================
 
-    def subscribe_to_events(
-        self
+    def register_subscriptions(
+        self,
+        dispatcher
     ):
         """
-        Subscribes the database dispatcher to archive-worthy events.
+        Register known Database subscriptions.
         """
 
-        result = {
-            "success": False,
-            "data": {},
-            "debug": {},
-            "errors": []
-        }
+        for event_name in self.SUBSCRIPTIONS:
 
-        try:
-
-            for event_name in self.archive_event_names:
+            if event_name == SERVER_NODE_REGISTER:
 
                 self.event_bus.subscribe(
                     event_name,
-                    self.dispatcher.handle_event
+                    dispatcher.handle_server_node_register
                 )
 
-            result["success"] = True
-
-            result["data"] = {
-                "subscribed_events": self.archive_event_names
-            }
-
-            if self.debug:
-                logging.info(
-                    f"Database subscribed to events: {self.archive_event_names}"
+                self._debug_print(
+                    "Subscribed to SERVER_NODE_REGISTER"
                 )
+    # ========================================================
+    # PUBLISH DATABASE UPDATED
+    # ========================================================
 
-        except Exception as error:
-
-            result["errors"].append(
-                str(error)
-            )
-
-            logging.error(
-                f"Database event subscription failed: {error}"
-            )
-
-        return result
-
-    def publish_database_status(
+    def publish_database_updated(
         self,
-        status: str,
-        details: dict = None
+        payload: dict
     ):
         """
-        Publishes a database status event.
+        Publish DATABASE_UPDATED after the database successfully
+        handles an accepted database-facing event.
         """
 
         event = {
-            "event_type": "database_status",
-            "source_subsystem": "database",
-            "status": status,
-            "timestamp_utc": self._utc_now(),
-            "payload": {
-                "details": details or {}
-            }
+            "event_type": DATABASE_UPDATED,
+            "source": "database",
+            "payload": payload or {}
         }
 
-        return self._publish(
-            event_name="database_status",
-            event=event
+        self.event_bus.publish(
+            DATABASE_UPDATED,
+            event
         )
 
-    def publish_database_warning(
-        self,
-        warning_type: str,
-        details=None
-    ):
-        """
-        Publishes a database warning event.
-        """
-
-        event = {
-            "event_type": "database_warning",
-            "source_subsystem": "database",
-            "warning_type": warning_type,
-            "timestamp_utc": self._utc_now(),
-            "payload": {
-                "details": details
-            }
-        }
-
-        return self._publish(
-            event_name="database_warning",
-            event=event
+        self._debug_print(
+            "Published DATABASE_UPDATED"
         )
 
     # ========================================================
-    # INTERNAL METHODS
+    # CAN PUBLISH
     # ========================================================
 
-    def _publish(
+    def can_publish(
         self,
-        event_name: str,
-        event: dict
+        event_name: str
+    ) -> bool:
+        """
+        Return True when Database is allowed to publish event_name.
+        """
+
+        return event_name in self.PUBLICATIONS
+
+    # ========================================================
+    # DEBUG
+    # ========================================================
+
+    def _debug_print(
+        self,
+        message: str
     ):
         """
-        Publishes an event through the event bus.
+        Print lightweight debug output when enabled.
         """
 
-        result = {
-            "success": False,
-            "data": {},
-            "debug": {},
-            "errors": []
-        }
+        if self.debug:
 
-        try:
-
-            self.event_bus.publish(
-                event_name,
-                event
+            print(
+                f"[DATABASE_EVENT_SERVICES] {message}"
             )
-
-            result["success"] = True
-
-            result["data"] = {
-                "published_event": event_name
-            }
-
-            if self.debug:
-                result["debug"] = {
-                    "event": event
-                }
-
-        except Exception as error:
-
-            result["errors"].append(
-                str(error)
-            )
-
-            logging.error(
-                f"Database event publish failed: {error}"
-            )
-
-        return result
-
-    def _utc_now(
-        self
-    ):
-        """
-        Returns the current UTC time in ISO-8601 format.
-        """
-
-        return datetime.now(
-            timezone.utc
-        ).isoformat()
-

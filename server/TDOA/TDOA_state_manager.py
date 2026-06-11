@@ -60,28 +60,53 @@ class TDOAStateManager:
         """
         Register or refresh a node as TDOA-capable.
 
-        Expected event shape:
+        Expected inbound event:
             {
-                "event_type": "node_tdoa_capable",
-                "node_id": "node_01",
-                "timestamp": "...",
-                "payload": {...}
+                "event_type": "NODE_TDOA_STATE",
+                "source": "platform_registry",
+                "payload": {
+                    "node_id": "...",
+                    "tdoa_state": {...}
+                }
             }
         """
 
-        node_id = event.get("node_id")
+        payload = event.get(
+            "payload",
+            {}
+        ) or {}
+
+        tdoa_state = payload.get(
+            "tdoa_state",
+            {}
+        ) or {}
+
+        node_id = (
+            payload.get("node_id")
+            or tdoa_state.get("node_id")
+            or event.get("node_id")
+        )
 
         if node_id is None:
             logging.warning(
-                "TDOA state rejected node_tdoa_capable event: "
-                "missing node_id."
+                "TDOA state rejected NODE_TDOA_STATE event: missing node_id."
+            )
+            return None
+
+        if not tdoa_state.get("tdoa_ready", False):
+            logging.warning(
+                f"TDOA state rejected NODE_TDOA_STATE for {node_id}: not ready."
             )
             return None
 
         self.tdoa_capable_nodes[node_id] = {
             "node_id": node_id,
+            "node_name": tdoa_state.get("node_name", node_id),
             "tdoa_capable": True,
-            "last_update": event.get("timestamp"),
+            "tdoa_ready": True,
+            "position": tdoa_state.get("position"),
+            "checks": tdoa_state.get("checks", {}),
+            "last_update": tdoa_state.get("timestamp_utc"),
             "source_event": event
         }
 

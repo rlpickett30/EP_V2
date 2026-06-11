@@ -161,17 +161,21 @@
         },
         "tdoa": {
             "enabled": true,
-            "publish_only_on_transition": true,
+            "publish_only_on_change": true,
+            "require_rtk": true,
+            "require_enviro": true,
             "minimum_requirements": {
                 "pps_locked": true,
                 "gps_locked": true,
                 "gps_coord_required": true,
-                "rtk_online_required": false
+                "rtk_online_required": true,
+                "enviro_online_required": true
             }
         },
         "tdoa_event_map": {
-            "node_tdoa_capable": "SERVER_NODE_TDOA_CAPABLE",
-            "node_tdoa_capable_lost": "SERVER_NODE_TDOA_CAPABLE_LOST"
+            "node_tdoa_state": "NODE_TDOA_STATE",
+            "node_tdoa_ready": "NODE_TDOA_READY",
+            "node_tdoa_not_ready": "NODE_TDOA_NOT_READY"
         }
     }
 }

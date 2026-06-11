@@ -5,13 +5,30 @@
     "target": "server",
     "default_mode": "manual"
   },
-
   "network": {
     "server_ip": "127.0.0.1",
     "server_port": 5005
   },
-
   "events": {
+    "NODE_REGISTER": {
+      "enabled": true,
+      "cadence_seconds": 10,
+      "payload": {
+        "node_id": "faux_node_01",
+        "node_name": "Faux Node 01",
+        "node_type": "faux_node",
+        "register_time_utc": "AUTO",
+        "capabilities": {
+          "avis_lite": true,
+          "tdoa_recording": true,
+          "pps": true,
+          "gps": true,
+          "environmental": true,
+          "sht45": true,
+          "bmp390": true
+        }
+      }
+    },
     "AVIS_LITE": {
       "enabled": true,
       "cadence_seconds": 10,
@@ -24,7 +41,6 @@
         "recording_path": "/recordings/faux_node_01/robin.wav"
       }
     },
-
     "TDOA_RECORDING": {
       "enabled": true,
       "cadence_seconds": 15,
@@ -38,7 +54,6 @@
         "start_time_utc": "AUTO"
       }
     },
-
     "PPS_STATE": {
       "enabled": true,
       "cadence_seconds": 20,
@@ -48,18 +63,34 @@
         "last_tick_utc": "AUTO"
       }
     },
-
     "GPS_STATE": {
       "enabled": true,
       "cadence_seconds": 20,
       "payload": {
-        "gps_available": true,
-        "gps_lock": true,
+    	"gps_available": true,
+    	"gps_lock": true,
+    	"fix_type": "RTK_FIXED",
+    	"satellites": 18,
+    	"gps_coord": {
+      	  "lat": 37.2753,
+          "lon": -107.8801,
+      	  "alt": 2012.4
+    	 }
+  	}
+    },
+    "RTK_STATE": {
+      "enabled": true,
+      "cadence_seconds": 20,
+      "payload": {
+        "rtk_available": true,
+        "rtk_online": true,
+        "rtk_ready": true,
+        "rtk_fix_type": "RTK_FIXED",
         "fix_type": "RTK_FIXED",
-        "satellites": 18
+        "healthy": true,
+        "last_state_utc": "AUTO"
       }
     },
-
     "GPS_COORD": {
       "enabled": true,
       "cadence_seconds": 25,
@@ -72,8 +103,7 @@
         "coord_time_utc": "AUTO"
       }
     },
-
-    "ENVIRONMENTAL_DATA": {
+    "ENVIRO_EVENT": {
       "enabled": true,
       "cadence_seconds": 30,
       "payload": {
@@ -83,26 +113,21 @@
         "sample_time_utc": "AUTO"
       }
     },
-
-    "SHT45_STATE": {
+    "ENVIRO_STATE": {
       "enabled": true,
       "cadence_seconds": 30,
       "payload": {
-        "sensor": "SHT45",
-        "available": true,
-        "healthy": true,
-        "last_sample_utc": "AUTO"
-      }
-    },
-
-    "BMP390_STATE": {
-      "enabled": true,
-      "cadence_seconds": 30,
-      "payload": {
-        "sensor": "BMP390",
-        "available": true,
-        "healthy": true,
-        "last_sample_utc": "AUTO"
+        "sensors": {
+          "SHT45": {
+            "available": true,
+            "healthy": true
+          },
+          "BMP390": {
+            "available": true,
+            "healthy": true
+          }
+        },
+        "last_state_utc": "AUTO"
       }
     }
   }

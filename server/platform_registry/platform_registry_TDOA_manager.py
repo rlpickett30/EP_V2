@@ -1,37 +1,28 @@
 # ============================================================
-# platform_registry_TDOA_manager.py
+# platform_registry_tdoa_manager.py
 #
-# EnviroPulse V_2.0
+# EnviroPulse V2.0
 #
 # Subsystem:
 #   Platform Registry
 #
 # Role:
-#   Manager
+#   TDOA Readiness Manager
 #
 # Purpose:
-#   Evaluate canonical node state and determine whether a node
-#   is currently eligible for TDOA calculations.
-#
-# Expected config source:
-#   platform_registry_config.json
-#
-# Expected config section:
-#   config["platform_registry"]["tdoa"]
+#   Determine when a registered node has enough state to participate
+#   in TDOA workflows.
 #
 # Does:
-#   - Evaluate node TDOA capability
-#   - Detect NODE_TDOA_CAPABLE transitions
-#   - Detect NODE_TDOA_CAPABLE_LOST transitions
-#   - Return server-approved TDOA capability packages
+#   - Inspect current node state snapshots
+#   - Determine NODE_TDOA_STATE readiness
+#   - Publish only on readiness change by default
 #
 # Does NOT:
-#   - Publish events directly
-#   - Maintain general platform state
-#   - Register nodes or GUI clients
 #   - Solve TDOA
-#   - Request WAV files
-#   - Send commands to nodes
+#   - Request recordings
+#   - Manage node registration
+#   - Publish directly
 #
 # Owner:
 #   platform_registry_dispatcher.py
@@ -39,31 +30,15 @@
 # ============================================================
 
 
-# ============================================================
-# IMPORT SUPPORT LIBRARIES
-# ============================================================
-
-import logging
 from copy import deepcopy
 from datetime import datetime, timezone
 
 
-# ============================================================
-# PLATFORM REGISTRY TDOA MANAGER
-# ============================================================
-
 class PlatformRegistryTDOAManager:
     """
-    Evaluates TDOA capability from canonical node state.
-
-    This manager does not own the state itself. It receives node
-    state snapshots from the dispatcher after the state manager has
-    updated platform truth.
+    Evaluates whether a node has enough current state to participate
+    in TDOA workflows.
     """
-
-    # ========================================================
-    # INIT
-    # ========================================================
 
     def __init__(self, config=None):
         self.config = config or {}
@@ -78,267 +53,253 @@ class PlatformRegistryTDOAManager:
             {}
         )
 
-        self.tdoa_event_map = platform_config.get(
-            "tdoa_event_map",
-            {}
-        )
-
         self.debug = platform_config.get(
             "debug",
             False
         )
 
-        self.enabled = self.tdoa_config.get(
-            "enabled",
+        self.publish_only_on_change = self.tdoa_config.get(
+            "publish_only_on_change",
             True
         )
 
-        self.publish_only_on_transition = self.tdoa_config.get(
-            "publish_only_on_transition",
+        self.require_rtk = self.tdoa_config.get(
+            "require_rtk",
             True
         )
 
-        self.minimum_requirements = self.tdoa_config.get(
-            "minimum_requirements",
-            {}
+        self.require_enviro = self.tdoa_config.get(
+            "require_enviro",
+            True
         )
 
-        self.logger = logging.getLogger(self.__class__.__name__)
-
-        self.node_tdoa_status = {}
+        self.node_tdoa_states = {}
 
     # ========================================================
     # PUBLIC API
     # ========================================================
 
-    def evaluate_node_state(self, node_id, node_state):
+    def handle_node_state_snapshot(
+        self,
+        node_id,
+        node_state_snapshot,
+        source_event
+    ):
         """
-        Evaluate one node state snapshot for TDOA capability.
-
-        Expected node_state fields:
-            pps_locked
-            gps_locked
-            gps_coord
-            rtk_online optional
-
-        Returns:
-            result dictionary
+        Evaluate one node snapshot and return NODE_TDOA_STATE only when
+        the node transitions into TDOA-ready state.
+        
+        NODE_TDOA_STATE means:
+            This node is now TDOA-capable.
+            
+            It does not publish partial readiness updates.
         """
 
         result = self._base_result()
 
-        if not self.enabled:
-            result["success"] = True
-            result["publish"] = False
-            result["reason"] = "tdoa_manager_disabled"
+        if not node_id:
+            result["reason"] = "missing_node_id"
             return result
 
-        if not node_id:
-            return self._fail(
-                result,
-                "TDOA evaluation rejected. Missing node_id.",
-                node_state
-            )
+        if not isinstance(
+            node_state_snapshot,
+            dict
+        ):
+            result["reason"] = "missing_node_state_snapshot"
+            return result
 
-        if node_state is None:
-            return self._fail(
-                result,
-                f"TDOA evaluation rejected. Missing node state for {node_id}.",
+        previous_tdoa_state = deepcopy(
+            self.node_tdoa_states.get(
+                node_id,
                 {}
             )
-
-        previous_capable = self.node_tdoa_status.get(
-            node_id,
-            False
         )
 
-        current_capable = self._calculate_tdoa_capable(
-            node_state
-        )
-
-        self.node_tdoa_status[node_id] = current_capable
-
-        transition = self._get_transition(
-            previous_capable=previous_capable,
-            current_capable=current_capable
-        )
-
-        if transition is None:
-            result["success"] = True
-            result["publish"] = False
-            result["node_id"] = node_id
-            result["tdoa_capable"] = current_capable
-            result["reason"] = "tdoa_capability_unchanged"
-            result["tdoa_snapshot"] = self._build_tdoa_snapshot(
-                node_id=node_id,
-                node_state=node_state,
-                capable=current_capable
-            )
-            return result
-
-        server_event_key = self.tdoa_event_map.get(transition)
-
-        if server_event_key is None:
-            return self._fail(
-                result,
-                f"TDOA transition has no server event mapping: {transition}",
-                node_state
-            )
-
-        server_payload = self._build_server_tdoa_payload(
+        current_tdoa_state = self._build_tdoa_state(
             node_id=node_id,
-            transition=transition,
-            server_event_key=server_event_key,
-            previous_capable=previous_capable,
-            current_capable=current_capable,
-            node_state=node_state
+            node_state_snapshot=node_state_snapshot,
+            source_event=source_event
+        )
+
+        previous_ready = bool(
+            previous_tdoa_state.get(
+                "tdoa_ready",
+                False
+            )
+        )
+
+        current_ready = bool(
+            current_tdoa_state.get(
+                "tdoa_ready",
+                False
+            )
+        )
+
+        self.node_tdoa_states[node_id] = deepcopy(
+            current_tdoa_state
         )
 
         result["success"] = True
-        result["publish"] = True
         result["node_id"] = node_id
-        result["tdoa_capable"] = current_capable
-        result["transition"] = transition
-        result["server_event_key"] = server_event_key
-        result["server_payload"] = server_payload
-        result["tdoa_snapshot"] = server_payload.get(
-            "tdoa_snapshot"
-        )
+        result["tdoa_state"] = current_tdoa_state
+        result["previous_tdoa_state"] = previous_tdoa_state
+
+        if not current_ready:
+            result["publish"] = False
+            result["reason"] = "node_not_tdoa_ready"
+            result["changed"] = previous_ready != current_ready
+            return result
+
+        if previous_ready:
+            result["publish"] = False
+            result["reason"] = "node_already_tdoa_ready"
+            result["changed"] = False
+            return result
+
+        result["publish"] = True
+        result["reason"] = "node_became_tdoa_ready"
+        result["changed"] = True
 
         return result
 
-    def get_node_tdoa_status(self, node_id):
+    def get_node_tdoa_state(self, node_id):
         """
-        Return current TDOA capability for one node.
+        Return current TDOA state for one node.
         """
 
-        return self.node_tdoa_status.get(
-            node_id,
-            False
+        state = self.node_tdoa_states.get(
+            node_id
         )
 
-    def get_tdoa_status_snapshot(self):
+        if state is None:
+            return None
+
+        return deepcopy(
+            state
+        )
+
+    def get_tdoa_snapshot(self):
         """
-        Return TDOA capability status for all evaluated nodes.
+        Return all known node TDOA readiness states.
         """
 
         return {
             "generated_at_utc": self._utc_now(),
-            "nodes": deepcopy(self.node_tdoa_status)
+            "nodes": deepcopy(self.node_tdoa_states)
         }
 
     # ========================================================
-    # TDOA CAPABILITY LOGIC
+    # TDOA READINESS LOGIC
     # ========================================================
 
-    def _calculate_tdoa_capable(self, node_state):
-        """
-        Calculate whether a node currently meets TDOA requirements.
-        """
-
-        require_pps_locked = self.minimum_requirements.get(
-            "pps_locked",
-            True
-        )
-
-        require_gps_locked = self.minimum_requirements.get(
-            "gps_locked",
-            True
-        )
-
-        require_gps_coord = self.minimum_requirements.get(
-            "gps_coord_required",
-            True
-        )
-
-        require_rtk_online = self.minimum_requirements.get(
-            "rtk_online_required",
-            False
-        )
-
-        if require_pps_locked and not node_state.get("pps_locked", False):
-            return False
-
-        if require_gps_locked and not node_state.get("gps_locked", False):
-            return False
-
-        if require_gps_coord and node_state.get("gps_coord") is None:
-            return False
-
-        if require_rtk_online and not node_state.get("rtk_online", False):
-            return False
-
-        return True
-
-    def _get_transition(self, previous_capable, current_capable):
-        """
-        Return transition event name when capability changes.
-        """
-
-        if previous_capable is False and current_capable is True:
-            return "node_tdoa_capable"
-
-        if previous_capable is True and current_capable is False:
-            return "node_tdoa_capable_lost"
-
-        return None
-
-    # ========================================================
-    # PACKAGE BUILDING
-    # ========================================================
-
-    def _build_server_tdoa_payload(
+    def _build_tdoa_state(
         self,
         node_id,
-        transition,
-        server_event_key,
-        previous_capable,
-        current_capable,
-        node_state
+        node_state_snapshot,
+        source_event
     ):
         """
-        Build server-approved TDOA capability payload.
+        Build canonical TDOA readiness state for one node.
         """
 
+        checks = self._build_checks(
+            node_state_snapshot
+        )
+
+        missing = [
+            check_name
+            for check_name, passed in checks.items()
+            if not passed
+        ]
+
+        ready = len(
+            missing
+        ) == 0
+
         return {
-            "server_event_key": server_event_key,
-            "incoming_event": transition,
-            "source_type": "platform_registry",
             "node_id": node_id,
-            "previous_tdoa_capable": previous_capable,
-            "tdoa_capable": current_capable,
+            "node_name": node_state_snapshot.get(
+                "node_name",
+                node_id
+            ),
+            "source_event": source_event,
+            "tdoa_ready": ready,
+            "missing": missing,
+            "checks": checks,
             "timestamp_utc": self._utc_now(),
-            "tdoa_snapshot": self._build_tdoa_snapshot(
-                node_id=node_id,
-                node_state=node_state,
-                capable=current_capable
+            "position": node_state_snapshot.get(
+                "gps_coord"
+            ),
+            "pps_locked": node_state_snapshot.get(
+                "pps_locked",
+                False
+            ),
+            "gps_locked": node_state_snapshot.get(
+                "gps_locked",
+                False
+            ),
+            "rtk_online": node_state_snapshot.get(
+                "rtk_online",
+                False
+            ),
+            "enviro_online": node_state_snapshot.get(
+                "enviro_online",
+                False
+            ),
+            "temperature_c": node_state_snapshot.get(
+                "temperature_c"
+            ),
+            "humidity_percent": node_state_snapshot.get(
+                "humidity_percent"
+            ),
+            "pressure_hpa": node_state_snapshot.get(
+                "pressure_hpa"
             )
         }
 
-    def _build_tdoa_snapshot(self, node_id, node_state, capable):
+    def _build_checks(
+        self,
+        node_state_snapshot
+    ):
         """
-        Build compact TDOA readiness snapshot.
+        Return readiness checks for TDOA participation.
         """
 
-        snapshot = {
-            "node_id": node_id,
-            "tdoa_capable": capable,
-            "pps_locked": node_state.get("pps_locked", False),
-            "gps_locked": node_state.get("gps_locked", False),
-            "gps_coord": deepcopy(node_state.get("gps_coord")),
-            "rtk_online": node_state.get("rtk_online", False),
-            "generated_at_utc": self._utc_now()
+        checks = {
+            "pps_locked": bool(
+                node_state_snapshot.get(
+                    "pps_locked",
+                    False
+                )
+            ),
+            "gps_locked": bool(
+                node_state_snapshot.get(
+                    "gps_locked",
+                    False
+                )
+            ),
+            "gps_coord": node_state_snapshot.get(
+                "gps_coord"
+            ) is not None
         }
 
-        if self.debug:
-            snapshot["debug"] = {
-                "full_node_state": deepcopy(node_state),
-                "minimum_requirements": deepcopy(
-                    self.minimum_requirements
+        if self.require_rtk:
+            checks["rtk_online"] = bool(
+                node_state_snapshot.get(
+                    "rtk_online",
+                    False
                 )
-            }
+            )
 
-        return snapshot
+        if self.require_enviro:
+            checks["enviro_online"] = bool(
+                node_state_snapshot.get(
+                    "enviro_online",
+                    False
+                )
+            )
+
+        return checks
 
     # ========================================================
     # RESULT HELPERS
@@ -352,37 +313,18 @@ class PlatformRegistryTDOAManager:
         return {
             "success": False,
             "publish": False,
-            "node_id": None,
-            "tdoa_capable": None,
-            "transition": None,
-            "server_event_key": None,
-            "server_payload": None,
-            "tdoa_snapshot": None,
             "reason": None,
-            "errors": [],
-            "debug": {}
+            "node_id": None,
+            "tdoa_state": None,
+            "previous_tdoa_state": None,
+            "changed": False
         }
-
-    def _fail(self, result, message, payload):
-        """
-        Return failed TDOA-manager result.
-        """
-
-        result["success"] = False
-        result["publish"] = False
-        result["reason"] = message
-        result["errors"].append(message)
-
-        if self.debug:
-            result["debug"]["payload"] = deepcopy(payload)
-
-        self.logger.warning(message)
-
-        return result
 
     def _utc_now(self):
         """
         Return current UTC time in ISO format.
         """
 
-        return datetime.now(timezone.utc).isoformat()
+        return datetime.now(
+            timezone.utc
+        ).isoformat()

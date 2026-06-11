@@ -39,8 +39,9 @@ from typing import Optional
 # ============================================================
 
 TDOA_CHANGE_MODE = "TDOA_CHANGE_MODE"
-TDOA_MODE_UPDATE = "TDOA_MODE_UPDATE"
-
+TDOA_MODE_UPDATED = "TDOA_MODE_UPDATED"
+NODE_TDOA_STATE = "NODE_TDOA_STATE"
+TDOA_NODE_STATE_UPDATED = "TDOA_NODE_STATE_UPDATED"
 
 # ============================================================
 # TDOA EVENT SERVICES
@@ -54,7 +55,10 @@ class TDOAEventServices:
         - Subscribe TDOA dispatcher to TDOA_CHANGE_MODE.
         - Publish TDOA_MODE_UPDATE after the TDOA manager applies a mode change.
     """
-
+    
+    EVENT_NODE_TDOA_CAPABLE = NODE_TDOA_STATE
+    EVENT_TDOA_NODE_STATE_UPDATED = TDOA_NODE_STATE_UPDATED
+    
     # ========================================================
     # INIT
     # ========================================================
@@ -84,6 +88,20 @@ class TDOAEventServices:
         logging.info(
             "[TDOA_EVENT_SERVICES] Subscribed to TDOA_CHANGE_MODE"
         )
+        
+        self.event_bus.subscribe(
+            NODE_TDOA_STATE,
+            lambda payload: dispatcher.handle_event(
+                self._build_inbound_event(
+                    event_name=NODE_TDOA_STATE,
+                    payload=payload
+                )
+            )
+        )
+
+        logging.info(
+            "[TDOA_EVENT_SERVICES] Subscribed to NODE_TDOA_STATE"
+        )
 
     # ========================================================
     # PUBLICATIONS
@@ -100,12 +118,33 @@ class TDOAEventServices:
         }
 
         self.event_bus.publish(
-            TDOA_MODE_UPDATE,
+            TDOA_MODE_UPDATED,
             event_package
         )
 
         logging.info(
             "[TDOA_EVENT_SERVICES] Published TDOA_MODE_UPDATE"
+        )
+    
+    def publish_tdoa_node_state_updated(self, payload):
+        """
+        Publish TDOA_NODE_STATE_UPDATED after TDOA accepts
+        a registry-approved NODE_TDOA_STATE update.
+        """
+
+        event_package = {
+            "event_type": TDOA_NODE_STATE_UPDATED,
+            "source": "tdoa",
+            "payload": payload or {}
+        }
+
+        self.event_bus.publish(
+            TDOA_NODE_STATE_UPDATED,
+            event_package
+        )
+
+        logging.info(
+            "[TDOA_EVENT_SERVICES] Published TDOA_NODE_STATE_UPDATED"
         )
 
     # ========================================================

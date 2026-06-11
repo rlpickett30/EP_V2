@@ -152,6 +152,7 @@ class CommunicationEventServices:
     #
     # Listener:
     #     GUI_REGISTER
+    #     NODE_REGISTER
     #     GUI_FEATURE_MODE_CHANGE
     #     GUI_NETWORK_MODE_CHANGE
     #     GUI_DETECTION_MODE_CHANGE
@@ -170,13 +171,19 @@ class CommunicationEventServices:
     LISTENER_PUBLICATIONS = [
 
         "GUI_REGISTER",
-
+        "NODE_REGISTER",
+        
+        "RTK_STATE",
+        "GPS_STATE",
+        "PPS_STATE",
+        "ENVIRO_STATE",
+        
         "GUI_FEATURE_MODE_CHANGE",
         "GUI_NETWORK_MODE_CHANGE",
         "GUI_DETECTION_MODE_CHANGE"
 
     ]
-
+    
     # ========================================================
     # INTERNAL PUBLICATIONS
     # ========================================================
@@ -202,7 +209,18 @@ class CommunicationEventServices:
         "SEND_NODE_CHANGE_MODE"
 
     ]
+    
+    # ========================================================
+    # SENDER SUBSCRIPTIONS
+    # ========================================================
 
+    SENDER_SUBSCRIPTIONS = [
+
+        "SERVER_NODE_REGISTER",
+        "NODE_STATE_UPDATED"
+
+    ]
+    
     # ========================================================
     # ALL PUBLICATIONS
     # ========================================================
@@ -221,6 +239,7 @@ class CommunicationEventServices:
     SUBSCRIPTIONS = (
 
         MODE_SUBSCRIPTIONS
+        + SENDER_SUBSCRIPTIONS
 
     )
 
@@ -254,6 +273,20 @@ class CommunicationEventServices:
                 self.event_bus.subscribe(
                     event_name,
                     dispatcher.handle_send_node_change_mode
+                )
+    
+            elif event_name == "SERVER_NODE_REGISTER":
+
+                self.event_bus.subscribe(
+                    event_name,
+                    dispatcher.handle_server_node_register
+                )
+            
+            elif event_name == "NODE_STATE_UPDATED":
+
+                self.event_bus.subscribe(
+                    event_name,
+                    dispatcher.handle_node_state_updated
                 )
 
     # ========================================================

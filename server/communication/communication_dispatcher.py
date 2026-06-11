@@ -437,7 +437,109 @@ class CommunicationDispatcher:
             )
 
             self.publish_communication_state()
+    
+    # ========================================================
+    # HANDLE NODE STATE UPDATED
+    # ========================================================
 
+    def handle_node_state_updated(
+        self,
+        event: dict
+    ):
+        """
+        Handle NODE_STATE_UPDATED.
+
+        Purpose:
+            Forward accepted node state updates to GUI clients.
+
+        Source:
+            Platform Registry
+
+        Expected inbound event:
+            {
+                "event_type": "NODE_STATE_UPDATED",
+                "source": "platform_registry",
+                "payload": {
+                    ...
+                }
+            }
+
+        Outbound event:
+            {
+                "event_type": "NODE_STATE_UPDATED",
+                "source": "communication",
+                "target": "gui",
+                "payload": {
+                    ...
+                }
+            }
+        """
+
+        try:
+
+            payload = event.get(
+                "payload",
+                {}
+            )
+
+            if not isinstance(
+                payload,
+                dict
+            ):
+
+                self.state.tx_errors += 1
+
+                logging.warning(
+                    "[Communication] NODE_STATE_UPDATED missing payload."
+                )
+
+                self.publish_communication_state()
+
+                return
+
+            node_id = self._extract_node_id_from_node_state_payload(
+                payload
+            )
+
+            if not node_id:
+
+                self.state.tx_errors += 1
+
+                logging.warning(
+                    "[Communication] NODE_STATE_UPDATED missing node_id."
+                )
+
+                self.publish_communication_state()
+
+                return
+
+            outbound_event = {
+                "event_type": "NODE_STATE_UPDATED",
+                "source": "communication",
+                "target": "gui",
+                "payload": payload
+            }
+
+            self.send_event(
+                outbound_event
+            )
+
+            self.publish_communication_state()
+
+            logging.info(
+                f"[Communication] NODE_STATE_UPDATED sent or queued for GUI: {node_id}"
+            )
+
+        except Exception as error:
+
+            self.state.tx_errors += 1
+
+            logging.exception(
+                f"[Communication] NODE_STATE_UPDATED failed: {error}"
+            )
+
+            self.publish_communication_state()
+            
     # ========================================================
     # APPLY COMMUNICATION MODE CHANGE
     # ========================================================
@@ -794,7 +896,160 @@ class CommunicationDispatcher:
             )
 
             self.publish_communication_state()
+    
+    # ========================================================
+    # HANDLE SERVER NODE REGISTER
+    # ========================================================
 
+    def handle_server_node_register(
+        self,
+        event: dict
+    ):
+        """
+        Handle SERVER_NODE_REGISTER.
+
+        Purpose:
+            Forward accepted node registration updates to GUI clients.
+        """
+
+        try:
+
+            payload = event.get(
+                "payload",
+                {}
+            )
+
+            if not isinstance(
+                payload,
+                dict
+            ):
+
+                self.state.tx_errors += 1
+
+                logging.warning(
+                    "[Communication] SERVER_NODE_REGISTER missing payload."
+                )
+
+                self.publish_communication_state()
+
+                return
+
+            outbound_event = {
+                "event_type": "SERVER_NODE_REGISTER",
+                "source": "communication",
+                "target": "gui",
+                "payload": payload
+            }
+
+            self.send_event(
+                outbound_event
+            )
+
+            self.publish_communication_state()
+
+            logging.info(
+                "[Communication] SERVER_NODE_REGISTER sent or queued for GUI."
+            )
+
+        except Exception as error:
+
+            self.state.tx_errors += 1
+
+            logging.exception(
+                f"[Communication] SERVER_NODE_REGISTER failed: {error}"
+            )
+
+            self.publish_communication_state()
+    
+    # ========================================================
+    # EXTRACT NODE ID FROM NODE STATE PAYLOAD
+    # ========================================================
+
+    def _extract_node_id_from_node_state_payload(
+        self,
+        payload: dict
+    ):
+        """
+        Extract node_id from known NODE_STATE_UPDATED payload shapes.
+
+        Supports:
+            - payload["node_id"]
+            - payload["state"]["node_id"]
+            - payload["node_state_snapshot"]["node_id"]
+            - payload["state"]["node_state_snapshot"]["node_id"]
+        """
+
+        if not isinstance(
+            payload,
+            dict
+        ):
+
+            return None
+
+        node_id = payload.get(
+            "node_id"
+        )
+
+        if node_id:
+
+            return node_id
+
+        state = payload.get(
+            "state",
+            {}
+        )
+
+        if isinstance(
+            state,
+            dict
+        ):
+
+            node_id = state.get(
+                "node_id"
+            )
+
+            if node_id:
+
+                return node_id
+
+            snapshot = state.get(
+                "node_state_snapshot",
+                {}
+            )
+
+            if isinstance(
+                snapshot,
+                dict
+            ):
+
+                node_id = snapshot.get(
+                    "node_id"
+                )
+
+                if node_id:
+
+                    return node_id
+
+        snapshot = payload.get(
+            "node_state_snapshot",
+            {}
+        )
+
+        if isinstance(
+            snapshot,
+            dict
+        ):
+
+            node_id = snapshot.get(
+                "node_id"
+            )
+
+            if node_id:
+
+                return node_id
+
+        return None
+    
     # ========================================================
     # CAN SEND NOW
     # ========================================================

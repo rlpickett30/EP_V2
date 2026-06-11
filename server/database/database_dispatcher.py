@@ -1,7 +1,7 @@
 # ============================================================
 # database_dispatcher.py
 #
-# EnviroPulse V2.0
+# EnviroPulse V2
 #
 # Subsystem:
 #   Database
@@ -10,31 +10,29 @@
 #   Dispatcher
 #
 # Purpose:
-#   Own the database subsystem workflow and route archive-worthy
-#   events to the correct database manager write path.
-#
-# Expected config source:
-#   database_config.py
-#
-# Expected config section:
-#   Module-level constants
+#   Own the Database subsystem workflow.
 #
 # Does:
-#   - Owns database subsystem components
-#   - Initializes the database schema
-#   - Receives archive-worthy events
-#   - Archives raw events first
-#   - Routes known event types to specialized archive tables
-#   - Publishes database status and warning events through event services
+#   - Own Database managers
+#   - Initialize the database schema
+#   - Register Database event subscriptions through event services
+#   - Receive SERVER_NODE_REGISTER
+#   - Archive raw events first
+#   - Route known event types to specialized archive tables
 #
 # Does NOT:
-#   - Directly talk to SQLite
-#   - Maintain live system state
-#   - Drive GUI updates
-#   - Decide platform behavior outside the database subsystem
+#   - Subscribe directly to the Event Bus
+#   - Publish database status events
+#   - Publish database warning events
+#   - Modify registry state
+#   - Maintain live GUI state
+#   - Perform Event Bus delivery logic
 #
 # Owner:
 #   Main / Subsystem root
+#
+# Current Scope:
+#   SERVER_NODE_REGISTER
 #
 # ============================================================
 
@@ -67,7 +65,14 @@ import logging
 
 
 # ============================================================
-# CLASS DEFINITIONS
+# EVENT NAMES
+# ============================================================
+
+SERVER_NODE_REGISTER = "SERVER_NODE_REGISTER"
+
+
+# ============================================================
+# DATABASE DISPATCHER
 # ============================================================
 
 class DatabaseDispatcher:
@@ -84,6 +89,11 @@ class DatabaseDispatcher:
 
         self.event_bus = event_bus
         self.debug = debug
+        self.started = False
+
+        self.logger = logging.getLogger(
+            self.__class__.__name__
+        )
 
         self.connection_manager = DatabaseConnectionManager(
             debug=self.debug
@@ -101,8 +111,11 @@ class DatabaseDispatcher:
 
         self.event_services = DatabaseEventServices(
             event_bus=self.event_bus,
-            dispatcher=self,
-            debug=self.debug
+            config={
+                "database": {
+                    "debug": self.debug
+                }
+            }
         )
 
     # ========================================================
@@ -113,78 +126,155 @@ class DatabaseDispatcher:
         self
     ):
         """
-        Starts the database subsystem.
+        Start the Database subsystem.
 
-        This initializes the schema and subscribes to archive-worthy events.
+        Current startup responsibilities:
+            - Initialize SQLite schema.
+            - Register subscriptions declared in database_event_services.py.
         """
+
+        if self.started:
+
+            self._debug_log(
+                "Database Dispatcher already started."
+            )
+
+            return self._result(
+                success=True,
+                data={
+                    "database_started": True,
+                    "already_started": True,
+                    "subscribed_events": list(
+                        self.event_services.SUBSCRIPTIONS
+                    )
+                }
+            )
 
         schema_result = self.schema_manager.initialize_schema()
 
-        if not schema_result["success"]:
+        if not schema_result.get("success"):
 
-            self.event_services.publish_database_warning(
-                warning_type="database_schema_initialization_failed",
-                details=schema_result["errors"]
+            self.logger.error(
+                f"Database schema initialization failed: "
+                f"{schema_result.get('errors', [])}"
             )
 
             return schema_result
 
-        self.event_services.publish_database_status(
-            status="database_schema_ready",
-            details=schema_result["data"]
+        self.event_services.register_subscriptions(
+            dispatcher=self
         )
 
-        subscription_result = self.event_services.subscribe_to_events()
+        self.started = True
 
-        if not subscription_result["success"]:
+        self._debug_log(
+            "Database Dispatcher started."
+        )
 
-            self.event_services.publish_database_warning(
-                warning_type="database_subscription_failed",
-                details=subscription_result["errors"]
-            )
-
-            return subscription_result
-
-        self.event_services.publish_database_status(
-            status="database_started",
-            details={
-                "subscribed_events": subscription_result["data"].get(
-                    "subscribed_events",
-                    []
+        return self._result(
+            success=True,
+            data={
+                "database_started": True,
+                "schema_initialized": True,
+                "subscribed_events": list(
+                    self.event_services.SUBSCRIPTIONS
                 )
             }
         )
 
-        return {
-            "success": True,
-            "data": {
-                "database_started": True,
-                "subscribed_events": subscription_result["data"].get(
-                    "subscribed_events",
-                    []
-                )
-            },
-            "debug": {},
-            "errors": []
-        }
+    def stop(
+        self
+    ):
+        """
+        Mark the Database dispatcher as stopped.
+
+        The current Event Bus does not expose unsubscribe handling here,
+        so this is a local lifecycle marker only.
+        """
+
+        self.started = False
+
+        self._debug_log(
+            "Database Dispatcher stopped."
+        )
+
+        return self._result(
+            success=True,
+            data={
+                "database_started": False
+            }
+        )
+
+    # ========================================================
+    # EVENT HANDLERS
+    # ========================================================
+
+    def handle_server_node_register(
+        self,
+        *args
+    ):
+        """
+        Handle SERVER_NODE_REGISTER.
+
+        Purpose:
+            Archive a node identity after the Platform Registry accepts
+            or refreshes the node registration.
+        """
+
+        event = self._build_event_from_args(
+            fallback_event_name=SERVER_NODE_REGISTER,
+            args=args
+        )
+
+        payload = event.get(
+            "payload",
+            {}
+        )
+
+        if not isinstance(
+            payload,
+            dict
+        ):
+
+            payload = {}
+
+        payload.setdefault(
+            "event_type",
+            SERVER_NODE_REGISTER
+        )
+
+        payload.setdefault(
+            "registry_action",
+            payload.get("action")
+        )
+
+        payload.setdefault(
+            "source_subsystem",
+            event.get("source")
+        )
+
+        event["event_type"] = SERVER_NODE_REGISTER
+        event["payload"] = payload
+
+        return self.handle_event(
+            event
+        )
 
     def handle_event(
         self,
         event: dict
     ):
         """
-        Handles an incoming archive-worthy event.
+        Archive an incoming database-facing event.
 
-        The raw event is archived first.
-        If the event type is known, a specialized table write is attempted.
+        Workflow:
+            1. Validate event envelope.
+            2. Classify event category.
+            3. Archive raw event.
+            4. Route to specialized archive table when known.
         """
 
-        result = {
-            "success": False,
-            "data": {},
-            "debug": {},
-            "errors": []
-        }
+        result = self._result()
 
         try:
 
@@ -193,16 +283,10 @@ class DatabaseDispatcher:
                 dict
             ):
 
-                result["errors"].append(
+                return self._fail(
+                    result,
                     "Database dispatcher received a non-dictionary event."
                 )
-
-                self.event_services.publish_database_warning(
-                    warning_type="invalid_database_event",
-                    details=result["errors"]
-                )
-
-                return result
 
             event_type = self._extract_event_type(
                 event
@@ -217,20 +301,18 @@ class DatabaseDispatcher:
                 event_category=event_category
             )
 
-            if not raw_archive_result["success"]:
+            if not raw_archive_result.get("success"):
 
-                result["errors"].extend(
-                    raw_archive_result["errors"]
+                return self._fail(
+                    result,
+                    "Raw event archive failed.",
+                    raw_archive_result.get("errors", [])
                 )
 
-                self.event_services.publish_database_warning(
-                    warning_type="raw_event_archive_failed",
-                    details=result["errors"]
-                )
-
-                return result
-
-            event_archive_id = raw_archive_result["data"].get(
+            event_archive_id = raw_archive_result.get(
+                "data",
+                {}
+            ).get(
                 "event_archive_id"
             )
 
@@ -240,139 +322,149 @@ class DatabaseDispatcher:
                 event_archive_id=event_archive_id
             )
 
-            if not specialized_result["success"]:
-
-                self.event_services.publish_database_warning(
-                    warning_type="specialized_archive_failed",
-                    details=specialized_result["errors"]
-                )
-
             result["success"] = True
-
             result["data"] = {
                 "event_archive_id": event_archive_id,
                 "event_type": event_type,
                 "event_category": event_category,
                 "specialized_archive": specialized_result
             }
-
+            
+            self.event_services.publish_database_updated(
+                {
+                    "reason": event_type,
+                    "event_archive_id": event_archive_id,
+                    "event_type": event_type,
+                    "event_category": event_category,
+                    "source_node_id": self.event_manager._extract_node_id(
+                        event
+                    ),
+                    "specialized_archive": specialized_result
+                }
+            )
+            
             if self.debug:
+
                 result["debug"] = {
                     "raw_archive_result": raw_archive_result
                 }
 
-            self.event_services.publish_database_status(
-                status="event_archived",
-                details=result["data"]
+            if not specialized_result.get("success"):
+
+                result["errors"].extend(
+                    specialized_result.get(
+                        "errors",
+                        []
+                    )
+                )
+
+                self.logger.warning(
+                    f"Database specialized archive failed for {event_type}: "
+                    f"{specialized_result.get('errors', [])}"
+                )
+
+            self._debug_log(
+                f"Archived database event: {event_type}"
             )
 
         except Exception as error:
 
-            result["errors"].append(
-                str(error)
-            )
-
-            logging.error(
+            self._fail(
+                result,
                 f"Database dispatcher failed: {error}"
             )
 
-            self.event_services.publish_database_warning(
-                warning_type="database_dispatcher_failed",
-                details=result["errors"]
+            self.logger.exception(
+                f"Database dispatcher failed: {error}"
             )
 
         return result
 
     # ========================================================
-    # INTERNAL METHODS
+    # INTERNAL METHODS: EVENT NORMALIZATION
     # ========================================================
 
-    def _archive_specialized_record(
+    def _build_event_from_args(
         self,
-        event: dict,
-        event_type: str,
-        event_archive_id: int
+        fallback_event_name: str,
+        args
     ):
         """
-        Routes known event types to specialized archive tables.
+        Build a normal event dictionary from common Event Bus
+        callback styles.
 
-        Unknown event types are still preserved in the raw events table.
+        Supports:
+            handler(payload)
+            handler(event_name, payload)
         """
 
-        if event_type in [
-            "avis_lite",
-            "avis_detection",
-            "birdnet_detection"
-        ]:
+        if len(args) == 2:
 
-            return self.event_manager.archive_avis_detection(
-                event=event,
-                event_archive_id=event_archive_id
+            event_name = args[0] or fallback_event_name
+            raw_event = args[1] or {}
+
+        elif len(args) == 1:
+
+            event_name = fallback_event_name
+            raw_event = args[0] or {}
+
+        else:
+
+            event_name = fallback_event_name
+            raw_event = {}
+
+        if not isinstance(
+            raw_event,
+            dict
+        ):
+
+            raw_event = {}
+
+        event = dict(raw_event)
+
+        event.setdefault(
+            "event_type",
+            event_name
+        )
+
+        event.setdefault(
+            "source",
+            raw_event.get("source", "database_event_bus")
+        )
+
+        payload = event.get(
+            "payload",
+            {}
+        )
+
+        if isinstance(
+            payload,
+            dict
+        ):
+
+            payload.setdefault(
+                "event_type",
+                event.get("event_type", event_name)
             )
 
-        if event_type in [
-            "weather",
-            "weather_event",
-            "weather_record"
-        ]:
+            event["payload"] = payload
 
-            return self.event_manager.archive_weather_record(
-                event=event,
-                event_archive_id=event_archive_id
-            )
-
-        if event_type in [
-            "telemetry",
-            "telemetry_event",
-            "node_health",
-            "gps_coord",
-            "pps_status"
-        ]:
-
-            return self.event_manager.archive_telemetry_record(
-                event=event,
-                event_archive_id=event_archive_id
-            )
-
-        if event_type in [
-            "node_register",
-            "node_registration",
-            "node_registry_update"
-        ]:
-
-            return self.event_manager.archive_node_registry_record(
-                event=event,
-                event_archive_id=event_archive_id
-            )
-
-        if event_type in [
-            "system_log",
-            "system_warning",
-            "system_error"
-        ]:
-
-            return self.event_manager.archive_system_log(
-                event=event,
-                event_archive_id=event_archive_id
-            )
-
-        return {
-            "success": True,
-            "data": {
-                "specialized_archive_skipped": True,
-                "reason": "No specialized archive table for this event type."
-            },
-            "debug": {},
-            "errors": []
-        }
+        return event
 
     def _extract_event_type(
         self,
         event: dict
     ):
         """
-        Extracts the event type from common EnviroPulse event locations.
+        Extract event type from common EnviroPulse event locations.
         """
+
+        if not isinstance(
+            event,
+            dict
+        ):
+
+            return "unknown"
 
         if event.get(
             "event_type"
@@ -416,15 +508,109 @@ class DatabaseDispatcher:
 
         return "unknown"
 
+    # ========================================================
+    # INTERNAL METHODS: ARCHIVE ROUTING
+    # ========================================================
+
+    def _archive_specialized_record(
+        self,
+        event: dict,
+        event_type: str,
+        event_archive_id: int
+    ):
+        """
+        Route known event types to specialized archive tables.
+
+        Unknown event types are still preserved in the raw events table.
+        """
+
+        normalized_event_type = str(
+            event_type or "unknown"
+        ).strip().lower()
+
+        if normalized_event_type in [
+            "avis_lite",
+            "avis_detection",
+            "birdnet_detection"
+        ]:
+
+            return self.event_manager.archive_avis_detection(
+                event=event,
+                event_archive_id=event_archive_id
+            )
+
+        if normalized_event_type in [
+            "weather",
+            "weather_event",
+            "weather_record",
+            "enviro_event"
+        ]:
+
+            return self.event_manager.archive_weather_record(
+                event=event,
+                event_archive_id=event_archive_id
+            )
+
+        if normalized_event_type in [
+            "telemetry",
+            "telemetry_event",
+            "node_health",
+            "gps_coord",
+            "gps_state",
+            "pps_status",
+            "pps_state",
+            "enviro_state"
+        ]:
+
+            return self.event_manager.archive_telemetry_record(
+                event=event,
+                event_archive_id=event_archive_id
+            )
+
+        if normalized_event_type in [
+            "server_node_register",
+            "node_register",
+            "node_registration",
+            "node_registry_update"
+        ]:
+
+            return self.event_manager.archive_node_registry_record(
+                event=event,
+                event_archive_id=event_archive_id
+            )
+
+        if normalized_event_type in [
+            "system_log",
+            "system_warning",
+            "system_error"
+        ]:
+
+            return self.event_manager.archive_system_log(
+                event=event,
+                event_archive_id=event_archive_id
+            )
+
+        return self._result(
+            success=True,
+            data={
+                "specialized_archive_skipped": True,
+                "reason": "No specialized archive table for this event type."
+            }
+        )
+
     def _classify_event_category(
         self,
         event_type: str
     ):
         """
-        Assigns a broad archive category.
+        Assign a broad archive category.
         """
 
-        if event_type in [
+        normalized_event_type = str(
+            event_type or "unknown"
+        ).strip().lower()
+
+        if normalized_event_type in [
             "avis_lite",
             "avis_detection",
             "birdnet_detection"
@@ -432,25 +618,30 @@ class DatabaseDispatcher:
 
             return "avis"
 
-        if event_type in [
+        if normalized_event_type in [
             "weather",
             "weather_event",
-            "weather_record"
+            "weather_record",
+            "enviro_event"
         ]:
 
             return "weather"
 
-        if event_type in [
+        if normalized_event_type in [
             "telemetry",
             "telemetry_event",
             "node_health",
             "gps_coord",
-            "pps_status"
+            "gps_state",
+            "pps_status",
+            "pps_state",
+            "enviro_state"
         ]:
 
             return "telemetry"
 
-        if event_type in [
+        if normalized_event_type in [
+            "server_node_register",
             "node_register",
             "node_registration",
             "node_registry_update"
@@ -458,15 +649,16 @@ class DatabaseDispatcher:
 
             return "node_registry"
 
-        if event_type in [
+        if normalized_event_type in [
             "tdoa_calc",
             "tdoa_result",
-            "tdoa_candidate"
+            "tdoa_candidate",
+            "tdoa_recording"
         ]:
 
             return "tdoa"
 
-        if event_type in [
+        if normalized_event_type in [
             "system_log",
             "system_warning",
             "system_error"
@@ -475,3 +667,66 @@ class DatabaseDispatcher:
             return "system"
 
         return "general"
+
+    # ========================================================
+    # INTERNAL METHODS: RESULTS AND DEBUG
+    # ========================================================
+
+    def _result(
+        self,
+        success: bool = False,
+        data: dict = None,
+        debug: dict = None,
+        errors: list = None
+    ):
+        """
+        Return a standard Database dispatcher result.
+        """
+
+        return {
+            "success": success,
+            "data": data or {},
+            "debug": debug or {},
+            "errors": errors or []
+        }
+
+    def _fail(
+        self,
+        result: dict,
+        message: str,
+        errors: list = None
+    ):
+        """
+        Add failure information to a result dictionary.
+        """
+
+        result["success"] = False
+        result["errors"].append(
+            message
+        )
+
+        if errors:
+
+            result["errors"].extend(
+                errors
+            )
+
+        self.logger.warning(
+            message
+        )
+
+        return result
+
+    def _debug_log(
+        self,
+        message: str
+    ):
+        """
+        Emit debug logs when enabled.
+        """
+
+        if self.debug:
+
+            self.logger.debug(
+                message
+            )

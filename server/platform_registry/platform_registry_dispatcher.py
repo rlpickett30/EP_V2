@@ -41,6 +41,14 @@ from platform_registry.platform_registry_registry_manager import (
 from platform_registry.platform_registry_mode_manager import (
     PlatformRegistryModeManager
 )
+
+from platform_registry.platform_registry_state_manager import (
+    PlatformRegistryStateManager
+)
+from platform_registry.platform_registry_TDOA_manager import (
+    PlatformRegistryTDOAManager
+)
+
 # ============================================================
 # IMPORT SUPPORT LIBRARIES
 # ============================================================
@@ -108,6 +116,14 @@ class PlatformRegistryDispatcher:
         self.mode_manager = PlatformRegistryModeManager(
             config=self.config
         )
+
+        self.state_manager = PlatformRegistryStateManager(
+            config=self.config
+        )
+        
+        self.tdoa_manager = PlatformRegistryTDOAManager(
+            config=self.config
+        )
         
         self.started = False
 
@@ -147,11 +163,13 @@ class PlatformRegistryDispatcher:
 
     def get_platform_snapshot(self):
         """
-        Return the current registry snapshot.
+        Return the current registry and node snapshot.
         """
 
         return {
-            "registry": self.registry_manager.get_registry_snapshot()
+            "registry": self.registry_manager.get_registry_snapshot(),
+            "state": self.state_manager.get_platform_state_snapshot(),
+            "tdoa": self.tdoa_manager.get_tdoa_snapshot()
         }
 
     # ========================================================
@@ -306,7 +324,169 @@ class PlatformRegistryDispatcher:
         self._debug_log(
             f"{source_event_type} handled. TDOA_CHANGE_MODE published."
         )
+     
+    def handle_node_register(self, *args):
+        """
+        Handle NODE_REGISTER.
 
+        Expected event envelope:
+            {
+                "event_type": "NODE_REGISTER",
+                "source": "faux_node_01",
+                "source_name": "Faux Node 01",
+                "payload": {
+                    ...
+                }
+            }
+        """
+
+        event_name, payload = self._parse_event_args(args)
+
+        if not self._event_is_node_register(event_name):
+            self._debug_log(
+                f"Ignored unknown registry event: {event_name}"
+            )
+            return
+
+        if not payload:
+            self._debug_log(
+                "NODE_REGISTER ignored. Missing payload."
+            )
+            return
+
+        payload.setdefault(
+            "node_id",
+            payload.get("source")
+        )
+
+        payload.setdefault(
+            "device_id",
+            payload.get("node_id")
+        )
+
+        payload.setdefault(
+            "device_role",
+            "NODE"
+        )
+
+        payload.setdefault(
+            "node_name",
+            payload.get("source_name", payload.get("node_id"))
+        )
+
+        result = self.registry_manager.register_node(payload)
+
+        self.event_services.publish_registry_updated(
+            result,
+            reason="NODE_REGISTER"
+        )   
+
+        if result.get("success"):
+
+            self.event_services.publish_server_node_register(
+                result
+            )
+
+        self._debug_log(
+            "NODE_REGISTER handled. REGISTRY_UPDATED and SERVER_NODE_REGISTER published."
+        )
+        
+    def handle_node_state(self, *args):
+        """
+        Handle RTK_STATE, GPS_STATE, PPS_STATE, and ENVIRO_STATE.
+
+        These are node-originated state reports. The dispatcher normalizes
+        identity, passes the state update to the state manager, and publishes
+        one combined NODE_STATE_UPDATED event when accepted.
+        """
+
+        event_name, payload = self._parse_event_args(args)
+        
+        if not self._event_is_node_state(event_name):
+            self._debug_log(
+                f"Ignored unknown node state event: {event_name}"
+            )
+            return
+
+        if not payload:
+            self._debug_log(
+                f"{event_name} ignored. Missing payload."
+            )
+            return
+
+        payload = self._normalize_node_state_payload(
+            event_name=event_name,
+            payload=payload
+        )
+
+        if not payload.get("node_id"):
+            self._debug_log(
+                f"{event_name} ignored. Missing node_id or source."
+            )
+            return
+
+        result = self.state_manager.handle_state_event(
+            event_name=event_name,
+            payload=payload
+        )
+
+        if not result.get("success"):
+            self._debug_log(
+                f"{event_name} rejected by state manager: {result.get('reason')}"
+            )
+            return
+
+        if not result.get("publish"):
+            self._debug_log(
+                f"{event_name} accepted but not published: {result.get('reason')}"
+            )
+            return
+
+        self.event_services.publish_node_state_updated(
+            result
+        )
+
+        self._debug_log(
+            f"{event_name} handled. NODE_STATE_UPDATED published."
+        )
+
+        tdoa_result = self.tdoa_manager.handle_node_state_snapshot(
+            node_id=result.get(
+                "node_id"
+            ),
+            node_state_snapshot=result.get(
+                "state_snapshot",
+                {}
+            ),
+            source_event=event_name
+        )
+
+        if not tdoa_result.get(
+            "success"
+        ):
+            self._debug_log(
+                f"{event_name} TDOA readiness check failed: {tdoa_result.get('reason')}"
+            )
+
+            return
+
+        if not tdoa_result.get(
+            "publish"
+        ):
+            self._debug_log(
+                f"{event_name} TDOA readiness accepted but not published: {tdoa_result.get('reason')}"
+            )
+
+            return
+
+        self.event_services.publish_node_tdoa_state(
+            tdoa_result
+        )
+
+        self._debug_log(
+            f"{event_name} handled. NODE_TDOA_STATE published."
+        )
+        
     # ========================================================
     # EVENT ARGUMENT HANDLING
     # ========================================================
@@ -377,10 +557,14 @@ class PlatformRegistryDispatcher:
             )
 
             for metadata_key in [
-                "source",
-                "timestamp",
-                "timestamp_utc"
-            ]:
+                    "source",
+                    "source_name",
+                    "target",
+                    "simulated",
+                    "timestamp",
+                    "timestamp_utc"
+                ]:
+                
                 if metadata_key in raw_payload and metadata_key not in payload:
                     payload[metadata_key] = raw_payload.get(metadata_key)
 
@@ -448,7 +632,30 @@ class PlatformRegistryDispatcher:
         return command_map.get(
             str(command).strip().upper()
         )
+    def _event_is_node_register(self, event_name):
+        """
+        Return True when event is NODE_REGISTER.
+        """
 
+        if event_name is None:
+            return False
+
+        return str(event_name).strip().upper() == "NODE_REGISTER"
+    
+    def _event_is_node_state(self, event_name):
+        """
+        Return True when event is one of the four node state events.
+        """
+
+        if event_name is None:
+            return False
+
+        return str(event_name).strip().upper() in [
+            "RTK_STATE",
+            "GPS_STATE",
+            "PPS_STATE",
+            "ENVIRO_STATE"
+        ]
 
     def _build_mode_payload_from_gui_payload(
         self,
@@ -507,6 +714,36 @@ class PlatformRegistryDispatcher:
             "field_node",
             "field_nodes"
         ]
+
+    def _normalize_node_state_payload(self, event_name, payload):
+        """
+        Normalize node state payloads so the state manager always receives
+        a node_id and source_event_type.
+        """
+
+        normalized = dict(payload)
+
+        node_id = (
+            normalized.get("node_id")
+            or normalized.get("device_id")
+            or normalized.get("source")
+            or normalized.get("node_name")
+        )
+
+        if node_id is not None:
+            normalized["node_id"] = node_id
+            
+            normalized.setdefault(
+                "source_event_type",
+                event_name
+            )
+
+        normalized.setdefault(
+            "event_type",
+            event_name
+        )
+
+        return normalized
     
     # ========================================================
     # CONFIG

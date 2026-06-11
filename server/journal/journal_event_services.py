@@ -115,19 +115,36 @@ class JournalEventServices:
     # ========================================================
 
     SUBSCRIPTIONS = [
+
         "REGISTRY_UPDATED",
-        "GUI_REGISTER",#
-        "GUI_FEATURE_MODE_CHANGE",#
+        "SERVER_NODE_REGISTER",
+        
+        "DATABASE_UPDATED",
+
+        "GUI_REGISTER",
+        "NODE_REGISTER",
+
+        "GUI_FEATURE_MODE_CHANGE",
+        "GUI_NETWORK_MODE_CHANGE",
+        "GUI_DETECTION_MODE_CHANGE",
+
         "TDOA_CHANGE_MODE",
-        "TDOA_MODE_UPDATE",
-        "GUI_NETWORK_MODE_CHANGE",#
-        "GUI_DETECTION_MODE_CHANGE",#
+        "TDOA_MODE_UPDATED",
+        "TDOA_NODE_STATE_UPDATED",
+
         "COMMUNICATION_STATE",
         "SEND_NODE_CHANGE_MODE",
         "COMMUNICATION_CHANGE_MODE",
-        "EVENT_SENT"
+        "EVENT_SENT",
+        
+        "RTK_STATE",
+        "GPS_STATE",
+        "PPS_STATE",
+        "ENVIRO_STATE",
+        "NODE_TDOA_STATE",
+        "NODE_STATE_UPDATED"
 
-    ]
+        ]
 
     PUBLICATIONS = []
 

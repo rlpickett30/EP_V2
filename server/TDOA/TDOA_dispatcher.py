@@ -783,11 +783,11 @@ class TDOADispatcher:
         self
     ) -> None:
         """
-        Publish current TDOA state snapshot.
+        Publish current TDOA node-state snapshot.
         """
 
         snapshot = self.state_manager.get_state_snapshot()
-
-        self.event_services.publish_tdoa_state_update(
+        
+        self.event_services.publish_tdoa_node_state_updated(
             snapshot
         )
