@@ -31,7 +31,7 @@ from microphone.microphone_dispatcher import MicrophoneDispatcher
 from birdnet.birdnet_dispatcher import BirdNetDispatcher
 from communication.communication_dispatcher import CommunicationDispatcher
 from journal.journal_dispatcher import JournalDispatcher
-
+from node_register import NodeRegister
 
 def start_dispatcher(name: str, dispatcher):
     def runner():
@@ -72,16 +72,24 @@ def main():
     microphone = MicrophoneDispatcher(event_bus=event_bus)
     birdnet = BirdNetDispatcher(event_bus=event_bus)
     communication = CommunicationDispatcher(event_bus=event_bus)
-
+    node_register = NodeRegister(
+        event_bus=event_bus,
+        node_id="node_01",
+        node_name="EnviroPulse Node 01",
+        debug=True
+    )
     dispatchers = [
         ("Journal", journal),
+        ("NodeRegister", node_register),
         ("RTK", rtk),
         ("Environmental", environmental),
         ("Microphone", microphone),
         ("BirdNET", birdnet),
         ("Communication", communication),
     ]
+    
 
+    
     threads = []
 
     for name, dispatcher in dispatchers:

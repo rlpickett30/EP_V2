@@ -8,5 +8,15 @@
         "node_id": "faux_node_02",
         "created_by": "node_repository",
         "created_at_utc": "2026-06-12T20:23:41.996506"
+    },
+    "rtk": {
+        "node_id": "rtk",
+        "created_by": "node_repository",
+        "created_at_utc": "2026-06-15T17:46:48.106311"
+    },
+    "node_01": {
+        "node_id": "node_01",
+        "created_by": "node_repository",
+        "created_at_utc": "2026-06-15T17:46:48.142390"
     }
 }

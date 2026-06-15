@@ -103,13 +103,19 @@ class EnvironmentalDispatcher:
     # --------------------------------------------------
     # State Logic
     # --------------------------------------------------
-
+    
     def _is_online(self, sensor_snapshot: Optional[Dict[str, Any]]) -> bool:
 
-        if sensor_snapshot is None:
+        if not isinstance(sensor_snapshot, dict):
             return False
 
+        if "online" in sensor_snapshot:
+            return bool(sensor_snapshot.get("online"))
+
         if sensor_snapshot.get("last_error"):
+            return False
+
+        if sensor_snapshot.get("driver_start_monotonic") is None:
             return False
 
         return True
@@ -120,15 +126,19 @@ class EnvironmentalDispatcher:
         sensor_snapshot: Optional[Dict[str, Any]]
     ) -> Dict[str, Any]:
 
-        if sensor_snapshot is None:
+        if not isinstance(sensor_snapshot, dict):
             return {
                 "online": False,
-                "last_error": "missing_snapshot"
+                "started": False,
+                "last_error": "missing_snapshot",
+                "sample_count": 0
             }
 
         return {
             "online": self._is_online(sensor_snapshot),
-            "last_error": sensor_snapshot.get("last_error")
+            "started": bool(sensor_snapshot.get("started", False)),
+            "last_error": sensor_snapshot.get("last_error"),
+            "sample_count": sensor_snapshot.get("sample_count", 0)
         }
 
     def _build_sensor_states(
@@ -247,7 +257,7 @@ class EnvironmentalDispatcher:
             "subsystem": "environmental",
             "state": self._state_label(sensor_states),
             "online": enviro_online,
-            "enabled": enviro_online,
+            "enabled": True,
             "enviro_online": enviro_online,
             "required_sensors": list(self.required_sensors),
             "sensors": sensor_states

@@ -113,5 +113,126 @@
         "rtk_online": false,
         "gps_coord": null,
         "last_update": null
+    },
+    "rtk": {
+        "bmp390_online": false,
+        "sht45_online": false,
+        "gps_lock": false,
+        "pps_lock": false,
+        "rtk_online": false,
+        "gps_coord": null,
+        "last_update": null,
+        "gps_state": {
+            "gps_online": false,
+            "gps_locked": false,
+            "fix_valid": false,
+            "state": "LOST",
+            "snapshot": {
+                "event_id": "GPS_1781545908",
+                "event_utc": 1781545908,
+                "fix_valid": false,
+                "latitude": null,
+                "longitude": null,
+                "altitude_m": null,
+                "satellites": 0,
+                "hdop": null
+            },
+            "event_type": "GPS_STATE",
+            "source": "rtk",
+            "target": "sender",
+            "timestamp": "2026-06-15T17:51:48.880595Z",
+            "node_id": "rtk",
+            "source_event_type": "GPS_STATE"
+        },
+        "gps_locked": false,
+        "gps_fix_type": null,
+        "tdoa_capable": false,
+        "pps_state": {
+            "pps_online": false,
+            "pps_locked": false,
+            "pps_valid": false,
+            "state": "LOST",
+            "snapshot": {
+                "event_id": "PPS_1781545908",
+                "event_utc": 1781545908,
+                "pps_valid": false
+            },
+            "event_type": "PPS_STATE",
+            "source": "rtk",
+            "target": "sender",
+            "timestamp": "2026-06-15T17:51:48.881963Z",
+            "node_id": "rtk",
+            "source_event_type": "PPS_STATE"
+        },
+        "pps_locked": false,
+        "pps_last_tick_utc": null,
+        "rtk_state": {
+            "rtk_online": false,
+            "rtk_fixed": false,
+            "rtk_status": "UNKNOWN",
+            "state": "OFFLINE",
+            "snapshot": {
+                "event_id": "GPS_1781545908",
+                "event_utc": 1781545908,
+                "fix_valid": false,
+                "latitude": null,
+                "longitude": null,
+                "altitude_m": null,
+                "satellites": 0,
+                "hdop": null
+            },
+            "event_type": "RTK_STATE",
+            "source": "rtk",
+            "target": "sender",
+            "timestamp": "2026-06-15T17:51:48.883159Z",
+            "node_id": "rtk",
+            "source_event_type": "RTK_STATE"
+        },
+        "rtk_fix_type": null,
+        "rtk_tdoa_capable": false
+    },
+    "node_01": {
+        "bmp390_online": false,
+        "sht45_online": false,
+        "gps_lock": false,
+        "pps_lock": false,
+        "rtk_online": false,
+        "gps_coord": null,
+        "last_update": null,
+        "enviro_state": {
+            "node_id": "node_01",
+            "subsystem": "environmental",
+            "state": "OFFLINE",
+            "online": false,
+            "enabled": true,
+            "enviro_online": false,
+            "required_sensors": [
+                "sht45",
+                "bmp390"
+            ],
+            "sensors": {
+                "sht45": {
+                    "online": false,
+                    "started": false,
+                    "last_error": "ValueError: No I2C device at address: 0x44",
+                    "sample_count": 0
+                },
+                "bmp390": {
+                    "online": false,
+                    "started": false,
+                    "last_error": "RuntimeError: Could not initialize BMP390 at 0x77 or 0x76: No I2C device at address: 0x76",
+                    "sample_count": 0
+                }
+            },
+            "event_type": "ENVIRO_STATE",
+            "source": "node_01",
+            "target": "server",
+            "timestamp": "2026-06-15T17:51:48.849132+00:00",
+            "source_event_type": "ENVIRO_STATE"
+        },
+        "enviro_online": false,
+        "temperature_c": null,
+        "humidity_percent": null,
+        "pressure_hpa": null
     }
 }
