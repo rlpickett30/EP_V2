@@ -1,1 +1,1373 @@
-{}
+{
+    "faux_node_01": [
+        {
+            "event_type": "SERVER_NODE_REGISTER",
+            "source": "communication",
+            "target": "gui",
+            "payload": {
+                "reason": "NODE_REGISTER",
+                "action": "updated",
+                "node_id": "faux_node_01",
+                "node_name": "Faux Node 01",
+                "node_role": "field_node",
+                "device_id": "faux_node_01",
+                "device_role": "NODE",
+                "trust": "provisional",
+                "capabilities": {
+                    "avis_lite": true,
+                    "tdoa_recording": true,
+                    "pps": true,
+                    "gps": true,
+                    "environmental": true,
+                    "sht45": true,
+                    "bmp390": true
+                },
+                "registered_at_utc": "2026-06-12T19:44:44.063724+00:00",
+                "last_seen_utc": "2026-06-12T20:22:30.363726+00:00",
+                "registration_count": 6,
+                "registry_record": {
+                    "node_id": "faux_node_01",
+                    "device_id": "faux_node_01",
+                    "device_role": "NODE",
+                    "node_name": "Faux Node 01",
+                    "node_role": "field_node",
+                    "trust": "provisional",
+                    "source": "faux_node_01",
+                    "capabilities": {
+                        "avis_lite": true,
+                        "tdoa_recording": true,
+                        "pps": true,
+                        "gps": true,
+                        "environmental": true,
+                        "sht45": true,
+                        "bmp390": true
+                    },
+                    "ip_address": null,
+                    "port": null,
+                    "software_version": null,
+                    "notes": null,
+                    "registered_at_utc": "2026-06-12T19:44:44.063724+00:00",
+                    "last_seen_utc": "2026-06-12T20:22:30.363726+00:00",
+                    "registration_count": 6
+                }
+            },
+            "_communication": {
+                "transport": "udp",
+                "received_timestamp": "2026-06-12T20:22:30.364154",
+                "source_ip": "127.0.0.1",
+                "source_port": 63696,
+                "rx_count": 1,
+                "rx_errors": 0
+            }
+        },
+        {
+            "event_type": "NODE_STATE_UPDATED",
+            "source": "communication",
+            "target": "gui",
+            "payload": {
+                "server_event_key": "gps_state",
+                "incoming_event": "GPS_STATE",
+                "source_type": "node",
+                "node_id": "faux_node_01",
+                "node_name": "Faux Node 01",
+                "changed": true,
+                "timestamp_utc": "2026-06-12T20:22:44.324004+00:00",
+                "state": {
+                    "gps_state": {
+                        "node_id": "faux_node_01",
+                        "node_name": "Faux Node 01",
+                        "gps_available": true,
+                        "gps_lock": true,
+                        "fix_type": "RTK_FIXED",
+                        "satellites": 18,
+                        "gps_coord": {
+                            "lat": 37.2753,
+                            "lon": -107.8801,
+                            "alt": 2012.4
+                        },
+                        "event_type": "GPS_STATE",
+                        "event_id": "SIM_GPS_STATE_20260612T202244322956Z_DF68CF81",
+                        "source": "faux_node_01",
+                        "source_name": "Faux Node 01",
+                        "target": "server",
+                        "simulated": true,
+                        "timestamp": "2026-06-12T20:22:44.323585",
+                        "timestamp_utc": "2026-06-12T20:22:44.323013+00:00",
+                        "source_event_type": "GPS_STATE"
+                    },
+                    "gps_locked": true,
+                    "gps_fix_type": "RTK_FIXED",
+                    "gps_coord": {
+                        "lat": 37.2753,
+                        "lon": -107.8801,
+                        "alt": 2012.4
+                    },
+                    "tdoa_capable": true
+                },
+                "previous_state": {
+                    "gps_state": {
+                        "node_id": "faux_node_01",
+                        "node_name": "Faux Node 01",
+                        "gps_available": true,
+                        "gps_lock": true,
+                        "fix_type": "RTK_FIXED",
+                        "satellites": 18,
+                        "gps_coord": {
+                            "lat": 37.2753,
+                            "lon": -107.8801,
+                            "alt": 2012.4
+                        },
+                        "event_type": "GPS_STATE",
+                        "event_id": "SIM_GPS_STATE_20260612T200329484633Z_064F8361",
+                        "source": "faux_node_01",
+                        "source_name": "Faux Node 01",
+                        "target": "server",
+                        "simulated": true,
+                        "timestamp": "2026-06-12T20:03:29.485284",
+                        "timestamp_utc": "2026-06-12T20:03:29.484685+00:00",
+                        "source_event_type": "GPS_STATE"
+                    },
+                    "gps_locked": true,
+                    "gps_fix_type": "RTK_FIXED",
+                    "gps_coord": {
+                        "lat": 37.2753,
+                        "lon": -107.8801,
+                        "alt": 2012.4
+                    },
+                    "tdoa_capable": true
+                },
+                "node_state_snapshot": {
+                    "node_id": "faux_node_01",
+                    "node_name": "Faux Node 01",
+                    "created_at_utc": "2026-06-12T19:46:09.095892+00:00",
+                    "last_seen_utc": "2026-06-12T20:22:44.323013+00:00",
+                    "last_state_update_utc": "2026-06-12T20:22:44.323013+00:00",
+                    "last_state_event": "GPS_STATE",
+                    "last_source": "faux_node_01",
+                    "simulated": true,
+                    "rtk_state": {
+                        "node_id": "faux_node_01",
+                        "node_name": "Faux Node 01",
+                        "rtk_available": true,
+                        "rtk_online": true,
+                        "rtk_ready": true,
+                        "rtk_fix_type": "RTK_FIXED",
+                        "fix_type": "RTK_FIXED",
+                        "healthy": true,
+                        "last_state_utc": "2026-06-12T20:03:31.844404+00:00",
+                        "event_type": "RTK_STATE",
+                        "event_id": "SIM_RTK_STATE_20260612T200331844419Z_CE9C9C94",
+                        "source": "faux_node_01",
+                        "source_name": "Faux Node 01",
+                        "target": "server",
+                        "simulated": true,
+                        "timestamp": "2026-06-12T20:03:31.844976",
+                        "timestamp_utc": "2026-06-12T20:03:31.844459+00:00",
+                        "source_event_type": "RTK_STATE"
+                    },
+                    "gps_state": {
+                        "node_id": "faux_node_01",
+                        "node_name": "Faux Node 01",
+                        "gps_available": true,
+                        "gps_lock": true,
+                        "fix_type": "RTK_FIXED",
+                        "satellites": 18,
+                        "gps_coord": {
+                            "lat": 37.2753,
+                            "lon": -107.8801,
+                            "alt": 2012.4
+                        },
+                        "event_type": "GPS_STATE",
+                        "event_id": "SIM_GPS_STATE_20260612T202244322956Z_DF68CF81",
+                        "source": "faux_node_01",
+                        "source_name": "Faux Node 01",
+                        "target": "server",
+                        "simulated": true,
+                        "timestamp": "2026-06-12T20:22:44.323585",
+                        "timestamp_utc": "2026-06-12T20:22:44.323013+00:00",
+                        "source_event_type": "GPS_STATE"
+                    },
+                    "pps_state": {
+                        "node_id": "faux_node_01",
+                        "node_name": "Faux Node 01",
+                        "pps_available": true,
+                        "pps_locked": true,
+                        "last_tick_utc": "2026-06-12T20:03:23.623263+00:00",
+                        "event_type": "PPS_STATE",
+                        "event_id": "SIM_PPS_STATE_20260612T200323623276Z_BA94FE3B",
+                        "source": "faux_node_01",
+                        "source_name": "Faux Node 01",
+                        "target": "server",
+                        "simulated": true,
+                        "timestamp": "2026-06-12T20:03:23.623857",
+                        "timestamp_utc": "2026-06-12T20:03:23.623331+00:00",
+                        "source_event_type": "PPS_STATE"
+                    },
+                    "enviro_state": {},
+                    "rtk_online": true,
+                    "rtk_fix_type": "RTK_FIXED",
+                    "gps_locked": true,
+                    "gps_fix_type": "RTK_FIXED",
+                    "gps_coord": {
+                        "lat": 37.2753,
+                        "lon": -107.8801,
+                        "alt": 2012.4
+                    },
+                    "pps_locked": true,
+                    "pps_last_tick_utc": "2026-06-12T20:03:23.623263+00:00",
+                    "enviro_online": false,
+                    "bmp390_online": false,
+                    "sht45_online": false,
+                    "temperature_c": null,
+                    "humidity_percent": null,
+                    "pressure_hpa": null,
+                    "tdoa_capable": true,
+                    "rtk_tdoa_capable": true
+                },
+                "debug": {
+                    "incoming_payload": {
+                        "node_id": "faux_node_01",
+                        "node_name": "Faux Node 01",
+                        "gps_available": true,
+                        "gps_lock": true,
+                        "fix_type": "RTK_FIXED",
+                        "satellites": 18,
+                        "gps_coord": {
+                            "lat": 37.2753,
+                            "lon": -107.8801,
+                            "alt": 2012.4
+                        },
+                        "event_type": "GPS_STATE",
+                        "event_id": "SIM_GPS_STATE_20260612T202244322956Z_DF68CF81",
+                        "source": "faux_node_01",
+                        "source_name": "Faux Node 01",
+                        "target": "server",
+                        "simulated": true,
+                        "timestamp": "2026-06-12T20:22:44.323585",
+                        "timestamp_utc": "2026-06-12T20:22:44.323013+00:00",
+                        "source_event_type": "GPS_STATE"
+                    }
+                }
+            },
+            "_communication": {
+                "transport": "udp",
+                "received_timestamp": "2026-06-12T20:22:44.324204",
+                "source_ip": "127.0.0.1",
+                "source_port": 63696,
+                "rx_count": 2,
+                "rx_errors": 0
+            }
+        },
+        {
+            "event_type": "NODE_STATE_UPDATED",
+            "source": "communication",
+            "target": "gui",
+            "payload": {
+                "server_event_key": "rtk_state",
+                "incoming_event": "RTK_STATE",
+                "source_type": "node",
+                "node_id": "faux_node_01",
+                "node_name": "Faux Node 01",
+                "changed": true,
+                "timestamp_utc": "2026-06-12T20:22:45.876245+00:00",
+                "state": {
+                    "rtk_state": {
+                        "node_id": "faux_node_01",
+                        "node_name": "Faux Node 01",
+                        "rtk_available": true,
+                        "rtk_online": true,
+                        "rtk_ready": true,
+                        "rtk_fix_type": "RTK_FIXED",
+                        "fix_type": "RTK_FIXED",
+                        "healthy": true,
+                        "last_state_utc": "2026-06-12T20:22:45.875165+00:00",
+                        "event_type": "RTK_STATE",
+                        "event_id": "SIM_RTK_STATE_20260612T202245875179Z_36DDFEA6",
+                        "source": "faux_node_01",
+                        "source_name": "Faux Node 01",
+                        "target": "server",
+                        "simulated": true,
+                        "timestamp": "2026-06-12T20:22:45.875911",
+                        "timestamp_utc": "2026-06-12T20:22:45.875225+00:00",
+                        "source_event_type": "RTK_STATE"
+                    },
+                    "rtk_online": true,
+                    "rtk_fix_type": "RTK_FIXED",
+                    "rtk_tdoa_capable": true
+                },
+                "previous_state": {
+                    "rtk_state": {
+                        "node_id": "faux_node_01",
+                        "node_name": "Faux Node 01",
+                        "rtk_available": true,
+                        "rtk_online": true,
+                        "rtk_ready": true,
+                        "rtk_fix_type": "RTK_FIXED",
+                        "fix_type": "RTK_FIXED",
+                        "healthy": true,
+                        "last_state_utc": "2026-06-12T20:03:31.844404+00:00",
+                        "event_type": "RTK_STATE",
+                        "event_id": "SIM_RTK_STATE_20260612T200331844419Z_CE9C9C94",
+                        "source": "faux_node_01",
+                        "source_name": "Faux Node 01",
+                        "target": "server",
+                        "simulated": true,
+                        "timestamp": "2026-06-12T20:03:31.844976",
+                        "timestamp_utc": "2026-06-12T20:03:31.844459+00:00",
+                        "source_event_type": "RTK_STATE"
+                    },
+                    "rtk_online": true,
+                    "rtk_fix_type": "RTK_FIXED",
+                    "rtk_tdoa_capable": true
+                },
+                "node_state_snapshot": {
+                    "node_id": "faux_node_01",
+                    "node_name": "Faux Node 01",
+                    "created_at_utc": "2026-06-12T19:46:09.095892+00:00",
+                    "last_seen_utc": "2026-06-12T20:22:45.875225+00:00",
+                    "last_state_update_utc": "2026-06-12T20:22:45.875225+00:00",
+                    "last_state_event": "RTK_STATE",
+                    "last_source": "faux_node_01",
+                    "simulated": true,
+                    "rtk_state": {
+                        "node_id": "faux_node_01",
+                        "node_name": "Faux Node 01",
+                        "rtk_available": true,
+                        "rtk_online": true,
+                        "rtk_ready": true,
+                        "rtk_fix_type": "RTK_FIXED",
+                        "fix_type": "RTK_FIXED",
+                        "healthy": true,
+                        "last_state_utc": "2026-06-12T20:22:45.875165+00:00",
+                        "event_type": "RTK_STATE",
+                        "event_id": "SIM_RTK_STATE_20260612T202245875179Z_36DDFEA6",
+                        "source": "faux_node_01",
+                        "source_name": "Faux Node 01",
+                        "target": "server",
+                        "simulated": true,
+                        "timestamp": "2026-06-12T20:22:45.875911",
+                        "timestamp_utc": "2026-06-12T20:22:45.875225+00:00",
+                        "source_event_type": "RTK_STATE"
+                    },
+                    "gps_state": {
+                        "node_id": "faux_node_01",
+                        "node_name": "Faux Node 01",
+                        "gps_available": true,
+                        "gps_lock": true,
+                        "fix_type": "RTK_FIXED",
+                        "satellites": 18,
+                        "gps_coord": {
+                            "lat": 37.2753,
+                            "lon": -107.8801,
+                            "alt": 2012.4
+                        },
+                        "event_type": "GPS_STATE",
+                        "event_id": "SIM_GPS_STATE_20260612T202244322956Z_DF68CF81",
+                        "source": "faux_node_01",
+                        "source_name": "Faux Node 01",
+                        "target": "server",
+                        "simulated": true,
+                        "timestamp": "2026-06-12T20:22:44.323585",
+                        "timestamp_utc": "2026-06-12T20:22:44.323013+00:00",
+                        "source_event_type": "GPS_STATE"
+                    },
+                    "pps_state": {
+                        "node_id": "faux_node_01",
+                        "node_name": "Faux Node 01",
+                        "pps_available": true,
+                        "pps_locked": true,
+                        "last_tick_utc": "2026-06-12T20:03:23.623263+00:00",
+                        "event_type": "PPS_STATE",
+                        "event_id": "SIM_PPS_STATE_20260612T200323623276Z_BA94FE3B",
+                        "source": "faux_node_01",
+                        "source_name": "Faux Node 01",
+                        "target": "server",
+                        "simulated": true,
+                        "timestamp": "2026-06-12T20:03:23.623857",
+                        "timestamp_utc": "2026-06-12T20:03:23.623331+00:00",
+                        "source_event_type": "PPS_STATE"
+                    },
+                    "enviro_state": {},
+                    "rtk_online": true,
+                    "rtk_fix_type": "RTK_FIXED",
+                    "gps_locked": true,
+                    "gps_fix_type": "RTK_FIXED",
+                    "gps_coord": {
+                        "lat": 37.2753,
+                        "lon": -107.8801,
+                        "alt": 2012.4
+                    },
+                    "pps_locked": true,
+                    "pps_last_tick_utc": "2026-06-12T20:03:23.623263+00:00",
+                    "enviro_online": false,
+                    "bmp390_online": false,
+                    "sht45_online": false,
+                    "temperature_c": null,
+                    "humidity_percent": null,
+                    "pressure_hpa": null,
+                    "tdoa_capable": true,
+                    "rtk_tdoa_capable": true
+                },
+                "debug": {
+                    "incoming_payload": {
+                        "node_id": "faux_node_01",
+                        "node_name": "Faux Node 01",
+                        "rtk_available": true,
+                        "rtk_online": true,
+                        "rtk_ready": true,
+                        "rtk_fix_type": "RTK_FIXED",
+                        "fix_type": "RTK_FIXED",
+                        "healthy": true,
+                        "last_state_utc": "2026-06-12T20:22:45.875165+00:00",
+                        "event_type": "RTK_STATE",
+                        "event_id": "SIM_RTK_STATE_20260612T202245875179Z_36DDFEA6",
+                        "source": "faux_node_01",
+                        "source_name": "Faux Node 01",
+                        "target": "server",
+                        "simulated": true,
+                        "timestamp": "2026-06-12T20:22:45.875911",
+                        "timestamp_utc": "2026-06-12T20:22:45.875225+00:00",
+                        "source_event_type": "RTK_STATE"
+                    }
+                }
+            },
+            "_communication": {
+                "transport": "udp",
+                "received_timestamp": "2026-06-12T20:22:45.876431",
+                "source_ip": "127.0.0.1",
+                "source_port": 63696,
+                "rx_count": 3,
+                "rx_errors": 0
+            }
+        },
+        {
+            "event_type": "NODE_STATE_UPDATED",
+            "source": "communication",
+            "target": "gui",
+            "payload": {
+                "server_event_key": "pps_state",
+                "incoming_event": "PPS_STATE",
+                "source_type": "node",
+                "node_id": "faux_node_01",
+                "node_name": "Faux Node 01",
+                "changed": true,
+                "timestamp_utc": "2026-06-12T20:22:53.171967+00:00",
+                "state": {
+                    "pps_state": {
+                        "node_id": "faux_node_01",
+                        "node_name": "Faux Node 01",
+                        "pps_available": true,
+                        "pps_locked": true,
+                        "last_tick_utc": "2026-06-12T20:22:53.170973+00:00",
+                        "event_type": "PPS_STATE",
+                        "event_id": "SIM_PPS_STATE_20260612T202253170989Z_88BFE3E0",
+                        "source": "faux_node_01",
+                        "source_name": "Faux Node 01",
+                        "target": "server",
+                        "simulated": true,
+                        "timestamp": "2026-06-12T20:22:53.171576",
+                        "timestamp_utc": "2026-06-12T20:22:53.171032+00:00",
+                        "source_event_type": "PPS_STATE"
+                    },
+                    "pps_locked": true,
+                    "pps_last_tick_utc": "2026-06-12T20:22:53.170973+00:00",
+                    "tdoa_capable": true
+                },
+                "previous_state": {
+                    "pps_state": {
+                        "node_id": "faux_node_01",
+                        "node_name": "Faux Node 01",
+                        "pps_available": true,
+                        "pps_locked": true,
+                        "last_tick_utc": "2026-06-12T20:03:23.623263+00:00",
+                        "event_type": "PPS_STATE",
+                        "event_id": "SIM_PPS_STATE_20260612T200323623276Z_BA94FE3B",
+                        "source": "faux_node_01",
+                        "source_name": "Faux Node 01",
+                        "target": "server",
+                        "simulated": true,
+                        "timestamp": "2026-06-12T20:03:23.623857",
+                        "timestamp_utc": "2026-06-12T20:03:23.623331+00:00",
+                        "source_event_type": "PPS_STATE"
+                    },
+                    "pps_locked": true,
+                    "pps_last_tick_utc": "2026-06-12T20:03:23.623263+00:00",
+                    "tdoa_capable": true
+                },
+                "node_state_snapshot": {
+                    "node_id": "faux_node_01",
+                    "node_name": "Faux Node 01",
+                    "created_at_utc": "2026-06-12T19:46:09.095892+00:00",
+                    "last_seen_utc": "2026-06-12T20:22:53.171032+00:00",
+                    "last_state_update_utc": "2026-06-12T20:22:53.171032+00:00",
+                    "last_state_event": "PPS_STATE",
+                    "last_source": "faux_node_01",
+                    "simulated": true,
+                    "rtk_state": {
+                        "node_id": "faux_node_01",
+                        "node_name": "Faux Node 01",
+                        "rtk_available": true,
+                        "rtk_online": true,
+                        "rtk_ready": true,
+                        "rtk_fix_type": "RTK_FIXED",
+                        "fix_type": "RTK_FIXED",
+                        "healthy": true,
+                        "last_state_utc": "2026-06-12T20:22:45.875165+00:00",
+                        "event_type": "RTK_STATE",
+                        "event_id": "SIM_RTK_STATE_20260612T202245875179Z_36DDFEA6",
+                        "source": "faux_node_01",
+                        "source_name": "Faux Node 01",
+                        "target": "server",
+                        "simulated": true,
+                        "timestamp": "2026-06-12T20:22:45.875911",
+                        "timestamp_utc": "2026-06-12T20:22:45.875225+00:00",
+                        "source_event_type": "RTK_STATE"
+                    },
+                    "gps_state": {
+                        "node_id": "faux_node_01",
+                        "node_name": "Faux Node 01",
+                        "gps_available": true,
+                        "gps_lock": true,
+                        "fix_type": "RTK_FIXED",
+                        "satellites": 18,
+                        "gps_coord": {
+                            "lat": 37.2753,
+                            "lon": -107.8801,
+                            "alt": 2012.4
+                        },
+                        "event_type": "GPS_STATE",
+                        "event_id": "SIM_GPS_STATE_20260612T202244322956Z_DF68CF81",
+                        "source": "faux_node_01",
+                        "source_name": "Faux Node 01",
+                        "target": "server",
+                        "simulated": true,
+                        "timestamp": "2026-06-12T20:22:44.323585",
+                        "timestamp_utc": "2026-06-12T20:22:44.323013+00:00",
+                        "source_event_type": "GPS_STATE"
+                    },
+                    "pps_state": {
+                        "node_id": "faux_node_01",
+                        "node_name": "Faux Node 01",
+                        "pps_available": true,
+                        "pps_locked": true,
+                        "last_tick_utc": "2026-06-12T20:22:53.170973+00:00",
+                        "event_type": "PPS_STATE",
+                        "event_id": "SIM_PPS_STATE_20260612T202253170989Z_88BFE3E0",
+                        "source": "faux_node_01",
+                        "source_name": "Faux Node 01",
+                        "target": "server",
+                        "simulated": true,
+                        "timestamp": "2026-06-12T20:22:53.171576",
+                        "timestamp_utc": "2026-06-12T20:22:53.171032+00:00",
+                        "source_event_type": "PPS_STATE"
+                    },
+                    "enviro_state": {},
+                    "rtk_online": true,
+                    "rtk_fix_type": "RTK_FIXED",
+                    "gps_locked": true,
+                    "gps_fix_type": "RTK_FIXED",
+                    "gps_coord": {
+                        "lat": 37.2753,
+                        "lon": -107.8801,
+                        "alt": 2012.4
+                    },
+                    "pps_locked": true,
+                    "pps_last_tick_utc": "2026-06-12T20:22:53.170973+00:00",
+                    "enviro_online": false,
+                    "bmp390_online": false,
+                    "sht45_online": false,
+                    "temperature_c": null,
+                    "humidity_percent": null,
+                    "pressure_hpa": null,
+                    "tdoa_capable": true,
+                    "rtk_tdoa_capable": true
+                },
+                "debug": {
+                    "incoming_payload": {
+                        "node_id": "faux_node_01",
+                        "node_name": "Faux Node 01",
+                        "pps_available": true,
+                        "pps_locked": true,
+                        "last_tick_utc": "2026-06-12T20:22:53.170973+00:00",
+                        "event_type": "PPS_STATE",
+                        "event_id": "SIM_PPS_STATE_20260612T202253170989Z_88BFE3E0",
+                        "source": "faux_node_01",
+                        "source_name": "Faux Node 01",
+                        "target": "server",
+                        "simulated": true,
+                        "timestamp": "2026-06-12T20:22:53.171576",
+                        "timestamp_utc": "2026-06-12T20:22:53.171032+00:00",
+                        "source_event_type": "PPS_STATE"
+                    }
+                }
+            },
+            "_communication": {
+                "transport": "udp",
+                "received_timestamp": "2026-06-12T20:22:53.172187",
+                "source_ip": "127.0.0.1",
+                "source_port": 63696,
+                "rx_count": 4,
+                "rx_errors": 0
+            }
+        },
+        {
+            "event_type": "NODE_STATE_UPDATED",
+            "source": "communication",
+            "target": "gui",
+            "payload": {
+                "server_event_key": "enviro_state",
+                "incoming_event": "ENVIRO_STATE",
+                "source_type": "node",
+                "node_id": "faux_node_01",
+                "node_name": "Faux Node 01",
+                "changed": true,
+                "timestamp_utc": "2026-06-12T20:22:56.516735+00:00",
+                "state": {
+                    "enviro_state": {
+                        "node_id": "faux_node_01",
+                        "node_name": "Faux Node 01",
+                        "sensors": {
+                            "SHT45": {
+                                "available": true,
+                                "healthy": true
+                            },
+                            "BMP390": {
+                                "available": true,
+                                "healthy": true
+                            }
+                        },
+                        "last_state_utc": "2026-06-12T20:22:56.515658+00:00",
+                        "event_type": "ENVIRO_STATE",
+                        "event_id": "SIM_ENVIRO_STATE_20260612T202256515675Z_6FB5A181",
+                        "source": "faux_node_01",
+                        "source_name": "Faux Node 01",
+                        "target": "server",
+                        "simulated": true,
+                        "timestamp": "2026-06-12T20:22:56.516305",
+                        "timestamp_utc": "2026-06-12T20:22:56.515716+00:00",
+                        "source_event_type": "ENVIRO_STATE"
+                    },
+                    "enviro_online": true,
+                    "bmp390_online": true,
+                    "sht45_online": true,
+                    "temperature_c": null,
+                    "humidity_percent": null,
+                    "pressure_hpa": null
+                },
+                "previous_state": {
+                    "enviro_state": {},
+                    "enviro_online": false,
+                    "bmp390_online": false,
+                    "sht45_online": false,
+                    "temperature_c": null,
+                    "humidity_percent": null,
+                    "pressure_hpa": null
+                },
+                "node_state_snapshot": {
+                    "node_id": "faux_node_01",
+                    "node_name": "Faux Node 01",
+                    "created_at_utc": "2026-06-12T19:46:09.095892+00:00",
+                    "last_seen_utc": "2026-06-12T20:22:56.515716+00:00",
+                    "last_state_update_utc": "2026-06-12T20:22:56.515716+00:00",
+                    "last_state_event": "ENVIRO_STATE",
+                    "last_source": "faux_node_01",
+                    "simulated": true,
+                    "rtk_state": {
+                        "node_id": "faux_node_01",
+                        "node_name": "Faux Node 01",
+                        "rtk_available": true,
+                        "rtk_online": true,
+                        "rtk_ready": true,
+                        "rtk_fix_type": "RTK_FIXED",
+                        "fix_type": "RTK_FIXED",
+                        "healthy": true,
+                        "last_state_utc": "2026-06-12T20:22:45.875165+00:00",
+                        "event_type": "RTK_STATE",
+                        "event_id": "SIM_RTK_STATE_20260612T202245875179Z_36DDFEA6",
+                        "source": "faux_node_01",
+                        "source_name": "Faux Node 01",
+                        "target": "server",
+                        "simulated": true,
+                        "timestamp": "2026-06-12T20:22:45.875911",
+                        "timestamp_utc": "2026-06-12T20:22:45.875225+00:00",
+                        "source_event_type": "RTK_STATE"
+                    },
+                    "gps_state": {
+                        "node_id": "faux_node_01",
+                        "node_name": "Faux Node 01",
+                        "gps_available": true,
+                        "gps_lock": true,
+                        "fix_type": "RTK_FIXED",
+                        "satellites": 18,
+                        "gps_coord": {
+                            "lat": 37.2753,
+                            "lon": -107.8801,
+                            "alt": 2012.4
+                        },
+                        "event_type": "GPS_STATE",
+                        "event_id": "SIM_GPS_STATE_20260612T202244322956Z_DF68CF81",
+                        "source": "faux_node_01",
+                        "source_name": "Faux Node 01",
+                        "target": "server",
+                        "simulated": true,
+                        "timestamp": "2026-06-12T20:22:44.323585",
+                        "timestamp_utc": "2026-06-12T20:22:44.323013+00:00",
+                        "source_event_type": "GPS_STATE"
+                    },
+                    "pps_state": {
+                        "node_id": "faux_node_01",
+                        "node_name": "Faux Node 01",
+                        "pps_available": true,
+                        "pps_locked": true,
+                        "last_tick_utc": "2026-06-12T20:22:53.170973+00:00",
+                        "event_type": "PPS_STATE",
+                        "event_id": "SIM_PPS_STATE_20260612T202253170989Z_88BFE3E0",
+                        "source": "faux_node_01",
+                        "source_name": "Faux Node 01",
+                        "target": "server",
+                        "simulated": true,
+                        "timestamp": "2026-06-12T20:22:53.171576",
+                        "timestamp_utc": "2026-06-12T20:22:53.171032+00:00",
+                        "source_event_type": "PPS_STATE"
+                    },
+                    "enviro_state": {
+                        "node_id": "faux_node_01",
+                        "node_name": "Faux Node 01",
+                        "sensors": {
+                            "SHT45": {
+                                "available": true,
+                                "healthy": true
+                            },
+                            "BMP390": {
+                                "available": true,
+                                "healthy": true
+                            }
+                        },
+                        "last_state_utc": "2026-06-12T20:22:56.515658+00:00",
+                        "event_type": "ENVIRO_STATE",
+                        "event_id": "SIM_ENVIRO_STATE_20260612T202256515675Z_6FB5A181",
+                        "source": "faux_node_01",
+                        "source_name": "Faux Node 01",
+                        "target": "server",
+                        "simulated": true,
+                        "timestamp": "2026-06-12T20:22:56.516305",
+                        "timestamp_utc": "2026-06-12T20:22:56.515716+00:00",
+                        "source_event_type": "ENVIRO_STATE"
+                    },
+                    "rtk_online": true,
+                    "rtk_fix_type": "RTK_FIXED",
+                    "gps_locked": true,
+                    "gps_fix_type": "RTK_FIXED",
+                    "gps_coord": {
+                        "lat": 37.2753,
+                        "lon": -107.8801,
+                        "alt": 2012.4
+                    },
+                    "pps_locked": true,
+                    "pps_last_tick_utc": "2026-06-12T20:22:53.170973+00:00",
+                    "enviro_online": true,
+                    "bmp390_online": true,
+                    "sht45_online": true,
+                    "temperature_c": null,
+                    "humidity_percent": null,
+                    "pressure_hpa": null,
+                    "tdoa_capable": true,
+                    "rtk_tdoa_capable": true
+                },
+                "debug": {
+                    "incoming_payload": {
+                        "node_id": "faux_node_01",
+                        "node_name": "Faux Node 01",
+                        "sensors": {
+                            "SHT45": {
+                                "available": true,
+                                "healthy": true
+                            },
+                            "BMP390": {
+                                "available": true,
+                                "healthy": true
+                            }
+                        },
+                        "last_state_utc": "2026-06-12T20:22:56.515658+00:00",
+                        "event_type": "ENVIRO_STATE",
+                        "event_id": "SIM_ENVIRO_STATE_20260612T202256515675Z_6FB5A181",
+                        "source": "faux_node_01",
+                        "source_name": "Faux Node 01",
+                        "target": "server",
+                        "simulated": true,
+                        "timestamp": "2026-06-12T20:22:56.516305",
+                        "timestamp_utc": "2026-06-12T20:22:56.515716+00:00",
+                        "source_event_type": "ENVIRO_STATE"
+                    }
+                }
+            },
+            "_communication": {
+                "transport": "udp",
+                "received_timestamp": "2026-06-12T20:22:56.516949",
+                "source_ip": "127.0.0.1",
+                "source_port": 63696,
+                "rx_count": 5,
+                "rx_errors": 0
+            }
+        },
+        {
+            "event_type": "NODE_STATE_UPDATED",
+            "source": "communication",
+            "target": "gui",
+            "payload": {
+                "server_event_key": "enviro_state",
+                "incoming_event": "ENVIRO_STATE",
+                "source_type": "node",
+                "node_id": "faux_node_01",
+                "node_name": "Faux Node 01",
+                "changed": true,
+                "timestamp_utc": "2026-06-12T20:22:59.132753+00:00",
+                "state": {
+                    "enviro_state": {
+                        "node_id": "faux_node_01",
+                        "node_name": "Faux Node 01",
+                        "sensors": {
+                            "SHT45": {
+                                "available": true,
+                                "healthy": true
+                            },
+                            "BMP390": {
+                                "available": true,
+                                "healthy": true
+                            }
+                        },
+                        "last_state_utc": "2026-06-12T20:22:59.131491+00:00",
+                        "event_type": "ENVIRO_STATE",
+                        "event_id": "SIM_ENVIRO_STATE_20260612T202259131506Z_AA1645AA",
+                        "source": "faux_node_01",
+                        "source_name": "Faux Node 01",
+                        "target": "server",
+                        "simulated": true,
+                        "timestamp": "2026-06-12T20:22:59.132153",
+                        "timestamp_utc": "2026-06-12T20:22:59.131617+00:00",
+                        "source_event_type": "ENVIRO_STATE"
+                    },
+                    "enviro_online": true,
+                    "bmp390_online": true,
+                    "sht45_online": true,
+                    "temperature_c": null,
+                    "humidity_percent": null,
+                    "pressure_hpa": null
+                },
+                "previous_state": {
+                    "enviro_state": {
+                        "node_id": "faux_node_01",
+                        "node_name": "Faux Node 01",
+                        "sensors": {
+                            "SHT45": {
+                                "available": true,
+                                "healthy": true
+                            },
+                            "BMP390": {
+                                "available": true,
+                                "healthy": true
+                            }
+                        },
+                        "last_state_utc": "2026-06-12T20:22:56.515658+00:00",
+                        "event_type": "ENVIRO_STATE",
+                        "event_id": "SIM_ENVIRO_STATE_20260612T202256515675Z_6FB5A181",
+                        "source": "faux_node_01",
+                        "source_name": "Faux Node 01",
+                        "target": "server",
+                        "simulated": true,
+                        "timestamp": "2026-06-12T20:22:56.516305",
+                        "timestamp_utc": "2026-06-12T20:22:56.515716+00:00",
+                        "source_event_type": "ENVIRO_STATE"
+                    },
+                    "enviro_online": true,
+                    "bmp390_online": true,
+                    "sht45_online": true,
+                    "temperature_c": null,
+                    "humidity_percent": null,
+                    "pressure_hpa": null
+                },
+                "node_state_snapshot": {
+                    "node_id": "faux_node_01",
+                    "node_name": "Faux Node 01",
+                    "created_at_utc": "2026-06-12T19:46:09.095892+00:00",
+                    "last_seen_utc": "2026-06-12T20:22:59.131617+00:00",
+                    "last_state_update_utc": "2026-06-12T20:22:59.131617+00:00",
+                    "last_state_event": "ENVIRO_STATE",
+                    "last_source": "faux_node_01",
+                    "simulated": true,
+                    "rtk_state": {
+                        "node_id": "faux_node_01",
+                        "node_name": "Faux Node 01",
+                        "rtk_available": true,
+                        "rtk_online": true,
+                        "rtk_ready": true,
+                        "rtk_fix_type": "RTK_FIXED",
+                        "fix_type": "RTK_FIXED",
+                        "healthy": true,
+                        "last_state_utc": "2026-06-12T20:22:45.875165+00:00",
+                        "event_type": "RTK_STATE",
+                        "event_id": "SIM_RTK_STATE_20260612T202245875179Z_36DDFEA6",
+                        "source": "faux_node_01",
+                        "source_name": "Faux Node 01",
+                        "target": "server",
+                        "simulated": true,
+                        "timestamp": "2026-06-12T20:22:45.875911",
+                        "timestamp_utc": "2026-06-12T20:22:45.875225+00:00",
+                        "source_event_type": "RTK_STATE"
+                    },
+                    "gps_state": {
+                        "node_id": "faux_node_01",
+                        "node_name": "Faux Node 01",
+                        "gps_available": true,
+                        "gps_lock": true,
+                        "fix_type": "RTK_FIXED",
+                        "satellites": 18,
+                        "gps_coord": {
+                            "lat": 37.2753,
+                            "lon": -107.8801,
+                            "alt": 2012.4
+                        },
+                        "event_type": "GPS_STATE",
+                        "event_id": "SIM_GPS_STATE_20260612T202244322956Z_DF68CF81",
+                        "source": "faux_node_01",
+                        "source_name": "Faux Node 01",
+                        "target": "server",
+                        "simulated": true,
+                        "timestamp": "2026-06-12T20:22:44.323585",
+                        "timestamp_utc": "2026-06-12T20:22:44.323013+00:00",
+                        "source_event_type": "GPS_STATE"
+                    },
+                    "pps_state": {
+                        "node_id": "faux_node_01",
+                        "node_name": "Faux Node 01",
+                        "pps_available": true,
+                        "pps_locked": true,
+                        "last_tick_utc": "2026-06-12T20:22:53.170973+00:00",
+                        "event_type": "PPS_STATE",
+                        "event_id": "SIM_PPS_STATE_20260612T202253170989Z_88BFE3E0",
+                        "source": "faux_node_01",
+                        "source_name": "Faux Node 01",
+                        "target": "server",
+                        "simulated": true,
+                        "timestamp": "2026-06-12T20:22:53.171576",
+                        "timestamp_utc": "2026-06-12T20:22:53.171032+00:00",
+                        "source_event_type": "PPS_STATE"
+                    },
+                    "enviro_state": {
+                        "node_id": "faux_node_01",
+                        "node_name": "Faux Node 01",
+                        "sensors": {
+                            "SHT45": {
+                                "available": true,
+                                "healthy": true
+                            },
+                            "BMP390": {
+                                "available": true,
+                                "healthy": true
+                            }
+                        },
+                        "last_state_utc": "2026-06-12T20:22:59.131491+00:00",
+                        "event_type": "ENVIRO_STATE",
+                        "event_id": "SIM_ENVIRO_STATE_20260612T202259131506Z_AA1645AA",
+                        "source": "faux_node_01",
+                        "source_name": "Faux Node 01",
+                        "target": "server",
+                        "simulated": true,
+                        "timestamp": "2026-06-12T20:22:59.132153",
+                        "timestamp_utc": "2026-06-12T20:22:59.131617+00:00",
+                        "source_event_type": "ENVIRO_STATE"
+                    },
+                    "rtk_online": true,
+                    "rtk_fix_type": "RTK_FIXED",
+                    "gps_locked": true,
+                    "gps_fix_type": "RTK_FIXED",
+                    "gps_coord": {
+                        "lat": 37.2753,
+                        "lon": -107.8801,
+                        "alt": 2012.4
+                    },
+                    "pps_locked": true,
+                    "pps_last_tick_utc": "2026-06-12T20:22:53.170973+00:00",
+                    "enviro_online": true,
+                    "bmp390_online": true,
+                    "sht45_online": true,
+                    "temperature_c": null,
+                    "humidity_percent": null,
+                    "pressure_hpa": null,
+                    "tdoa_capable": true,
+                    "rtk_tdoa_capable": true
+                },
+                "debug": {
+                    "incoming_payload": {
+                        "node_id": "faux_node_01",
+                        "node_name": "Faux Node 01",
+                        "sensors": {
+                            "SHT45": {
+                                "available": true,
+                                "healthy": true
+                            },
+                            "BMP390": {
+                                "available": true,
+                                "healthy": true
+                            }
+                        },
+                        "last_state_utc": "2026-06-12T20:22:59.131491+00:00",
+                        "event_type": "ENVIRO_STATE",
+                        "event_id": "SIM_ENVIRO_STATE_20260612T202259131506Z_AA1645AA",
+                        "source": "faux_node_01",
+                        "source_name": "Faux Node 01",
+                        "target": "server",
+                        "simulated": true,
+                        "timestamp": "2026-06-12T20:22:59.132153",
+                        "timestamp_utc": "2026-06-12T20:22:59.131617+00:00",
+                        "source_event_type": "ENVIRO_STATE"
+                    }
+                }
+            },
+            "_communication": {
+                "transport": "udp",
+                "received_timestamp": "2026-06-12T20:22:59.133005",
+                "source_ip": "127.0.0.1",
+                "source_port": 63696,
+                "rx_count": 6,
+                "rx_errors": 0
+            }
+        },
+        {
+            "event_type": "SERVER_ENVIRO_EVENT",
+            "source": "communication",
+            "target": "gui",
+            "payload": {
+                "node_event": {
+                    "event_type": "SERVER_ENVIRO_EVENT",
+                    "source": "platform_registry",
+                    "payload": {
+                        "server_event_key": "SERVER_ENVIRO_EVENT",
+                        "incoming_event": "enviro_event",
+                        "source_type": "node",
+                        "node_id": "faux_node_01",
+                        "event_id": "SIM_ENVIRO_EVENT_20260612T202303112302Z_4CA83CD2",
+                        "timestamp_utc": "2026-06-12T20:23:03.112949+00:00",
+                        "enviro_event": {
+                            "temperature_c": 18.6,
+                            "humidity_percent": 41.2,
+                            "pressure_hpa": 802.4,
+                            "source_sensor": null,
+                            "sample_id": null
+                        },
+                        "event_record": {
+                            "event_id": "SIM_ENVIRO_EVENT_20260612T202303112302Z_4CA83CD2",
+                            "incoming_event": "enviro_event",
+                            "server_event_key": "SERVER_ENVIRO_EVENT",
+                            "node_id": "faux_node_01",
+                            "timestamp_utc": "2026-06-12T20:23:03.112349+00:00",
+                            "received_at_utc": "2026-06-12T20:23:03.112931+00:00",
+                            "enviro_event": {
+                                "temperature_c": 18.6,
+                                "humidity_percent": 41.2,
+                                "pressure_hpa": 802.4,
+                                "source_sensor": null,
+                                "sample_id": null
+                            },
+                            "original_payload": {
+                                "node_id": "faux_node_01",
+                                "node_name": "Faux Node 01",
+                                "temperature_c": 18.6,
+                                "humidity_percent": 41.2,
+                                "pressure_hpa": 802.4,
+                                "sample_time_utc": "2026-06-12T20:23:03.112286+00:00",
+                                "event_type": "ENVIRO_EVENT",
+                                "event_id": "SIM_ENVIRO_EVENT_20260612T202303112302Z_4CA83CD2",
+                                "source": "faux_node_01",
+                                "source_name": "Faux Node 01",
+                                "target": "server",
+                                "simulated": true,
+                                "timestamp": "2026-06-12T20:23:03.112877",
+                                "timestamp_utc": "2026-06-12T20:23:03.112349+00:00",
+                                "source_event_type": "ENVIRO_EVENT"
+                            }
+                        },
+                        "debug": {
+                            "incoming_payload": {
+                                "node_id": "faux_node_01",
+                                "node_name": "Faux Node 01",
+                                "temperature_c": 18.6,
+                                "humidity_percent": 41.2,
+                                "pressure_hpa": 802.4,
+                                "sample_time_utc": "2026-06-12T20:23:03.112286+00:00",
+                                "event_type": "ENVIRO_EVENT",
+                                "event_id": "SIM_ENVIRO_EVENT_20260612T202303112302Z_4CA83CD2",
+                                "source": "faux_node_01",
+                                "source_name": "Faux Node 01",
+                                "target": "server",
+                                "simulated": true,
+                                "timestamp": "2026-06-12T20:23:03.112877",
+                                "timestamp_utc": "2026-06-12T20:23:03.112349+00:00",
+                                "source_event_type": "ENVIRO_EVENT"
+                            }
+                        }
+                    },
+                    "timestamp": "2026-06-12T20:23:03.112982"
+                }
+            },
+            "_communication": {
+                "transport": "udp",
+                "received_timestamp": "2026-06-12T20:23:03.113109",
+                "source_ip": "127.0.0.1",
+                "source_port": 63696,
+                "rx_count": 7,
+                "rx_errors": 0
+            }
+        },
+        {
+            "event_type": "SERVER_ENVIRO_EVENT",
+            "source": "communication",
+            "target": "gui",
+            "payload": {
+                "node_event": {
+                    "event_type": "SERVER_ENVIRO_EVENT",
+                    "source": "platform_registry",
+                    "payload": {
+                        "server_event_key": "SERVER_ENVIRO_EVENT",
+                        "incoming_event": "enviro_event",
+                        "source_type": "node",
+                        "node_id": "faux_node_01",
+                        "event_id": "SIM_ENVIRO_EVENT_20260612T202304551841Z_4F93FDF5",
+                        "timestamp_utc": "2026-06-12T20:23:04.552544+00:00",
+                        "enviro_event": {
+                            "temperature_c": 18.6,
+                            "humidity_percent": 41.2,
+                            "pressure_hpa": 802.4,
+                            "source_sensor": null,
+                            "sample_id": null
+                        },
+                        "event_record": {
+                            "event_id": "SIM_ENVIRO_EVENT_20260612T202304551841Z_4F93FDF5",
+                            "incoming_event": "enviro_event",
+                            "server_event_key": "SERVER_ENVIRO_EVENT",
+                            "node_id": "faux_node_01",
+                            "timestamp_utc": "2026-06-12T20:23:04.551887+00:00",
+                            "received_at_utc": "2026-06-12T20:23:04.552526+00:00",
+                            "enviro_event": {
+                                "temperature_c": 18.6,
+                                "humidity_percent": 41.2,
+                                "pressure_hpa": 802.4,
+                                "source_sensor": null,
+                                "sample_id": null
+                            },
+                            "original_payload": {
+                                "node_id": "faux_node_01",
+                                "node_name": "Faux Node 01",
+                                "temperature_c": 18.6,
+                                "humidity_percent": 41.2,
+                                "pressure_hpa": 802.4,
+                                "sample_time_utc": "2026-06-12T20:23:04.551826+00:00",
+                                "event_type": "ENVIRO_EVENT",
+                                "event_id": "SIM_ENVIRO_EVENT_20260612T202304551841Z_4F93FDF5",
+                                "source": "faux_node_01",
+                                "source_name": "Faux Node 01",
+                                "target": "server",
+                                "simulated": true,
+                                "timestamp": "2026-06-12T20:23:04.552476",
+                                "timestamp_utc": "2026-06-12T20:23:04.551887+00:00",
+                                "source_event_type": "ENVIRO_EVENT"
+                            }
+                        },
+                        "debug": {
+                            "incoming_payload": {
+                                "node_id": "faux_node_01",
+                                "node_name": "Faux Node 01",
+                                "temperature_c": 18.6,
+                                "humidity_percent": 41.2,
+                                "pressure_hpa": 802.4,
+                                "sample_time_utc": "2026-06-12T20:23:04.551826+00:00",
+                                "event_type": "ENVIRO_EVENT",
+                                "event_id": "SIM_ENVIRO_EVENT_20260612T202304551841Z_4F93FDF5",
+                                "source": "faux_node_01",
+                                "source_name": "Faux Node 01",
+                                "target": "server",
+                                "simulated": true,
+                                "timestamp": "2026-06-12T20:23:04.552476",
+                                "timestamp_utc": "2026-06-12T20:23:04.551887+00:00",
+                                "source_event_type": "ENVIRO_EVENT"
+                            }
+                        }
+                    },
+                    "timestamp": "2026-06-12T20:23:04.552576"
+                }
+            },
+            "_communication": {
+                "transport": "udp",
+                "received_timestamp": "2026-06-12T20:23:04.552707",
+                "source_ip": "127.0.0.1",
+                "source_port": 63696,
+                "rx_count": 8,
+                "rx_errors": 0
+            }
+        },
+        {
+            "event_type": "SERVER_AVIS_LITE",
+            "source": "communication",
+            "target": "gui",
+            "payload": {
+                "node_event": {
+                    "event_type": "SERVER_AVIS_LITE",
+                    "source": "platform_registry",
+                    "payload": {
+                        "server_event_key": "SERVER_AVIS_LITE",
+                        "incoming_event": "avis_lite",
+                        "source_type": "node",
+                        "node_id": "faux_node_01",
+                        "event_id": "SIM_AVIS_LITE_20260612T202317088348Z_2A2DC335",
+                        "timestamp_utc": "2026-06-12T20:23:17.089234+00:00",
+                        "avis_lite": {
+                            "species": "American Robin",
+                            "common_name": "American Robin",
+                            "scientific_name": "Turdus migratorius",
+                            "confidence": 0.87,
+                            "detection_time": "2026-06-12T20:23:17.088331+00:00",
+                            "audio_path": "/recordings/faux_node_01/robin.wav"
+                        },
+                        "event_record": {
+                            "event_id": "SIM_AVIS_LITE_20260612T202317088348Z_2A2DC335",
+                            "incoming_event": "avis_lite",
+                            "server_event_key": "SERVER_AVIS_LITE",
+                            "node_id": "faux_node_01",
+                            "timestamp_utc": "2026-06-12T20:23:17.088388+00:00",
+                            "received_at_utc": "2026-06-12T20:23:17.089213+00:00",
+                            "avis_lite": {
+                                "species": "American Robin",
+                                "common_name": "American Robin",
+                                "scientific_name": "Turdus migratorius",
+                                "confidence": 0.87,
+                                "detection_time": "2026-06-12T20:23:17.088331+00:00",
+                                "audio_path": "/recordings/faux_node_01/robin.wav"
+                            },
+                            "original_payload": {
+                                "node_id": "faux_node_01",
+                                "node_name": "Faux Node 01",
+                                "species_common": "American Robin",
+                                "species_scientific": "Turdus migratorius",
+                                "confidence": 0.87,
+                                "detection_time_utc": "2026-06-12T20:23:17.088331+00:00",
+                                "recording_id": "REC_FAUX_001",
+                                "recording_path": "/recordings/faux_node_01/robin.wav",
+                                "event_type": "AVIS_LITE",
+                                "event_id": "SIM_AVIS_LITE_20260612T202317088348Z_2A2DC335",
+                                "source": "faux_node_01",
+                                "source_name": "Faux Node 01",
+                                "target": "server",
+                                "simulated": true,
+                                "timestamp": "2026-06-12T20:23:17.088925",
+                                "timestamp_utc": "2026-06-12T20:23:17.088388+00:00",
+                                "source_event_type": "AVIS_LITE",
+                                "common_name": "American Robin",
+                                "scientific_name": "Turdus migratorius",
+                                "species": "American Robin",
+                                "detection_time": "2026-06-12T20:23:17.088331+00:00",
+                                "audio_path": "/recordings/faux_node_01/robin.wav"
+                            }
+                        },
+                        "debug": {
+                            "incoming_payload": {
+                                "node_id": "faux_node_01",
+                                "node_name": "Faux Node 01",
+                                "species_common": "American Robin",
+                                "species_scientific": "Turdus migratorius",
+                                "confidence": 0.87,
+                                "detection_time_utc": "2026-06-12T20:23:17.088331+00:00",
+                                "recording_id": "REC_FAUX_001",
+                                "recording_path": "/recordings/faux_node_01/robin.wav",
+                                "event_type": "AVIS_LITE",
+                                "event_id": "SIM_AVIS_LITE_20260612T202317088348Z_2A2DC335",
+                                "source": "faux_node_01",
+                                "source_name": "Faux Node 01",
+                                "target": "server",
+                                "simulated": true,
+                                "timestamp": "2026-06-12T20:23:17.088925",
+                                "timestamp_utc": "2026-06-12T20:23:17.088388+00:00",
+                                "source_event_type": "AVIS_LITE",
+                                "common_name": "American Robin",
+                                "scientific_name": "Turdus migratorius",
+                                "species": "American Robin",
+                                "detection_time": "2026-06-12T20:23:17.088331+00:00",
+                                "audio_path": "/recordings/faux_node_01/robin.wav"
+                            }
+                        }
+                    },
+                    "timestamp": "2026-06-12T20:23:17.089279"
+                }
+            },
+            "_communication": {
+                "transport": "udp",
+                "received_timestamp": "2026-06-12T20:23:17.089399",
+                "source_ip": "127.0.0.1",
+                "source_port": 63696,
+                "rx_count": 9,
+                "rx_errors": 0
+            }
+        }
+    ],
+    "faux_node_02": [
+        {
+            "event_type": "SERVER_NODE_REGISTER",
+            "source": "communication",
+            "target": "gui",
+            "payload": {
+                "reason": "NODE_REGISTER",
+                "action": "updated",
+                "node_id": "faux_node_02",
+                "node_name": "Faux Node 02",
+                "node_role": "field_node",
+                "device_id": "faux_node_02",
+                "device_role": "NODE",
+                "trust": "provisional",
+                "capabilities": {
+                    "avis_lite": true,
+                    "tdoa_recording": true,
+                    "pps": true,
+                    "gps": true,
+                    "environmental": true,
+                    "sht45": true,
+                    "bmp390": true
+                },
+                "registered_at_utc": "2026-06-12T20:12:42.947347+00:00",
+                "last_seen_utc": "2026-06-12T20:23:41.995561+00:00",
+                "registration_count": 3,
+                "registry_record": {
+                    "node_id": "faux_node_02",
+                    "device_id": "faux_node_02",
+                    "device_role": "NODE",
+                    "node_name": "Faux Node 02",
+                    "node_role": "field_node",
+                    "trust": "provisional",
+                    "source": "faux_node_02",
+                    "capabilities": {
+                        "avis_lite": true,
+                        "tdoa_recording": true,
+                        "pps": true,
+                        "gps": true,
+                        "environmental": true,
+                        "sht45": true,
+                        "bmp390": true
+                    },
+                    "ip_address": null,
+                    "port": null,
+                    "software_version": null,
+                    "notes": null,
+                    "registered_at_utc": "2026-06-12T20:12:42.947347+00:00",
+                    "last_seen_utc": "2026-06-12T20:23:41.995561+00:00",
+                    "registration_count": 3
+                }
+            },
+            "_communication": {
+                "transport": "udp",
+                "received_timestamp": "2026-06-12T20:23:41.996026",
+                "source_ip": "127.0.0.1",
+                "source_port": 63696,
+                "rx_count": 10,
+                "rx_errors": 0
+            }
+        }
+    ]
+}

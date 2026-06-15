@@ -1,24 +1,51 @@
 # ============================================================
 # node_repository_dispatcher.py
 #
-# EnviroPulse V2
+# EnviroPulse V2 GUI
 #
-# Responsibilities:
-#   - Own Node Repository subsystem
-#   - Maintain repository truth
-#   - Update node registry
-#   - Update node state
-#   - Store node events
-#   - Publish GUI updates
+# Subsystem:
+#   Node Repository
+#
+# Role:
+#   Dispatcher
+#
+# Purpose:
+#   Own GUI-side node repository workflow.
+#   Maintain local GUI truth for node registry, node state, and node events.
+#
+# Expected config source:
+#   None
+#
+# Expected config section:
+#   None
+#
+# Does:
+#   - Create and own node_repository_registry_manager.py
+#   - Create and own node_repository_state_manager.py
+#   - Create and own node_repository_event_manager.py
+#   - Create and own node_repository_event_services.py
+#   - Receive approved server events from the GUI event bus
+#   - Register new nodes from SERVER_NODE_REGISTER
+#   - Update node state from NODE_STATE_UPDATED and SERVER_GPS_COORD
+#   - Store node event history
+#   - Publish repository updates for the Interface
 #
 # Does NOT:
-#   - Store data directly
-#   - Publish directly
+#   - Render GUI elements
+#   - Receive UDP packets
+#   - Send UDP packets
+#   - Publish directly to the event bus
 #   - Require Main to build repository internals
+#
+# Owner:
+#   Main / Subsystem root
 #
 # ============================================================
 
-import logging
+
+# ============================================================
+# IMPORT DEFINITIONS FROM OTHER ENVIROPULSE SCRIPTS
+# ============================================================
 
 from node_repository.node_repository_registry_manager import (
     NodeRepositoryRegistryManager
@@ -33,18 +60,52 @@ from node_repository.node_repository_event_manager import (
 )
 
 from node_repository.node_repository_event_services import (
-    NodeRepositoryEventServices
+    NodeRepositoryEventServices,
+    NODE_STATE_UPDATED,
+    SERVER_NODE_REGISTER,
+    SERVER_ENVIRO_EVENT,
+    SERVER_TDOA_CALC,
+    SERVER_GPS_COORD,
+    SERVER_AVIS_LITE,
+    REPOSITORY_STATE_UPDATE,
+    REPOSITORY_EVENT_UPDATE,
+    NEW_NODE_REGISTERED
 )
 
 
+# ============================================================
+# IMPORT SUPPORT LIBRARIES
+# ============================================================
+
+import logging
+
+from datetime import datetime
+
+
+# ============================================================
+# CLASS DEFINITIONS
+# ============================================================
+
 class NodeRepositoryDispatcher:
+    """
+    Dispatcher for the GUI Node Repository subsystem.
+
+    Node Repository receives server-approved events, maintains local
+    GUI-side truth, and publishes repository-ready events to Interface.
+    """
+
+    # ========================================================
+    # INIT
+    # ========================================================
 
     def __init__(
         self,
-        event_bus
+        event_bus,
+        debug=False
     ):
 
         self.event_bus = event_bus
+        self.debug = debug
 
         self.registry = NodeRepositoryRegistryManager(
             registry_file="node_repository/data/node_registry.json"
@@ -59,17 +120,28 @@ class NodeRepositoryDispatcher:
         )
 
         self.event_services = NodeRepositoryEventServices(
-            event_bus=self.event_bus
+            event_bus=self.event_bus,
+            dispatcher=self,
+            debug=self.debug
         )
 
-        self.event_services.register_subscriptions(
-            dispatcher=self
-        )
+        self.event_services.register_subscriptions()
 
         self.running = False
 
+        self.state_update_events = {
+            NODE_STATE_UPDATED
+        }
+
+        self.repository_event_updates = {
+            SERVER_ENVIRO_EVENT,
+            SERVER_TDOA_CALC,
+            SERVER_AVIS_LITE,
+            SERVER_GPS_COORD
+        }
+
     # ========================================================
-    # START
+    # START / STOP
     # ========================================================
 
     def start(
@@ -79,12 +151,8 @@ class NodeRepositoryDispatcher:
         self.running = True
 
         logging.info(
-            "[Node Repository] Ready"
+            "[Node Repository] Ready."
         )
-
-    # ========================================================
-    # STOP
-    # ========================================================
 
     def stop(
         self
@@ -93,209 +161,655 @@ class NodeRepositoryDispatcher:
         self.running = False
 
         logging.info(
-            "[Node Repository] Stopped"
+            "[Node Repository] Stopped."
         )
 
     # ========================================================
-    # HANDLE EVENT
+    # EVENT BUS HANDLING
     # ========================================================
 
-    def handle_event(
+    def handle_bus_event(
         self,
-        event: dict
+        event_name,
+        payload=None
     ):
+        """
+        Handle events received from the GUI event bus.
+
+        Event services forwards the subscription. Dispatcher decides
+        how the repository should update and what should be published.
+        """
 
         try:
 
-            event_type = event.get(
-                "event_type"
+            event = self._normalize_payload(
+                event_name=event_name,
+                payload=payload
             )
 
-            node_id = event.get(
-                "node_id"
+            node_id = self._extract_node_id(
+                event
             )
 
             if not node_id:
 
                 logging.warning(
-                    "[Node Repository] Event missing node_id"
+                    "[Node Repository] %s missing node_id.",
+                    event_name
                 )
 
                 return
 
-            # --------------------------------------------
-            # Ensure node exists everywhere
-            # --------------------------------------------
-
-            if not self.registry.node_exists(
-                node_id
-            ):
-
-                self.registry.register_node({
-
-                    "node_id": node_id
-
-                })
-
-            if not self.state.node_exists(
-                node_id
-            ):
-
-                self.state.initialize_node(
-                    node_id
-                )
-
-            self.events.initialize_node(
-                node_id
+            self._ensure_node_storage(
+                node_id=node_id
             )
-
-            # --------------------------------------------
-            # Store event history
-            # --------------------------------------------
 
             self.events.store_event(
                 node_id,
                 event
             )
 
-            # --------------------------------------------
-            # NODE REGISTER
-            # --------------------------------------------
+            if event_name == SERVER_NODE_REGISTER:
 
-            if event_type == "NODE_REGISTER":
+                self._handle_server_node_register(
+                    node_id=node_id,
+                    event=event
+                )
 
-                self.registry.update_node(
+                return
+
+            if event_name in self.state_update_events:
+
+                self._handle_state_update(
+                    node_id=node_id,
+                    event_name=event_name,
+                    event=event
+                )
+
+                return
+
+            if event_name in self.repository_event_updates:
+
+                self._handle_repository_event_update(
+                    node_id=node_id,
+                    event_name=event_name,
+                    event=event
+                )
+
+                return
+
+            logging.warning(
+                "[Node Repository] Unhandled repository event: %s",
+                event_name
+            )
+
+        except Exception as error:
+
+            logging.exception(
+                "[Node Repository] Dispatcher error: %s",
+                error
+            )
+
+    # ========================================================
+    # EVENT HANDLERS
+    # ========================================================
+
+    def _handle_server_node_register(
+        self,
+        node_id,
+        event
+    ):
+        """
+        Register or update a node and publish NEW_NODE_REGISTERED.
+        """
+
+        registry_record = self._extract_registry_record(
+            node_id=node_id,
+            event=event
+        )
+
+        if self.registry.node_exists(
+            node_id
+        ):
+
+            self.registry.update_node(
+                node_id=node_id,
+                updates=registry_record
+            )
+
+        else:
+
+            self.registry.register_node(
+                registry_record
+            )
+
+        capabilities = registry_record.get(
+            "capabilities",
+            {}
+        )
+
+        if isinstance(
+            capabilities,
+            dict
+        ) and capabilities:
+
+            self.state.update_state(
+                node_id,
+                capabilities
+            )
+
+        snapshot = self._build_repository_snapshot(
+            publication_event_type=NEW_NODE_REGISTERED,
+            source_event_type=SERVER_NODE_REGISTER,
+            node_id=node_id,
+            source_event=event
+        )
+
+        self.event_services.publish_new_node_registered(
+            snapshot
+        )
+
+    def _handle_state_update(
+        self,
+        node_id,
+        event_name,
+        event
+    ):
+        """
+        Update node state and publish REPOSITORY_STATE_UPDATE.
+        """
+
+        state_update = self._extract_state_update(
+            event_name=event_name,
+            event=event
+        )
+
+        if state_update:
+
+            self.state.update_state(
+                node_id,
+                state_update
+            )
+
+        snapshot = self._build_repository_snapshot(
+            publication_event_type=REPOSITORY_STATE_UPDATE,
+            source_event_type=event_name,
+            node_id=node_id,
+            source_event=event
+        )
+
+        self.event_services.publish_repository_state_update(
+            snapshot
+        )
+
+    def _handle_repository_event_update(
+        self,
+        node_id,
+        event_name,
+        event
+    ):
+        """
+        Store event history and publish REPOSITORY_EVENT_UPDATE.
+        """
+
+        snapshot = self._build_repository_snapshot(
+            publication_event_type=REPOSITORY_EVENT_UPDATE,
+            source_event_type=event_name,
+            node_id=node_id,
+            source_event=event
+        )
+
+        self.event_services.publish_repository_event_update(
+            snapshot
+        )
+
+    # ========================================================
+    # STORAGE HELPERS
+    # ========================================================
+
+    def _ensure_node_storage(
+        self,
+        node_id
+    ):
+        """
+        Ensure the node exists in registry, state, and event history.
+        """
+
+        if not self.registry.node_exists(
+            node_id
+        ):
+
+            self.registry.register_node({
+
+                "node_id":
                     node_id,
-                    event
+
+                "created_by":
+                    "node_repository",
+
+                "created_at_utc":
+                    self._utc_now()
+            })
+
+        if not self.state.node_exists(
+            node_id
+        ):
+
+            self.state.initialize_node(
+                node_id
+            )
+
+        self.events.initialize_node(
+            node_id
+        )
+
+    # ========================================================
+    # NORMALIZATION HELPERS
+    # ========================================================
+
+    def _normalize_payload(
+        self,
+        event_name,
+        payload
+    ) -> dict:
+
+        if payload is None:
+
+            payload = {}
+
+        if not isinstance(
+            payload,
+            dict
+        ):
+
+            payload = {
+                "value": payload
+            }
+
+        event = dict(
+            payload
+        )
+
+        event["event_type"] = event_name
+
+        return event
+
+    def _extract_node_id(
+        self,
+        event
+    ):
+
+        # --------------------------------------------
+        # Top-level node identity
+        # --------------------------------------------
+
+        if event.get(
+            "node_id"
+        ):
+
+            return event.get(
+                "node_id"
+            )
+
+        if event.get(
+            "device_id"
+        ):
+
+            return event.get(
+                "device_id"
+            )
+
+        # --------------------------------------------
+        # First-level payload identity
+        # --------------------------------------------
+
+        payload = event.get(
+            "payload",
+            {}
+        )
+
+        if isinstance(
+            payload,
+            dict
+        ):
+
+            if payload.get(
+                "node_id"
+            ):
+
+                return payload.get(
+                    "node_id"
+                )
+
+            if payload.get(
+                "device_id"
+            ):
+
+                return payload.get(
+                    "device_id"
+                )
+
+            registry_record = payload.get(
+                "registry_record",
+                {}
+            )
+
+            if isinstance(
+                registry_record,
+                dict
+            ) and registry_record.get(
+                "node_id"
+            ):
+
+                return registry_record.get(
+                    "node_id"
+                )
+
+            event_record = payload.get(
+                "event_record",
+                {}
+            )
+
+            if isinstance(
+                event_record,
+                dict
+            ) and event_record.get(
+                "node_id"
+            ):
+
+                return event_record.get(
+                    "node_id"
                 )
 
             # --------------------------------------------
-            # BMP390
+            # Nested platform registry node event identity
+            # Shape:
+            # payload["node_event"]["payload"]["node_id"]
             # --------------------------------------------
 
-            elif event_type == "BMP390_ONLINE":
+            node_event = payload.get(
+                "node_event",
+                {}
+            )
 
-                self.state.update_state(
-                    node_id,
-                    {
-                        "bmp390_online": True
-                    }
+            if isinstance(
+                node_event,
+                dict
+            ):
+
+                if node_event.get(
+                    "node_id"
+                ):
+
+                    return node_event.get(
+                        "node_id"
+                    )
+
+                node_event_payload = node_event.get(
+                    "payload",
+                    {}
                 )
 
-            elif event_type == "BMP390_OFFLINE":
+                if isinstance(
+                    node_event_payload,
+                    dict
+                ):
 
-                self.state.update_state(
-                    node_id,
-                    {
-                        "bmp390_online": False
-                    }
-                )
+                    if node_event_payload.get(
+                        "node_id"
+                    ):
 
-            # --------------------------------------------
-            # SHT45
-            # --------------------------------------------
-
-            elif event_type == "SHT45_ONLINE":
-
-                self.state.update_state(
-                    node_id,
-                    {
-                        "sht45_online": True
-                    }
-                )
-
-            elif event_type == "SHT45_OFFLINE":
-
-                self.state.update_state(
-                    node_id,
-                    {
-                        "sht45_online": False
-                    }
-                )
-
-            # --------------------------------------------
-            # GPS
-            # --------------------------------------------
-
-            elif event_type == "GPS_LOCK":
-
-                self.state.update_state(
-                    node_id,
-                    {
-                        "gps_lock": True
-                    }
-                )
-
-            elif event_type == "GPS_LOST":
-
-                self.state.update_state(
-                    node_id,
-                    {
-                        "gps_lock": False
-                    }
-                )
-
-            elif event_type == "GPS_COORD":
-
-                self.state.update_state(
-                    node_id,
-                    {
-                        "gps_coord": event.get(
-                            "gps_coord"
+                        return node_event_payload.get(
+                            "node_id"
                         )
+
+                    if node_event_payload.get(
+                        "device_id"
+                    ):
+
+                        return node_event_payload.get(
+                            "device_id"
+                        )
+
+                    nested_event_record = node_event_payload.get(
+                        "event_record",
+                        {}
+                    )
+
+                    if isinstance(
+                        nested_event_record,
+                        dict
+                    ) and nested_event_record.get(
+                        "node_id"
+                    ):
+
+                        return nested_event_record.get(
+                            "node_id"
+                        )
+
+                    original_payload = node_event_payload.get(
+                        "original_payload",
+                        {}
+                    )
+
+                    if isinstance(
+                        original_payload,
+                        dict
+                    ) and original_payload.get(
+                        "node_id"
+                    ):
+
+                        return original_payload.get(
+                            "node_id"
+                        )
+
+        # --------------------------------------------
+        # Top-level registry fallback
+        # --------------------------------------------
+
+        registry_record = event.get(
+            "registry_record",
+            {}
+        )
+
+        if isinstance(
+            registry_record,
+            dict
+        ) and registry_record.get(
+            "node_id"
+        ):
+
+            return registry_record.get(
+                "node_id"
+            )
+
+        return None    
+
+    def _extract_registry_record(
+        self,
+        node_id,
+        event
+    ) -> dict:
+
+        registry_record = event.get(
+            "registry_record"
+        )
+
+        if isinstance(
+            registry_record,
+            dict
+        ):
+
+            record = dict(
+                registry_record
+            )
+
+        else:
+
+            record = self._strip_internal_fields(
+                event
+            )
+
+        record["node_id"] = node_id
+
+        return record
+
+    def _extract_state_update(
+        self,
+        event_name,
+        event
+    ) -> dict:
+
+        if event_name == SERVER_GPS_COORD:
+
+            gps_coord = (
+                event.get("gps_coord")
+                or event.get("coordinates")
+                or event.get("coord")
+            )
+
+            if gps_coord is not None:
+
+                return {
+                    "gps_coord": gps_coord
+                }
+
+            latitude = event.get(
+                "latitude"
+            )
+
+            longitude = event.get(
+                "longitude"
+            )
+
+            altitude = event.get(
+                "altitude"
+            )
+
+            if latitude is not None and longitude is not None:
+
+                return {
+
+                    "gps_coord": {
+
+                        "latitude":
+                            latitude,
+
+                        "longitude":
+                            longitude,
+
+                        "altitude":
+                            altitude
                     }
+                }
+
+        node_state = (
+            event.get("node_state")
+            or event.get("state")
+        )
+
+        if isinstance(
+            node_state,
+            dict
+        ):
+
+            return dict(
+                node_state
+            )
+
+        payload = event.get(
+            "payload",
+            {}
+        )
+
+        if isinstance(
+            payload,
+            dict
+        ):
+
+            nested_state = (
+                payload.get("node_state")
+                or payload.get("state")
+            )
+
+            if isinstance(
+                nested_state,
+                dict
+            ):
+
+                return dict(
+                    nested_state
                 )
 
-            # --------------------------------------------
-            # PPS
-            # --------------------------------------------
+        return self._strip_internal_fields(
+            event
+        )
 
-            elif event_type == "PPS_LOCK":
+    def _strip_internal_fields(
+        self,
+        event
+    ) -> dict:
 
-                self.state.update_state(
-                    node_id,
-                    {
-                        "pps_lock": True
-                    }
-                )
+        skip_keys = {
 
-            elif event_type == "PPS_LOST":
+            "event_type",
+            "event_name",
+            "name",
+            "source",
+            "target",
+            "timestamp",
+            "timestamp_utc",
+            "node_id",
+            "device_id",
+            "payload",
+            "registry_record",
+            "recent_events",
+            "_communication"
+        }
 
-                self.state.update_state(
-                    node_id,
-                    {
-                        "pps_lock": False
-                    }
-                )
+        clean_event = {}
 
-            # --------------------------------------------
-            # RTK
-            # --------------------------------------------
+        for key, value in event.items():
 
-            elif event_type == "RTK_ONLINE":
+            if key not in skip_keys:
 
-                self.state.update_state(
-                    node_id,
-                    {
-                        "rtk_online": True
-                    }
-                )
+                clean_event[key] = value
 
-            else:
+        return clean_event
 
-                logging.warning(
-                    f"[Node Repository] Unknown event: "
-                    f"{event_type}"
-                )
+    # ========================================================
+    # SNAPSHOT BUILDER
+    # ========================================================
 
-            # --------------------------------------------
-            # GUI UPDATE
-            # --------------------------------------------
+    def _build_repository_snapshot(
+        self,
+        publication_event_type,
+        source_event_type,
+        node_id,
+        source_event
+    ) -> dict:
 
-            gui_snapshot = {
+        return {
 
-                "event_type":
-                    "GUI_REGISTER",
+            "event_type":
+                publication_event_type,
+
+            "source":
+                "node_repository",
+
+            "target":
+                "interface",
+
+            "timestamp":
+                self._utc_now(),
+
+            "node_id":
+                node_id,
+
+            "payload": {
+
+                "source_event_type":
+                    source_event_type,
 
                 "node_id":
                     node_id,
@@ -313,16 +827,39 @@ class NodeRepositoryDispatcher:
                 "recent_events":
                     self.events.get_recent_node_events(
                         node_id
-                    )
+                    ),
+
+                "source_event":
+                    source_event
             }
+        }
 
-            self.event_services.publish_gui_register(
-                gui_snapshot
-            )
+    # ========================================================
+    # STATUS
+    # ========================================================
 
-        except Exception as error:
+    def get_status(
+        self
+    ) -> dict:
 
-            logging.exception(
-                f"[Node Repository] Dispatcher Error: "
-                f"{error}"
-            )
+        return {
+
+            "running":
+                self.running,
+
+            "node_count":
+                self.registry.count(),
+
+            "nodes":
+                self.registry.get_all_nodes()
+        }
+
+    # ========================================================
+    # TIME
+    # ========================================================
+
+    def _utc_now(
+        self
+    ) -> str:
+
+        return datetime.utcnow().isoformat()

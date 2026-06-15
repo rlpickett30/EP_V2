@@ -3,16 +3,31 @@
 environmental_event_services.py
 
 Environmental Event Publisher
+
+Publishes only the environmental contract events used by the node:
+- ENVIRO_STATE
+- ENVIRO_EVENT
 """
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+from typing import Any, Dict
+
 
 class EnvironmentalEventServices:
 
-    def __init__(self, event_bus, debug: bool = True):
+    def __init__(
+        self,
+        event_bus,
+        node_id: str,
+        target: str = "server",
+        debug: bool = True
+    ):
 
         self.event_bus = event_bus
+        self.node_id = node_id
+        self.target = target
         self.debug = debug
 
     # --------------------------------------------------
@@ -27,10 +42,32 @@ class EnvironmentalEventServices:
             )
 
     # --------------------------------------------------
+    # Event Builder
+    # --------------------------------------------------
+
+    def _timestamp(self) -> str:
+
+        return datetime.now(timezone.utc).isoformat()
+
+    def _build_event(
+        self,
+        event_type: str,
+        payload: Dict[str, Any]
+    ) -> Dict[str, Any]:
+
+        return {
+            "event_type": event_type,
+            "source": self.node_id,
+            "target": self.target,
+            "timestamp": self._timestamp(),
+            "payload": payload
+        }
+
+    # --------------------------------------------------
     # Generic Publisher
     # --------------------------------------------------
 
-    def publish(self, event: dict):
+    def publish(self, event: Dict[str, Any]):
 
         try:
 
@@ -46,43 +83,42 @@ class EnvironmentalEventServices:
             self.log(f"Publish failed: {e}")
 
     # --------------------------------------------------
-    # Weather
+    # Environmental Contract Events
     # --------------------------------------------------
 
-    def publish_weather(
+    def publish_enviro_state(
         self,
-        weather_event: dict
+        state_payload: Dict[str, Any]
     ):
 
-        self.publish(weather_event)
-
-    # --------------------------------------------------
-    # Sensor Status
-    # --------------------------------------------------
-
-    def publish_sensor_online(
-        self,
-        sensor_name: str
-    ):
-
-        event = {
-            "event_type":
-            f"{sensor_name.upper()}_ONLINE"
+        payload = {
+            "node_id": self.node_id,
+            **state_payload
         }
 
-        self.publish(event)
+        self.publish(
+            self._build_event(
+                event_type="ENVIRO_STATE",
+                payload=payload
+            )
+        )
 
-    def publish_sensor_failure(
+    def publish_enviro_event(
         self,
-        sensor_name: str
+        enviro_payload: Dict[str, Any]
     ):
 
-        event = {
-            "event_type":
-            f"{sensor_name.upper()}_FAILURE"
+        payload = {
+            "node_id": self.node_id,
+            **enviro_payload
         }
 
-        self.publish(event)
+        self.publish(
+            self._build_event(
+                event_type="ENVIRO_EVENT",
+                payload=payload
+            )
+        )
 
 
 if __name__ == "__main__":
@@ -97,20 +133,25 @@ if __name__ == "__main__":
 
     events = EnvironmentalEventServices(
         event_bus=bus,
+        node_id="node_01",
         debug=True
     )
 
-    events.publish_weather({
-        "event_type": "WEATHER",
-        "temperature_c": 22.5,
-        "humidity_rh": 41.2,
-        "pressure_hpa": 845.3
+    events.publish_enviro_state({
+        "subsystem": "environmental",
+        "state": "ONLINE",
+        "online": True,
+        "enabled": True,
+        "enviro_online": True,
+        "sensors": {
+            "sht45": {"online": True, "last_error": None},
+            "bmp390": {"online": True, "last_error": None}
+        }
     })
 
-    events.publish_sensor_online(
-        "sht45"
-    )
-
-    events.publish_sensor_failure(
-        "bmp390"
-    )
+    events.publish_enviro_event({
+        "temperature_c": 22.5,
+        "humidity_rh": 41.2,
+        "pressure_hpa": 845.3,
+        "snapshot": {}
+    })

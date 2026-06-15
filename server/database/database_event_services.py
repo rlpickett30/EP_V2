@@ -39,6 +39,11 @@
 # ============================================================
 
 SERVER_NODE_REGISTER = "SERVER_NODE_REGISTER"
+
+SERVER_AVIS_LITE = "SERVER_AVIS_LITE"
+SERVER_ENVIRO_EVENT = "SERVER_ENVIRO_EVENT"
+SERVER_GPS_COORD = "SERVER_GPS_COORD"
+
 DATABASE_UPDATED = "DATABASE_UPDATED"
 
 # ============================================================
@@ -59,7 +64,11 @@ class DatabaseEventServices:
 
     SUBSCRIPTIONS = [
 
-        SERVER_NODE_REGISTER
+        SERVER_NODE_REGISTER,
+
+        SERVER_AVIS_LITE,
+        SERVER_ENVIRO_EVENT,
+        SERVER_GPS_COORD
 
     ]
 
@@ -120,6 +129,22 @@ class DatabaseEventServices:
                 self._debug_print(
                     "Subscribed to SERVER_NODE_REGISTER"
                 )
+
+            elif event_name in [
+                SERVER_AVIS_LITE,
+                SERVER_ENVIRO_EVENT,
+                SERVER_GPS_COORD
+            ]:
+
+                self.event_bus.subscribe(
+                    event_name,
+                    dispatcher.handle_server_platform_event
+                )
+
+                self._debug_print(
+                    f"Subscribed to {event_name}"
+                )
+                
     # ========================================================
     # PUBLISH DATABASE UPDATED
     # ========================================================

@@ -36,7 +36,7 @@ from typing import Any
 from udp_sender import UDPSender
 
 
-CONFIG_PATH = Path(__file__).parent / "simulator_config.json"
+CONFIG_PATH = Path(__file__).parent / "simulator_config_02.json"
 
 
 class SimulatorDispatcher:

@@ -1,7 +1,7 @@
 {
   "simulator": {
-    "node_id": "faux_node_01",
-    "node_name": "Faux Node 01",
+    "node_id": "faux_node_02",
+    "node_name": "Faux Node 02",
     "target": "server",
     "default_mode": "manual"
   },
@@ -14,8 +14,8 @@
       "enabled": true,
       "cadence_seconds": 10,
       "payload": {
-        "node_id": "faux_node_01",
-        "node_name": "Faux Node 01",
+        "node_id": "faux_node_02",
+        "node_name": "Faux Node 02",
         "node_type": "faux_node",
         "register_time_utc": "AUTO",
         "capabilities": {
@@ -33,8 +33,8 @@
       "enabled": true,
       "cadence_seconds": 10,
       "payload": {
-        "node_id": "faux_node_01",
-        "node_name": "Faux Node 01",
+        "node_id": "faux_node_02",
+        "node_name": "Faux Node 02",
         "species_common": "American Robin",
         "species_scientific": "Turdus migratorius",
         "confidence": 0.87,
@@ -47,8 +47,8 @@
       "enabled": true,
       "cadence_seconds": 15,
       "payload": {
-        "node_id": "faux_node_01",
-        "node_name": "Faux Node 01",
+        "node_id": "faux_node_02",
+        "node_name": "Faux Node 02",
         "recording_id": "REC_FAUX_001",
         "recording_path": "/recordings/faux_node_01/tdoa_test.wav",
         "sample_rate_hz": 96000,
@@ -62,8 +62,8 @@
       "enabled": true,
       "cadence_seconds": 20,
       "payload": {
-        "node_id": "faux_node_01",
-        "node_name": "Faux Node 01",
+        "node_id": "faux_node_02",
+        "node_name": "Faux Node 02",
         "pps_available": true,
         "pps_locked": true,
         "last_tick_utc": "AUTO"
@@ -73,8 +73,8 @@
       "enabled": true,
       "cadence_seconds": 20,
       "payload": {
-        "node_id": "faux_node_01",
-        "node_name": "Faux Node 01",
+        "node_id": "faux_node_02",
+        "node_name": "Faux Node 02",
         "gps_available": true,
         "gps_lock": true,
         "fix_type": "RTK_FIXED",
@@ -90,8 +90,8 @@
       "enabled": true,
       "cadence_seconds": 20,
       "payload": {
-        "node_id": "faux_node_01",
-        "node_name": "Faux Node 01",
+        "node_id": "faux_node_02",
+        "node_name": "Faux Node 02",
         "rtk_available": true,
         "rtk_online": true,
         "rtk_ready": true,
@@ -105,8 +105,8 @@
       "enabled": true,
       "cadence_seconds": 25,
       "payload": {
-        "node_id": "faux_node_01",
-        "node_name": "Faux Node 01",
+        "node_id": "faux_node_02",
+        "node_name": "Faux Node 02",
         "gps_coord": {
           "lat": 37.2753,
           "lon": -107.8801,
@@ -121,8 +121,8 @@
       "enabled": true,
       "cadence_seconds": 30,
       "payload": {
-        "node_id": "faux_node_01",
-        "node_name": "Faux Node 01",
+        "node_id": "faux_node_02",
+        "node_name": "Faux Node 02",
         "temperature_c": 18.6,
         "humidity_percent": 41.2,
         "pressure_hpa": 802.4,
@@ -133,8 +133,8 @@
       "enabled": true,
       "cadence_seconds": 30,
       "payload": {
-        "node_id": "faux_node_01",
-        "node_name": "Faux Node 01",
+        "node_id": "faux_node_02",
+        "node_name": "Faux Node 02",
         "sensors": {
           "SHT45": {
             "available": true,

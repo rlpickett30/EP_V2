@@ -1,1 +1,12 @@
-{}
+{
+    "faux_node_01": {
+        "node_id": "faux_node_01",
+        "created_by": "node_repository",
+        "created_at_utc": "2026-06-12T20:22:30.364565"
+    },
+    "faux_node_02": {
+        "node_id": "faux_node_02",
+        "created_by": "node_repository",
+        "created_at_utc": "2026-06-12T20:23:41.996506"
+    }
+}

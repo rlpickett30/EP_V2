@@ -1,1 +1,117 @@
-{}
+{
+    "faux_node_01": {
+        "bmp390_online": true,
+        "sht45_online": true,
+        "gps_lock": false,
+        "pps_lock": false,
+        "rtk_online": true,
+        "gps_coord": {
+            "lat": 37.2753,
+            "lon": -107.8801,
+            "alt": 2012.4
+        },
+        "last_update": null,
+        "gps_state": {
+            "node_id": "faux_node_01",
+            "node_name": "Faux Node 01",
+            "gps_available": true,
+            "gps_lock": true,
+            "fix_type": "RTK_FIXED",
+            "satellites": 18,
+            "gps_coord": {
+                "lat": 37.2753,
+                "lon": -107.8801,
+                "alt": 2012.4
+            },
+            "event_type": "GPS_STATE",
+            "event_id": "SIM_GPS_STATE_20260612T202244322956Z_DF68CF81",
+            "source": "faux_node_01",
+            "source_name": "Faux Node 01",
+            "target": "server",
+            "simulated": true,
+            "timestamp": "2026-06-12T20:22:44.323585",
+            "timestamp_utc": "2026-06-12T20:22:44.323013+00:00",
+            "source_event_type": "GPS_STATE"
+        },
+        "gps_locked": true,
+        "gps_fix_type": "RTK_FIXED",
+        "tdoa_capable": true,
+        "rtk_state": {
+            "node_id": "faux_node_01",
+            "node_name": "Faux Node 01",
+            "rtk_available": true,
+            "rtk_online": true,
+            "rtk_ready": true,
+            "rtk_fix_type": "RTK_FIXED",
+            "fix_type": "RTK_FIXED",
+            "healthy": true,
+            "last_state_utc": "2026-06-12T20:22:45.875165+00:00",
+            "event_type": "RTK_STATE",
+            "event_id": "SIM_RTK_STATE_20260612T202245875179Z_36DDFEA6",
+            "source": "faux_node_01",
+            "source_name": "Faux Node 01",
+            "target": "server",
+            "simulated": true,
+            "timestamp": "2026-06-12T20:22:45.875911",
+            "timestamp_utc": "2026-06-12T20:22:45.875225+00:00",
+            "source_event_type": "RTK_STATE"
+        },
+        "rtk_fix_type": "RTK_FIXED",
+        "rtk_tdoa_capable": true,
+        "pps_state": {
+            "node_id": "faux_node_01",
+            "node_name": "Faux Node 01",
+            "pps_available": true,
+            "pps_locked": true,
+            "last_tick_utc": "2026-06-12T20:22:53.170973+00:00",
+            "event_type": "PPS_STATE",
+            "event_id": "SIM_PPS_STATE_20260612T202253170989Z_88BFE3E0",
+            "source": "faux_node_01",
+            "source_name": "Faux Node 01",
+            "target": "server",
+            "simulated": true,
+            "timestamp": "2026-06-12T20:22:53.171576",
+            "timestamp_utc": "2026-06-12T20:22:53.171032+00:00",
+            "source_event_type": "PPS_STATE"
+        },
+        "pps_locked": true,
+        "pps_last_tick_utc": "2026-06-12T20:22:53.170973+00:00",
+        "enviro_state": {
+            "node_id": "faux_node_01",
+            "node_name": "Faux Node 01",
+            "sensors": {
+                "SHT45": {
+                    "available": true,
+                    "healthy": true
+                },
+                "BMP390": {
+                    "available": true,
+                    "healthy": true
+                }
+            },
+            "last_state_utc": "2026-06-12T20:22:59.131491+00:00",
+            "event_type": "ENVIRO_STATE",
+            "event_id": "SIM_ENVIRO_STATE_20260612T202259131506Z_AA1645AA",
+            "source": "faux_node_01",
+            "source_name": "Faux Node 01",
+            "target": "server",
+            "simulated": true,
+            "timestamp": "2026-06-12T20:22:59.132153",
+            "timestamp_utc": "2026-06-12T20:22:59.131617+00:00",
+            "source_event_type": "ENVIRO_STATE"
+        },
+        "enviro_online": true,
+        "temperature_c": null,
+        "humidity_percent": null,
+        "pressure_hpa": null
+    },
+    "faux_node_02": {
+        "bmp390_online": false,
+        "sht45_online": false,
+        "gps_lock": false,
+        "pps_lock": false,
+        "rtk_online": false,
+        "gps_coord": null,
+        "last_update": null
+    }
+}

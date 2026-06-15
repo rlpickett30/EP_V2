@@ -96,6 +96,7 @@
             "weather": "SERVER_WEATHER",
             "gps_coord": "SERVER_GPS_COORD",
             "avis_lite": "SERVER_AVIS_LITE",
+            "enviro_event": "SERVER_ENVIRO_EVENT",
             "tdoa_calc": "SERVER_TDOA_CALC"
         },
         "required_event_fields": {
@@ -106,6 +107,9 @@
                 "node_id"
             ],
             "avis_lite": [
+                "node_id"
+            ],
+            "enviro_event": [
                 "node_id"
             ],
             "tdoa_calc": [

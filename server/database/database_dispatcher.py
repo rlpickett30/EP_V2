@@ -70,6 +70,9 @@ import logging
 
 SERVER_NODE_REGISTER = "SERVER_NODE_REGISTER"
 
+SERVER_AVIS_LITE = "SERVER_AVIS_LITE"
+SERVER_ENVIRO_EVENT = "SERVER_ENVIRO_EVENT"
+SERVER_GPS_COORD = "SERVER_GPS_COORD"
 
 # ============================================================
 # DATABASE DISPATCHER
@@ -254,6 +257,52 @@ class DatabaseDispatcher:
         )
 
         event["event_type"] = SERVER_NODE_REGISTER
+        event["payload"] = payload
+
+        return self.handle_event(
+            event
+        )
+
+    def handle_server_platform_event(
+        self,
+        *args
+    ):
+        """
+        Handle server-approved node occurrence events.
+
+        Current events:
+            SERVER_AVIS_LITE
+            SERVER_ENVIRO_EVENT
+            SERVER_GPS_COORD
+        """
+
+        event = self._build_event_from_args(
+            fallback_event_name="SERVER_PLATFORM_EVENT",
+            args=args
+        )
+
+        payload = event.get(
+            "payload",
+            {}
+        )
+
+        if not isinstance(
+            payload,
+            dict
+        ):
+
+            payload = {}
+
+        payload.setdefault(
+            "event_type",
+            event.get("event_type")
+        )
+
+        payload.setdefault(
+            "source_subsystem",
+            event.get("source")
+        )
+
         event["payload"] = payload
 
         return self.handle_event(
@@ -530,6 +579,7 @@ class DatabaseDispatcher:
 
         if normalized_event_type in [
             "avis_lite",
+            "server_avis_lite",
             "avis_detection",
             "birdnet_detection"
         ]:
@@ -543,9 +593,10 @@ class DatabaseDispatcher:
             "weather",
             "weather_event",
             "weather_record",
-            "enviro_event"
+            "enviro_event",
+            "server_enviro_event"
         ]:
-
+            
             return self.event_manager.archive_weather_record(
                 event=event,
                 event_archive_id=event_archive_id
@@ -556,12 +607,12 @@ class DatabaseDispatcher:
             "telemetry_event",
             "node_health",
             "gps_coord",
+            "server_gps_coord",
             "gps_state",
             "pps_status",
             "pps_state",
             "enviro_state"
         ]:
-
             return self.event_manager.archive_telemetry_record(
                 event=event,
                 event_archive_id=event_archive_id
@@ -612,17 +663,19 @@ class DatabaseDispatcher:
 
         if normalized_event_type in [
             "avis_lite",
+            "server_avis_lite",
             "avis_detection",
             "birdnet_detection"
         ]:
-
+            
             return "avis"
 
         if normalized_event_type in [
             "weather",
             "weather_event",
             "weather_record",
-            "enviro_event"
+            "enviro_event",
+            "server_enviro_event"
         ]:
 
             return "weather"
@@ -632,6 +685,7 @@ class DatabaseDispatcher:
             "telemetry_event",
             "node_health",
             "gps_coord",
+            "server_gps_coord",
             "gps_state",
             "pps_status",
             "pps_state",

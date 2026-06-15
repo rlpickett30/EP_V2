@@ -1,31 +1,52 @@
-"""
-birdnet_event_services.py
-
-BirdNET Event Mailbox
-
-Responsibilities:
-
-- Subscribe to BirdNET events
-- Publish BirdNET events
-
-This module intentionally contains no:
-
-- BirdNET logic
-- GPS logic
-- State tracking
-- Timing logic
-- Recording logic
-- Configuration logic
-
-It is simply the communication layer
-between the BirdNET subsystem and
-the EventBus.
-"""
+# ============================================================
+# birdnet_event_services.py
+#
+# EnviroPulse V2.0
+#
+# Subsystem:
+#   BirdNET
+#
+# Role:
+#   Event Services
+#
+# Purpose:
+#   Connect the BirdNET subsystem to the EnviroPulse event bus.
+#
+# Expected config source:
+#   None
+#
+# Expected config section:
+#   None
+#
+# Does:
+#   - Subscribe BirdNET dispatcher callbacks to BirdNET input events
+#   - Publish BirdNET output events
+#   - Provide a thin communication layer between BirdNET and the event bus
+#
+# Does NOT:
+#   - Analyze WAV files
+#   - Inspect event payloads
+#   - Make workflow decisions
+#   - Track BirdNET state
+#   - Modify configuration
+#
+# Owner:
+#   birdnet_dispatcher.py
+#
+# ============================================================
 
 from __future__ import annotations
 
 
+# ============================================================
+# CLASS DEFINITIONS
+# ============================================================
+
 class BirdNetEventServices:
+
+    # ========================================================
+    # INIT
+    # ========================================================
 
     def __init__(
         self,
@@ -36,11 +57,14 @@ class BirdNetEventServices:
         self.event_bus = event_bus
         self.debug = debug
 
-    # --------------------------------------------------
-    # Debug
-    # --------------------------------------------------
+    # ========================================================
+    # DEBUG
+    # ========================================================
 
-    def log(self, message):
+    def log(
+        self,
+        message
+    ):
 
         if self.debug:
 
@@ -48,32 +72,9 @@ class BirdNetEventServices:
                 f"[BirdNetEventServices] {message}"
             )
 
-    # --------------------------------------------------
-    # Generic Publisher
-    # --------------------------------------------------
-
-    def publish(self, event):
-
-        try:
-
-            self.event_bus.publish(
-                event
-            )
-
-            self.log(
-                f"Published: "
-                f"{event.get('event_type')}"
-            )
-
-        except Exception as e:
-
-            self.log(
-                f"Publish failed: {e}"
-            )
-
-    # --------------------------------------------------
-    # Generic Subscriber
-    # --------------------------------------------------
+    # ========================================================
+    # GENERIC EVENT BUS ACCESS
+    # ========================================================
 
     def subscribe(
         self,
@@ -89,31 +90,49 @@ class BirdNetEventServices:
             )
 
             self.log(
-                f"Subscribed: {event_type}"
+                f"Subscribed to {event_type}"
             )
 
-        except Exception as e:
+        except Exception as error:
 
             self.log(
-                f"Subscribe failed: {e}"
+                f"Subscribe failed for {event_type}: {error}"
             )
 
-    # --------------------------------------------------
-    # BirdNET Publications
-    # --------------------------------------------------
-
-    def publish_avis_lite(
+    def publish(
         self,
-        avis_event
+        event
     ):
 
-        self.publish(
-            avis_event
-        )
+        try:
 
-    # --------------------------------------------------
-    # BirdNET Subscriptions
-    # --------------------------------------------------
+            self.event_bus.publish(
+                event
+            )
+
+            self.log(
+                f"Published {event.get('event_type')}"
+            )
+
+        except Exception as error:
+
+            self.log(
+                f"Publish failed: {error}"
+            )
+
+    # ========================================================
+    # BIRDNET SUBSCRIPTIONS
+    # ========================================================
+
+    def subscribe_gps_coord(
+        self,
+        callback
+    ):
+
+        self.subscribe(
+            "GPS_COORD",
+            callback
+        )
 
     def subscribe_recording_available(
         self,
@@ -125,12 +144,15 @@ class BirdNetEventServices:
             callback
         )
 
-    def subscribe_gps_coord(
+    # ========================================================
+    # BIRDNET PUBLICATIONS
+    # ========================================================
+
+    def publish_avis_lite(
         self,
-        callback
+        avis_lite_event
     ):
 
-        self.subscribe(
-            "GPS_COORD",
-            callback
+        self.publish(
+            avis_lite_event
         )

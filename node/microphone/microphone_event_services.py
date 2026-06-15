@@ -4,17 +4,15 @@ microphone_event_services.py
 Microphone Event Mailbox
 
 Responsibilities:
-
 - Publish microphone events
 - Register microphone subscriptions
 
-This module intentionally contains no:
+Canonical microphone event contract:
+- Subscribes: PPS_STATE, TDOA_REQUEST
+- Publishes: RECORDING_AVAILABLE, TDOA_RECORDING
 
-- Recording logic
-- Recycling logic
-- Timing logic
-- State tracking
-- Event decisions
+This module intentionally contains no recording logic, timing logic,
+state tracking, request decisions, or hardware access.
 """
 
 from __future__ import annotations
@@ -29,7 +27,6 @@ class MicrophoneEventServices:
     ):
 
         self.event_bus = event_bus
-
         self.debug = debug
 
     # --------------------------------------------------
@@ -39,7 +36,6 @@ class MicrophoneEventServices:
     def log(self, message):
 
         if self.debug:
-
             print(
                 f"[MicrophoneEventServices] {message}"
             )
@@ -48,71 +44,50 @@ class MicrophoneEventServices:
     # Generic Publisher
     # --------------------------------------------------
 
-    def publish(
-        self,
-        event
-    ):
+    def publish(self, event):
 
         try:
-
-            self.event_bus.publish(
-                event
-            )
+            self.event_bus.publish(event)
 
             self.log(
-                f"Published: "
-                f"{event.get('event_type')}"
+                f"Published: {event.get('event_type')}"
             )
 
-        except Exception as e:
-
+        except Exception as error:
             self.log(
-                f"Publish failed: {e}"
+                f"Publish failed: {error}"
             )
 
     # --------------------------------------------------
     # Generic Subscriber
     # --------------------------------------------------
 
-    def subscribe(
-        self,
-        event_type,
-        callback
-    ):
+    def subscribe(self, event_type, callback):
 
         try:
-
             self.event_bus.subscribe(
                 event_type,
                 callback
             )
 
             self.log(
-                f"Subscribed: "
-                f"{event_type}"
+                f"Subscribed: {event_type}"
             )
 
-        except Exception as e:
-
+        except Exception as error:
             self.log(
-                f"Subscribe failed: {e}"
+                f"Subscribe failed for {event_type}: {error}"
             )
 
     # --------------------------------------------------
     # Publishers
     # --------------------------------------------------
 
-    def publish_recording_available(
-        self,
-        event
-    ):
+    def publish_recording_available(self, event):
 
         self.publish(event)
 
-    def publish_tdoa_recording(
-        self,
-        event
-    ):
+    def publish_tdoa_recording(self, event):
 
         self.publish(event)
 
@@ -120,40 +95,14 @@ class MicrophoneEventServices:
     # Subscribers
     # --------------------------------------------------
 
-    def subscribe_pps_lock(
-        self,
-        callback
-    ):
+    def subscribe_pps_state(self, callback):
 
         self.subscribe(
-            "PPS_LOCK",
+            "PPS_STATE",
             callback
         )
 
-    def subscribe_pps_lost(
-        self,
-        callback
-    ):
-
-        self.subscribe(
-            "PPS_LOST",
-            callback
-        )
-
-    def subscribe_avis_lite(
-        self,
-        callback
-    ):
-
-        self.subscribe(
-            "AVIS_LITE",
-            callback
-        )
-
-    def subscribe_tdoa_request(
-        self,
-        callback
-    ):
+    def subscribe_tdoa_request(self, callback):
 
         self.subscribe(
             "TDOA_REQUEST",

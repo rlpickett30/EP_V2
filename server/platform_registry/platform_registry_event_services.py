@@ -42,6 +42,13 @@ ENVIRO_STATE = "ENVIRO_STATE"
 NODE_STATE_UPDATED = "NODE_STATE_UPDATED"
 NODE_TDOA_STATE = "NODE_TDOA_STATE"
 
+AVIS_LITE = "AVIS_LITE"
+SERVER_AVIS_LITE = "SERVER_AVIS_LITE"
+ENVIRO_EVENT = "ENVIRO_EVENT"
+SERVER_ENVIRO_EVENT = "SERVER_ENVIRO_EVENT"
+GPS_COORD = "GPS_COORD"
+SERVER_GPS_COORD = "SERVER_GPS_COORD"
+
 GUI_FEATURE_MODE_CHANGE = "GUI_FEATURE_MODE_CHANGE"
 TDOA_CHANGE_MODE = "TDOA_CHANGE_MODE"
 GUI_DETECTION_MODE_CHANGE = "GUI_DETECTION_MODE_CHANGE"
@@ -134,6 +141,21 @@ class PlatformRegistryEventServices:
             ENVIRO_STATE,
             dispatcher.handle_node_state
         )
+        
+        self.event_bus.subscribe(
+            AVIS_LITE,
+            dispatcher.handle_node_event
+        )
+        
+        self.event_bus.subscribe(
+            ENVIRO_EVENT,
+            dispatcher.handle_node_event
+        )
+        
+        self.event_bus.subscribe(
+            GPS_COORD,
+            dispatcher.handle_node_event
+        )
 
         self._debug_print(
             "Subscribed to GUI_REGISTER"
@@ -171,6 +193,17 @@ class PlatformRegistryEventServices:
             "Subscribed to ENVIRO_STATE"
         )
         
+        self._debug_print(
+            "Subscribed to ENVIRO_STATE"
+        )
+        
+        self._debug_print(
+            "Subscribed to ENVIRO_EVENT"
+        )
+        
+        self._debug_print(
+            "Subscribed to GPS_COORD"
+        )
     # ========================================================
     # PUBLICATIONS
     # ========================================================
@@ -237,27 +270,27 @@ class PlatformRegistryEventServices:
             "Published SERVER_NODE_REGISTER"
         )
     
-        def publish_tdoa_change_mode(self, mode_payload):
-            """
-            Publish TDOA_CHANGE_MODE after the registry accepts a GUI mode request.
-            """
+    def publish_tdoa_change_mode(self, mode_payload):
+        """
+        Publish TDOA_CHANGE_MODE after the registry accepts a GUI mode request.
+        """
 
-            event_package = {
-                "source": "platform_registry",
-                "payload": {
-                    "reason": mode_payload.get("source_event_type"),
-                    "mode_payload": mode_payload
-                }
+        event_package = {
+            "source": "platform_registry",
+            "payload": {
+                "reason": mode_payload.get("source_event_type"),
+                "mode_payload": mode_payload
             }
+        }
 
-            self.event_bus.publish(
-                TDOA_CHANGE_MODE,
-                event_package
-            )
+        self.event_bus.publish(
+            TDOA_CHANGE_MODE,
+            event_package
+        )
 
-            self._debug_print(
-                "Published TDOA_CHANGE_MODE"
-            )
+        self._debug_print(
+            "Published TDOA_CHANGE_MODE"
+        )
         
     def publish_communication_change_mode(self, mode_payload):
         """
@@ -330,6 +363,7 @@ class PlatformRegistryEventServices:
         self._debug_print(
             "Published NODE_STATE_UPDATED"
         )
+        
     def publish_node_tdoa_state(self, tdoa_result):
         """
         Publish NODE_TDOA_STATE after Platform Registry determines
@@ -365,6 +399,46 @@ class PlatformRegistryEventServices:
 
         self._debug_print(
             "Published NODE_TDOA_STATE"
+        )
+        
+    # ========================================================
+    # PUBLISH SERVER PLATFORM EVENT
+    # ========================================================
+
+    def publish_server_platform_event(self, event_result):
+        """
+        Publish a server-approved platform event after the event
+        manager validates and converts it.
+        """
+
+        server_event_key = event_result.get(
+            "server_event_key"
+        )
+
+        server_payload = event_result.get(
+            "server_payload",
+            {}
+        ) or {}
+
+        if not server_event_key:
+            self._debug_print(
+                "SERVER platform event ignored. Missing server_event_key."
+            )
+            return
+
+        event_package = {
+            "event_type": server_event_key,
+            "source": "platform_registry",
+            "payload": server_payload
+        }
+
+        self.event_bus.publish(
+            server_event_key,
+            event_package
+        )
+
+        self._debug_print(
+            f"Published {server_event_key}"
         )
     
     # ========================================================

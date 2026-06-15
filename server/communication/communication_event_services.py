@@ -178,6 +178,10 @@ class CommunicationEventServices:
         "PPS_STATE",
         "ENVIRO_STATE",
         
+        "AVIS_LITE",
+        "ENVIRO_EVENT",
+        "GPS_COORD",
+        
         "GUI_FEATURE_MODE_CHANGE",
         "GUI_NETWORK_MODE_CHANGE",
         "GUI_DETECTION_MODE_CHANGE"
@@ -195,7 +199,9 @@ class CommunicationEventServices:
         
         "COMMUNICATION_STATE",
         
-        "EVENT_SENT"
+        "EVENT_SENT",
+        "EVENT_QUEUED",
+        "QUEUE_FLUSHED"
 
     ]
 
@@ -217,8 +223,11 @@ class CommunicationEventServices:
     SENDER_SUBSCRIPTIONS = [
 
         "SERVER_NODE_REGISTER",
-        "NODE_STATE_UPDATED"
-
+        "NODE_STATE_UPDATED",
+        
+        "SERVER_AVIS_LITE",
+        "SERVER_ENVIRO_EVENT",
+        "SERVER_GPS_COORD"
     ]
     
     # ========================================================
@@ -287,6 +296,17 @@ class CommunicationEventServices:
                 self.event_bus.subscribe(
                     event_name,
                     dispatcher.handle_node_state_updated
+                )
+            
+            elif event_name in [
+                "SERVER_AVIS_LITE",
+                "SERVER_ENVIRO_EVENT",
+                "SERVER_GPS_COORD"
+            ]:
+
+                self.event_bus.subscribe(
+                    event_name,
+                    dispatcher.handle_node_event_to_gui
                 )
 
     # ========================================================
@@ -407,5 +427,56 @@ class CommunicationEventServices:
 
         self.publish(
             "EVENT_SENT",
+            event
+        )
+        # ========================================================
+    # PUBLISH EVENT QUEUED
+    # ========================================================
+
+    def publish_event_queued(
+        self,
+        payload: dict
+    ):
+        """
+        Publish EVENT_QUEUED after Communication stores an
+        outbound message.
+        """
+
+        event = {
+
+            "event_type": "EVENT_QUEUED",
+            "source": "communication",
+            "payload": payload or {}
+
+        }
+
+        self.publish(
+            "EVENT_QUEUED",
+            event
+        )
+
+    # ========================================================
+    # PUBLISH QUEUE FLUSHED
+    # ========================================================
+
+    def publish_queue_flushed(
+        self,
+        payload: dict
+    ):
+        """
+        Publish QUEUE_FLUSHED after Communication attempts to
+        flush stored outbound messages.
+        """
+
+        event = {
+
+            "event_type": "QUEUE_FLUSHED",
+            "source": "communication",
+            "payload": payload or {}
+
+        }
+
+        self.publish(
+            "QUEUE_FLUSHED",
             event
         )

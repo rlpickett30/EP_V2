@@ -1,22 +1,36 @@
 """
 RTK_event_services.py
 
-RTK Event Mailbox
+EnviroPulse V2.0
 
-Responsibilities:
+Subsystem:
+    RTK
 
-- Publish RTK events
+Role:
+    Event Services
 
-This module intentionally contains no:
+Purpose:
+    Connect the RTK subsystem to the EnviroPulse event bus.
 
-- GPS logic
-- PPS logic
-- State tracking
-- Hardware access
-- Event decisions
-- Configuration handling
+Publishes:
+    - RTK_STATE
+    - GPS_STATE
+    - PPS_STATE
+    - GPS_COORD
 
-It is simply the RTK mailbox.
+Subscribes:
+    - None
+
+Does:
+    - Publish canonical RTK output events
+    - Provide a thin communication layer between RTK and the event bus
+
+Does NOT:
+    - Track GPS, PPS, or RTK state
+    - Inspect event payloads
+    - Make workflow decisions
+    - Access hardware
+    - Handle configuration
 """
 
 from __future__ import annotations
@@ -37,7 +51,10 @@ class RTKEventServices:
     # Debug
     # --------------------------------------------------
 
-    def log(self, message):
+    def log(
+        self,
+        message
+    ):
 
         if self.debug:
 
@@ -49,7 +66,10 @@ class RTKEventServices:
     # Generic Publisher
     # --------------------------------------------------
 
-    def publish(self, event):
+    def publish(
+        self,
+        event
+    ):
 
         try:
 
@@ -58,55 +78,51 @@ class RTKEventServices:
             )
 
             self.log(
-                f"Published: "
-                f"{event.get('event_type')}"
+                f"Published: {event.get('event_type')}"
             )
 
-        except Exception as e:
+        except Exception as error:
 
             self.log(
-                f"Publish failed: {e}"
+                f"Publish failed: {error}"
             )
 
     # --------------------------------------------------
-    # GPS Events
+    # RTK Publications
     # --------------------------------------------------
 
-    def publish_gps_lock(
+    def publish_rtk_state(
         self,
         event
     ):
 
-        self.publish(event)
+        self.publish(
+            event
+        )
 
-    def publish_gps_lost(
+    def publish_gps_state(
         self,
         event
     ):
 
-        self.publish(event)
+        self.publish(
+            event
+        )
+
+    def publish_pps_state(
+        self,
+        event
+    ):
+
+        self.publish(
+            event
+        )
 
     def publish_gps_coord(
         self,
         event
     ):
 
-        self.publish(event)
-
-    # --------------------------------------------------
-    # PPS Events
-    # --------------------------------------------------
-
-    def publish_pps_lock(
-        self,
-        event
-    ):
-
-        self.publish(event)
-
-    def publish_pps_lost(
-        self,
-        event
-    ):
-
-        self.publish(event)
+        self.publish(
+            event
+        )

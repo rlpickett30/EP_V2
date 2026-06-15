@@ -215,6 +215,11 @@ class DatabaseEventManager:
             payload = self._extract_payload(
                 event
             )
+            
+            avis_payload = payload.get(
+                "avis_lite",
+                payload
+            )            
 
             query = """
                 INSERT INTO avis_detections (
@@ -238,14 +243,24 @@ class DatabaseEventManager:
                 event_archive_id,
                 self._extract_event_id(event),
                 self._extract_node_id(event),
-                payload.get("detection_time_utc"),
-                payload.get("common_name"),
-                payload.get("scientific_name"),
-                payload.get("confidence"),
-                payload.get("confidence_bin"),
-                payload.get("latitude"),
-                payload.get("longitude"),
-                payload.get("altitude_m"),
+                (
+                    avis_payload.get("detection_time_utc")
+                    or avis_payload.get("detection_time")
+                ),
+                (
+                    avis_payload.get("common_name")
+                    or avis_payload.get("species_common")
+                    or avis_payload.get("species")
+                ),
+                (
+                    avis_payload.get("scientific_name")
+                    or avis_payload.get("species_scientific")
+                ),
+                avis_payload.get("confidence"),
+                avis_payload.get("confidence_bin"),
+                avis_payload.get("latitude"),
+                avis_payload.get("longitude"),
+                avis_payload.get("altitude_m"),
                 self._to_json(event)
             )
 
@@ -302,6 +317,11 @@ class DatabaseEventManager:
             payload = self._extract_payload(
                 event
             )
+            
+            weather_payload = payload.get(
+                "enviro_event",
+                payload
+            )            
 
             query = """
                 INSERT INTO weather_records (
@@ -327,16 +347,20 @@ class DatabaseEventManager:
                 event_archive_id,
                 self._extract_event_id(event),
                 self._extract_node_id(event),
-                payload.get("measurement_time_utc"),
-                payload.get("temperature_c"),
-                payload.get("humidity_percent"),
-                payload.get("dew_point_c"),
-                payload.get("pressure_hpa"),
-                payload.get("wind_speed_mps"),
-                payload.get("wind_direction_deg"),
-                payload.get("latitude"),
-                payload.get("longitude"),
-                payload.get("altitude_m"),
+                (
+                    weather_payload.get("measurement_time_utc")
+                    or weather_payload.get("sample_time_utc")
+                    or payload.get("timestamp_utc")
+                ),
+                weather_payload.get("temperature_c"),
+                weather_payload.get("humidity_percent"),
+                weather_payload.get("dew_point_c"),
+                weather_payload.get("pressure_hpa"),
+                weather_payload.get("wind_speed_mps"),
+                weather_payload.get("wind_direction_deg"),
+                weather_payload.get("latitude"),
+                weather_payload.get("longitude"),
+                weather_payload.get("altitude_m"),
                 self._to_json(event)
             )
 

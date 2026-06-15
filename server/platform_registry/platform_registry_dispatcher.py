@@ -49,6 +49,10 @@ from platform_registry.platform_registry_TDOA_manager import (
     PlatformRegistryTDOAManager
 )
 
+from platform_registry.platform_registry_event_manager import (
+    PlatformRegistryEventManager
+)
+
 # ============================================================
 # IMPORT SUPPORT LIBRARIES
 # ============================================================
@@ -122,6 +126,10 @@ class PlatformRegistryDispatcher:
         )
         
         self.tdoa_manager = PlatformRegistryTDOAManager(
+            config=self.config
+        )
+        
+        self.event_manager = PlatformRegistryEventManager(
             config=self.config
         )
         
@@ -487,6 +495,73 @@ class PlatformRegistryDispatcher:
             f"{event_name} handled. NODE_TDOA_STATE published."
         )
         
+    def handle_node_event(self, *args):
+        """
+        Handle node-originated occurrence events.
+
+        Current events:
+            AVIS_LITE
+
+        Purpose:
+            Normalize node event payloads, validate them through the
+            Platform Registry event manager, and publish server-approved
+            event packages such as SERVER_AVIS_LITE.
+        """
+
+        event_name, payload = self._parse_event_args(args)
+
+        if not self._event_is_node_event(event_name):
+            self._debug_log(
+                f"Ignored unknown node event: {event_name}"
+            )
+            return
+
+        if not payload:
+            self._debug_log(
+                f"{event_name} ignored. Missing payload."
+            )
+            return
+
+        payload = self._normalize_node_event_payload(
+            event_name=event_name,
+            payload=payload
+        )
+
+        if not payload.get("node_id"):
+            self._debug_log(
+                f"{event_name} ignored. Missing node_id or source."
+            )
+            return
+
+        registry_event_name = str(
+            event_name
+        ).strip().lower()
+
+        result = self.event_manager.handle_platform_event(
+            event_name=registry_event_name,
+            payload=payload
+        )
+
+        if not result.get("success"):
+            self._debug_log(
+                f"{event_name} rejected by event manager: {result.get('reason')}"
+            )
+            return
+
+        if not result.get("publish"):
+            self._debug_log(
+                f"{event_name} accepted but not published: {result.get('reason')}"
+            )
+            return
+
+        self.event_services.publish_server_platform_event(
+            result
+        )
+
+        self._debug_log(
+            f"{event_name} handled. {result.get('server_event_key')} published."
+        )
+    
     # ========================================================
     # EVENT ARGUMENT HANDLING
     # ========================================================
@@ -557,6 +632,7 @@ class PlatformRegistryDispatcher:
             )
 
             for metadata_key in [
+                    "event_id",
                     "source",
                     "source_name",
                     "target",
@@ -656,7 +732,21 @@ class PlatformRegistryDispatcher:
             "PPS_STATE",
             "ENVIRO_STATE"
         ]
+    
+    def _event_is_node_event(self, event_name):
+        """
+        Return True when event is a node-originated occurrence event.
+        """
 
+        if event_name is None:
+            return False
+
+        return str(event_name).strip().upper() in [
+            "AVIS_LITE",
+            "ENVIRO_EVENT",
+            "GPS_COORD"
+        ]
+    
     def _build_mode_payload_from_gui_payload(
         self,
             gui_event_name,
@@ -744,6 +834,99 @@ class PlatformRegistryDispatcher:
         )
 
         return normalized
+    
+    def _normalize_node_event_payload(self, event_name, payload):
+        """
+        Normalize node occurrence event payloads so the event manager
+        receives stable field names.
+        """
+
+        normalized = dict(payload)
+
+        node_id = (
+            normalized.get("node_id")
+            or normalized.get("device_id")
+            or normalized.get("source")
+            or normalized.get("node_name")
+        )
+
+        if node_id is not None:
+            normalized["node_id"] = node_id
+
+        normalized.setdefault(
+            "source_event_type",
+            event_name
+        )
+
+        normalized.setdefault(
+            "event_type",
+            event_name
+        )
+
+        if str(event_name).strip().upper() == "AVIS_LITE":
+
+            normalized.setdefault(
+                "common_name",
+                normalized.get("species_common")
+            )
+
+            normalized.setdefault(
+                "scientific_name",
+                normalized.get("species_scientific")
+            )
+
+            normalized.setdefault(
+                "species",
+                normalized.get("common_name")
+            )
+
+            normalized.setdefault(
+                "detection_time",
+                normalized.get("detection_time_utc")
+            )
+
+            normalized.setdefault(
+                "audio_path",
+                normalized.get("recording_path")
+            )
+        
+        if str(event_name).strip().upper() == "ENVIRO_EVENT":
+
+            normalized.setdefault(
+                "temperature_c",
+                normalized.get("temp_c")
+            )
+
+            normalized.setdefault(
+                "humidity_percent",
+                normalized.get("humidity")
+            )
+
+            normalized.setdefault(
+                "pressure_hpa",
+                normalized.get("pressure")
+            )
+        
+        return normalized
+
+        if str(event_name).strip().upper() == "GPS_COORD":
+
+            normalized.setdefault(
+                "lat",
+                normalized.get("latitude")
+            )
+
+            normalized.setdefault(
+                "lon",
+                normalized.get("longitude")
+            )
+
+            normalized.setdefault(
+                "alt",
+                normalized.get("altitude")
+            )    
+    
+    
     
     # ========================================================
     # CONFIG

@@ -276,8 +276,8 @@ class PlatformRegistryEventManager:
             "received_at_utc": self._utc_now()
         }
 
-        if event_name == "weather":
-            record["weather"] = self._extract_weather(payload)
+        if event_name == "enviro_event":
+            record["enviro_event"] = self._extract_enviro_event(payload)
 
         elif event_name == "gps_coord":
             record["gps_coord"] = self._extract_gps_coord(payload)
@@ -318,8 +318,8 @@ class PlatformRegistryEventManager:
         if destination is not None:
             package["destination"] = destination
 
-        if event_name == "weather":
-            package["weather"] = event_record.get("weather", {})
+        if event_name == "enviro_event":
+            package["enviro_event"] = event_record.get("enviro_event", {})
 
         elif event_name == "gps_coord":
             package["gps_coord"] = event_record.get("gps_coord", {})
@@ -344,7 +344,7 @@ class PlatformRegistryEventManager:
     # EVENT-SPECIFIC EXTRACTORS
     # ========================================================
 
-    def _extract_weather(self, payload):
+    def _extract_enviro_event(self, payload):
         """
         Extract weather/environment fields.
         """
@@ -352,7 +352,9 @@ class PlatformRegistryEventManager:
         return {
             "temperature_c": payload.get("temperature_c"),
             "humidity_percent": payload.get("humidity_percent"),
-            "pressure_hpa": payload.get("pressure_hpa")
+            "pressure_hpa": payload.get("pressure_hpa"),
+            "source_sensor": payload.get("source_sensor"),
+            "sample_id": payload.get("sample_id")
         }
 
     def _extract_gps_coord(self, payload):

@@ -898,6 +898,69 @@ class CommunicationDispatcher:
             self.publish_communication_state()
     
     # ========================================================
+    # HANDLE NODE EVENT TO GUI
+    # ========================================================
+
+    def handle_node_event_to_gui(
+        self,
+        event: dict
+    ):
+        """
+        Handle accepted node events that should be visible in GUI.
+
+        Purpose:
+            Forward node event traffic to GUI clients after the
+            Communication listener has accepted and published it.
+        """
+
+        try:
+
+            event_type = event.get(
+                "event_type"
+            )
+
+            if not event_type:
+
+                self.state.tx_errors += 1
+
+                logging.warning(
+                    "[Communication] Node event missing event_type."
+                )
+
+                self.publish_communication_state()
+
+                return
+
+            outbound_event = {
+                "event_type": event_type,
+                "source": "communication",
+                "target": "gui",
+                "payload": {
+                    "node_event": event
+                }
+            }
+
+            self.send_event(
+                outbound_event
+            )
+
+            self.publish_communication_state()
+
+            logging.info(
+                f"[Communication] {event_type} sent or queued for GUI."
+            )
+
+        except Exception as error:
+
+            self.state.tx_errors += 1
+
+            logging.exception(
+                f"[Communication] Node event GUI forward failed: {error}"
+            )
+
+            self.publish_communication_state()
+    
+    # ========================================================
     # HANDLE SERVER NODE REGISTER
     # ========================================================
 

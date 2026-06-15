@@ -123,7 +123,6 @@ class JournalEventServices:
 
         "GUI_REGISTER",
         "NODE_REGISTER",
-
         "GUI_FEATURE_MODE_CHANGE",
         "GUI_NETWORK_MODE_CHANGE",
         "GUI_DETECTION_MODE_CHANGE",
@@ -142,7 +141,11 @@ class JournalEventServices:
         "PPS_STATE",
         "ENVIRO_STATE",
         "NODE_TDOA_STATE",
-        "NODE_STATE_UPDATED"
+        "NODE_STATE_UPDATED",
+        
+        "AVIS_LITE",
+        "EVENT_QUEUED",
+        "QUEUE_FLUSHED",
 
         ]
 

@@ -1,66 +1,137 @@
-"""
-birdnet_dispatcher.py
-
-Responsibilities:
-
-- Load configuration
-- Manage BirdNET settings
-- Handle GPS injection
-- Handle BirdNET subscriptions
-- React to incoming events
-- Coordinate manager and event services
-
-This module intentionally knows nothing about:
-
-- BirdNET internals
-- WAV analysis
-- EventBus internals
-"""
+# ============================================================
+# birdnet_dispatcher.py
+#
+# EnviroPulse V2.0
+#
+# Subsystem:
+#   BirdNET
+#
+# Role:
+#   Dispatcher
+#
+# Purpose:
+#   Own the BirdNET subsystem workflow.
+#
+# Expected config source:
+#   birdnet_config.json
+#
+# Expected config section:
+#   Full file
+#
+# Does:
+#   - Load BirdNET configuration
+#   - Start the BirdNET subsystem
+#   - Register BirdNET event subscriptions
+#   - Track runtime BirdNET location settings
+#   - Handle GPS_COORD events
+#   - Handle RECORDING_AVAILABLE events
+#   - Coordinate BirdNetManager
+#   - Publish AVIS_LITE events through BirdNetEventServices
+#
+# Does NOT:
+#   - Analyze WAV files directly
+#   - Subscribe directly to the event bus
+#   - Publish directly to the event bus
+#   - Rewrite runtime GPS values back into config
+#   - Publish state events
+#   - Publish mode events
+#   - Own node registration
+#
+# Owner:
+#   Main / Subsystem root
+#
+# ============================================================
 
 from __future__ import annotations
+
+# ============================================================
+# IMPORT DEFINITIONS FROM OTHER ENVIROPULSE SCRIPTS
+# ============================================================
+
+from birdnet.birdnet_event_services import BirdNetEventServices
+from birdnet.birdnet_manager import BirdNetManager
+
+# ============================================================
+# IMPORT SUPPORT LIBRARIES
+# ============================================================
 
 import json
 
 from datetime import datetime
+from datetime import timezone
 
-from birdnet.birdnet_manager import BirdNetManager
-from birdnet.birdnet_event_services import BirdNetEventServices
 
+# ============================================================
+# CLASS DEFINITIONS
+# ============================================================
 
 class BirdNetDispatcher:
+
+    # ========================================================
+    # INIT
+    # ========================================================
 
     def __init__(
         self,
         event_bus,
         config_path="birdnet/birdnet_config.json",
-        debug=True
+        debug=None
     ):
 
-        self.debug = debug
-
         self.config_path = config_path
-
         self.config = self.load_config()
+
+        if debug is None:
+
+            self.debug = self.config.get(
+                "debug",
+                True
+            )
+
+        else:
+
+            self.debug = debug
+
+        # ----------------------------------------------------
+        # Runtime location state.
+        #
+        # Important:
+        # These values intentionally start from the configured
+        # Durango defaults every boot. GPS updates may change
+        # runtime values, but this dispatcher does not write
+        # last-seen GPS values back into config.
+        # ----------------------------------------------------
+
+        self.current_latitude = self.config.get(
+            "default_latitude"
+        )
+
+        self.current_longitude = self.config.get(
+            "default_longitude"
+        )
+
+        self.gps_acquired = False
 
         self.manager = BirdNetManager(
             recordings_path=self.config[
                 "recordings_path"
             ],
-            debug=debug
+            debug=self.debug
         )
 
-        self.event_services = (
-            BirdNetEventServices(
-                event_bus=event_bus,
-                debug=debug
-            )
+        self.event_services = BirdNetEventServices(
+            event_bus=event_bus,
+            debug=self.debug
         )
 
-    # --------------------------------------------------
-    # Debug
-    # --------------------------------------------------
+    # ========================================================
+    # DEBUG
+    # ========================================================
 
-    def log(self, message):
+    def log(
+        self,
+        message
+    ):
 
         if self.debug:
 
@@ -68,37 +139,30 @@ class BirdNetDispatcher:
                 f"[BirdNetDispatcher] {message}"
             )
 
-    # --------------------------------------------------
-    # Config
-    # --------------------------------------------------
+    # ========================================================
+    # CONFIG
+    # ========================================================
 
-    def load_config(self):
+    def load_config(
+        self
+    ):
 
         with open(
             self.config_path,
             "r"
         ) as file:
 
-            return json.load(file)
-
-    def save_config(self):
-
-        with open(
-            self.config_path,
-            "w"
-        ) as file:
-
-            json.dump(
-                self.config,
-                file,
-                indent=4
+            return json.load(
+                file
             )
 
-    # --------------------------------------------------
-    # Startup
-    # --------------------------------------------------
+    # ========================================================
+    # STARTUP
+    # ========================================================
 
-    def start(self):
+    def start(
+        self
+    ):
 
         self.log(
             "Starting BirdNET subsystem"
@@ -106,138 +170,322 @@ class BirdNetDispatcher:
 
         self.register_subscriptions()
 
-    # --------------------------------------------------
-    # Event Registration
-    # --------------------------------------------------
-
-    def register_subscriptions(self):
-
-        self.event_services.subscribe(
-            "RECORDING_AVAILABLE",
-            self.handle_recording_available
+        self.log(
+            "BirdNET subsystem started"
         )
 
-        self.event_services.subscribe(
-            "GPS_LOCK",
-            self.handle_gps_lock
+    # ========================================================
+    # EVENT REGISTRATION
+    # ========================================================
+
+    def register_subscriptions(
+        self
+    ):
+
+        self.event_services.subscribe_gps_coord(
+            self.handle_gps_coord
+        )
+
+        self.event_services.subscribe_recording_available(
+            self.handle_recording_available
         )
 
         self.log(
             "Subscriptions registered"
         )
 
-    # --------------------------------------------------
-    # GPS
-    # --------------------------------------------------
+    # ========================================================
+    # EVENT HANDLING: GPS_COORD
+    # ========================================================
 
-    def handle_gps_lock(
+    def handle_gps_coord(
         self,
         event
     ):
 
-        if (
-            not self.config[
-                "use_gps_updates"
-            ]
-            and
-            self.config[
-                "gps_acquired"
-            ]
-        ):
+        if not self.should_use_gps_updates():
 
             self.log(
-                "Ignoring GPS update"
+                "Ignoring GPS_COORD because GPS updates are disabled"
             )
 
             return
 
-        self.config[
-            "current_latitude"
-        ] = event["latitude"]
-
-        self.config[
-            "current_longitude"
-        ] = event["longitude"]
-
-        self.config[
-            "gps_acquired"
-        ] = True
-
-        self.save_config()
-
-        self.log(
-            f"GPS updated: "
-            f"{event['latitude']}, "
-            f"{event['longitude']}"
+        payload = self.get_payload(
+            event
         )
 
-    # --------------------------------------------------
-    # Recording Processing
-    # --------------------------------------------------
+        gps_coord = payload.get(
+            "gps_coord",
+            {}
+        )
+
+        latitude = gps_coord.get(
+            "lat",
+            payload.get(
+                "lat",
+                payload.get(
+                    "latitude"
+                )
+            )
+        )
+
+        longitude = gps_coord.get(
+            "lon",
+            payload.get(
+                "lon",
+                payload.get(
+                    "longitude"
+                )
+            )
+        )
+
+        if latitude is None or longitude is None:
+
+            self.log(
+                "GPS_COORD ignored because lat/lon were missing"
+            )
+
+            return
+
+        self.current_latitude = latitude
+        self.current_longitude = longitude
+        self.gps_acquired = True
+
+        self.log(
+            f"Runtime GPS updated: {latitude}, {longitude}"
+        )
+
+    # ========================================================
+    # EVENT HANDLING: RECORDING_AVAILABLE
+    # ========================================================
 
     def handle_recording_available(
         self,
         event
     ):
 
-        recording_id = event[
-            "recording_id"
-        ]
+        payload = self.get_payload(
+            event
+        )
+
+        recording_id = payload.get(
+            "recording_id",
+            event.get(
+                "recording_id"
+            )
+        )
+
+        if recording_id is None:
+
+            self.log(
+                "RECORDING_AVAILABLE ignored because recording_id was missing"
+            )
+
+            return
+
+        recording_path = payload.get(
+            "recording_path",
+            event.get(
+                "recording_path"
+            )
+        )
 
         self.log(
-            f"Recording received: "
-            f"{recording_id}"
+            f"Recording received: {recording_id}"
         )
 
-        latitude = self.config[
-            "current_latitude"
-        ]
+        avis_lite_events = self.manager.process_recording(
+            recording_id=recording_id,
+            latitude=self.current_latitude,
+            longitude=self.current_longitude,
+            week=self.get_week(),
+            min_confidence=self.config[
+                "min_confidence"
+            ]
+        )
 
-        longitude = self.config[
-            "current_longitude"
-        ]
+        for avis_lite_event in avis_lite_events:
 
-        min_confidence = self.config[
-            "min_confidence"
-        ]
-
-        week = self.get_week()
-
-        avis_events = (
-            self.manager.process_recording(
+            simulator_form_event = self.build_simulator_form_avis_lite(
+                avis_lite_event=avis_lite_event,
+                source_payload=payload,
                 recording_id=recording_id,
-                latitude=latitude,
-                longitude=longitude,
-                week=week,
-                min_confidence=min_confidence
+                recording_path=recording_path
             )
-        )
-
-        for avis_event in avis_events:
 
             self.event_services.publish_avis_lite(
-                avis_event
+                simulator_form_event
             )
 
-    # --------------------------------------------------
-    # Week Selection
-    # --------------------------------------------------
+    # ========================================================
+    # AVIS_LITE EVENT NORMALIZATION
+    # ========================================================
 
-    def get_week(self):
+    def build_simulator_form_avis_lite(
+        self,
+        avis_lite_event,
+        source_payload,
+        recording_id,
+        recording_path
+    ):
 
-        if (
-            self.config[
-                "week_mode"
-            ]
-            == "manual"
-        ):
+        detection_time_utc = self.get_utc_timestamp()
 
-            return self.config[
+        payload = {
+            "node_id": source_payload.get(
+                "node_id"
+            ),
+            "node_name": source_payload.get(
+                "node_name"
+            ),
+            "species_common": self.get_first_available(
+                avis_lite_event,
+                [
+                    "species_common",
+                    "common_name"
+                ],
+                default="unknown"
+            ),
+            "species_scientific": self.get_first_available(
+                avis_lite_event,
+                [
+                    "species_scientific",
+                    "scientific_name"
+                ],
+                default="unknown"
+            ),
+            "confidence": avis_lite_event.get(
+                "confidence",
+                0.0
+            ),
+            "detection_time_utc": self.get_first_available(
+                avis_lite_event,
+                [
+                    "detection_time_utc",
+                    "birdnet_event_utc"
+                ],
+                default=detection_time_utc
+            ),
+            "recording_id": recording_id,
+            "recording_path": recording_path
+        }
+
+        return {
+            "event_type": "AVIS_LITE",
+            "source": "birdnet",
+            "target": "sender",
+            "timestamp": detection_time_utc,
+            "payload": payload
+        }
+
+    # ========================================================
+    # WEEK SELECTION
+    # ========================================================
+
+    def get_week(
+        self
+    ):
+
+        if self.config.get(
+            "week_mode"
+        ) == "manual":
+
+            return self.config.get(
                 "manual_week"
-            ]
+            )
 
         return (
-            datetime.utcnow()
+            datetime.now(
+                timezone.utc
+            )
             .isocalendar()
             .week
+        )
+
+    # ========================================================
+    # RUNTIME LOCATION SETTINGS
+    # ========================================================
+
+    def should_use_gps_updates(
+        self
+    ):
+
+        if not self.config.get(
+            "use_gps_updates",
+            True
+        ):
+
+            return False
+
+        if self.config.get(
+            "location_mode",
+            "auto"
+        ) != "auto":
+
+            return False
+
+        return True
+
+    # ========================================================
+    # EVENT HELPERS
+    # ========================================================
+
+    def get_payload(
+        self,
+        event
+    ):
+
+        if not isinstance(
+            event,
+            dict
+        ):
+
+            return {}
+
+        payload = event.get(
+            "payload"
+        )
+
+        if isinstance(
+            payload,
+            dict
+        ):
+
+            return payload
+
+        return event
+
+    def get_first_available(
+        self,
+        source,
+        keys,
+        default=None
+    ):
+
+        for key in keys:
+
+            value = source.get(
+                key
+            )
+
+            if value is not None:
+
+                return value
+
+        return default
+
+    def get_utc_timestamp(
+        self
+    ):
+
+        return (
+            datetime.now(
+                timezone.utc
+            )
+            .isoformat()
+            .replace(
+                "+00:00",
+                "Z"
+            )
         )

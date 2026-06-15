@@ -1,23 +1,26 @@
 {
+    "node_id": "node_01",
+    "node_name": "node_01",
+
     "recordings_root": "recordings",
 
     "sample_rate": 96000,
-
     "channels": 1,
 
     "recording_duration_sec": 15,
-
     "recording_interval_sec": 300,
 
     "tdoa_recording_duration_sec": 10,
+    "tdoa_pps_lead_seconds": 1.0,
+    "align_tdoa_to_pps_boundary": true,
 
     "storage_retention_days": 7,
-
     "bird_recording_retention_days": 30,
-
     "recycler_interval_sec": 3600,
 
     "require_pps_lock": false,
+    "require_pps_lock_for_tdoa": false,
+    "check_microphone_available_before_recording": false,
 
     "debug": true
 }

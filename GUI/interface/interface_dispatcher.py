@@ -1,7 +1,7 @@
 # ============================================================
 # interface_dispatcher.py
 #
-# EnviroPulse V2
+# EnviroPulse V2 GUI
 #
 # Subsystem:
 #   Interface
@@ -24,7 +24,7 @@
 # Does NOT:
 #   - Publish directly
 #   - Send UDP packets
-#   - Store state
+#   - Store node truth
 #   - Decide server behavior
 #   - Decide node behavior
 #   - Perform Event Bus delivery logic
@@ -33,6 +33,7 @@
 #   Main / GUI subsystem root
 #
 # ============================================================
+
 
 # ============================================================
 # IMPORT DEFINITIONS FROM OTHER ENVIROPULSE SCRIPTS
@@ -47,8 +48,18 @@ from interface.command_manager import (
 )
 
 from interface.interface_event_services import (
-    InterfaceEventServices
+    InterfaceEventServices,
+    REPOSITORY_STATE_UPDATE,
+    REPOSITORY_EVENT_UPDATE,
+    NEW_NODE_REGISTERED
 )
+
+
+# ============================================================
+# IMPORT SUPPORT LIBRARIES
+# ============================================================
+
+import logging
 
 
 # ============================================================
@@ -63,22 +74,24 @@ class InterfaceDispatcher:
 
     def __init__(
         self,
-        event_bus
+        event_bus,
+        debug=False
     ):
 
         self.event_bus = event_bus
+        self.debug = debug
 
         self.viewer = ViewerManager()
 
         self.commands = CommandManager()
 
         self.event_services = InterfaceEventServices(
-            event_bus=self.event_bus
+            event_bus=self.event_bus,
+            dispatcher=self,
+            debug=self.debug
         )
 
-        self.event_services.register_subscriptions(
-            dispatcher=self
-        )
+        self.event_services.register_subscriptions()
 
         self._wire_gui_actions()
 
@@ -126,6 +139,10 @@ class InterfaceDispatcher:
 
         self.running = True
 
+        logging.info(
+            "[Interface] Ready."
+        )
+
     # ========================================================
     # STOP
     # ========================================================
@@ -136,8 +153,110 @@ class InterfaceDispatcher:
 
         self.running = False
 
+        logging.info(
+            "[Interface] Stopped."
+        )
+
     # ========================================================
-    # HANDLE REPOSITORY UPDATE
+    # HANDLE BUS EVENT
+    # ========================================================
+
+    def handle_bus_event(
+        self,
+        event_name,
+        payload=None
+    ):
+
+        event = self._normalize_event(
+            event_name=event_name,
+            payload=payload
+        )
+
+        if event_name == NEW_NODE_REGISTERED:
+
+            self.handle_new_node_registered(
+                event
+            )
+
+            return
+
+        if event_name == REPOSITORY_STATE_UPDATE:
+
+            self.handle_repository_state_update(
+                event
+            )
+
+            return
+
+        if event_name == REPOSITORY_EVENT_UPDATE:
+
+            self.handle_repository_event_update(
+                event
+            )
+
+            return
+
+        logging.warning(
+            "[Interface] Unhandled event: %s",
+            event_name
+        )
+
+    # ========================================================
+    # HANDLE NEW NODE REGISTERED
+    # ========================================================
+
+    def handle_new_node_registered(
+        self,
+        event: dict
+    ):
+
+        payload = event.get(
+            "payload",
+            {}
+        )
+
+        node_id = payload.get(
+            "node_id"
+        )
+
+        if node_id:
+
+            self.viewer.add_node(
+                node_id
+            )
+
+        self.viewer.display_event(
+            event
+        )
+
+    # ========================================================
+    # HANDLE REPOSITORY STATE UPDATE
+    # ========================================================
+
+    def handle_repository_state_update(
+        self,
+        event: dict
+    ):
+
+        self.viewer.display_event(
+            event
+        )
+
+    # ========================================================
+    # HANDLE REPOSITORY EVENT UPDATE
+    # ========================================================
+
+    def handle_repository_event_update(
+        self,
+        event: dict
+    ):
+
+        self.viewer.display_event(
+            event
+        )
+
+    # ========================================================
+    # LEGACY COMPATIBILITY METHOD
     # ========================================================
 
     def handle_repository_update(
@@ -230,6 +349,43 @@ class InterfaceDispatcher:
     ) -> str:
 
         return self.viewer.node_selector.currentText()
+
+    # ========================================================
+    # NORMALIZE EVENT
+    # ========================================================
+
+    def _normalize_event(
+        self,
+        event_name,
+        payload
+    ) -> dict:
+
+        if payload is None:
+
+            event = {}
+
+        elif isinstance(
+            payload,
+            dict
+        ):
+
+            event = dict(
+                payload
+            )
+
+        else:
+
+            event = {
+                "value": payload
+            }
+
+        if not event.get(
+            "event_type"
+        ):
+
+            event["event_type"] = event_name
+
+        return event
 
     # ========================================================
     # SHOW

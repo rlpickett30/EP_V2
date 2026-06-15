@@ -1,7 +1,7 @@
 # ============================================================
 # interface_event_services.py
 #
-# EnviroPulse V2
+# EnviroPulse V2 GUI
 #
 # Subsystem:
 #   Interface
@@ -13,10 +13,10 @@
 #   Own Interface event subscriptions and publications.
 #
 # Does:
-#   - Document Interface event communication
 #   - Register Interface subscriptions
+#   - Subscribe Interface to Node Repository publications
 #   - Publish operator mode-change events
-#   - Keep GUI command payloads consistent
+#   - Preserve existing server-facing command payload shape
 #
 # Does NOT:
 #   - Update GUI widgets
@@ -30,11 +30,52 @@
 #
 # ============================================================
 
+
 # ============================================================
 # IMPORT SUPPORT LIBRARIES
 # ============================================================
 
 from datetime import datetime
+
+import logging
+
+
+# ============================================================
+# EVENT NAME DEFINITIONS
+# ============================================================
+
+# ----------------------------
+# Interface Subscriptions
+# ----------------------------
+
+REPOSITORY_STATE_UPDATE = "REPOSITORY_STATE_UPDATE"
+REPOSITORY_EVENT_UPDATE = "REPOSITORY_EVENT_UPDATE"
+NEW_NODE_REGISTERED = "NEW_NODE_REGISTERED"
+
+# ----------------------------
+# Interface Publications
+# ----------------------------
+
+NETWORK_MODE_CHANGE = "NETWORK_MODE_CHANGE"
+DETECTION_MODE_CHANGE = "DETECTION_MODE_CHANGE"
+FEATURE_MODE_CHANGE = "FEATURE_MODE_CHANGE"
+
+
+# ============================================================
+# EVENT GROUP DEFINITIONS
+# ============================================================
+
+INTERFACE_SUBSCRIPTIONS = (
+    REPOSITORY_STATE_UPDATE,
+    REPOSITORY_EVENT_UPDATE,
+    NEW_NODE_REGISTERED,
+)
+
+INTERFACE_PUBLICATIONS = (
+    NETWORK_MODE_CHANGE,
+    DETECTION_MODE_CHANGE,
+    FEATURE_MODE_CHANGE,
+)
 
 
 # ============================================================
@@ -44,85 +85,19 @@ from datetime import datetime
 class InterfaceEventServices:
 
     # ========================================================
-    # EVENT COMMUNICATION INDEX
+    # INIT
     # ========================================================
-    #
-    # SUBSCRIPTIONS
-    #
-    # GUI_REGISTER
-    #
-    # Published By:
-    #     GUI registration / repository path
-    #
-    # Consumed By:
-    #     Interface
-    #
-    # Purpose:
-    #     Display GUI registration or repository updates.
-    #
-    # ========================================================
-    #
-    # PUBLICATIONS
-    #
-    # NETWORK MODE CHANGE
-    #
-    # Published By:
-    #     Interface
-    #
-    # Consumed By:
-    #     GUI Communication sender
-    #
-    # Purpose:
-    #     Request a network mode change for a selected node.
-    #
-    # --------------------------------------------------------
-    #
-    # DETECTION MODE CHANGE
-    #
-    # Published By:
-    #     Interface
-    #
-    # Consumed By:
-    #     GUI Communication sender
-    #
-    # Purpose:
-    #     Request a detection mode change.
-    #
-    # --------------------------------------------------------
-    #
-    # FEATURE MODE CHANGE
-    #
-    # Published By:
-    #     Interface
-    #
-    # Consumed By:
-    #     GUI Communication sender
-    #
-    # Purpose:
-    #     Request a feature mode change.
-    #
-    # ========================================================
-
-    SUBSCRIPTIONS = [
-
-        "GUI_REGISTER"
-
-    ]
-
-    PUBLICATIONS = [
-
-        "NETWORK_MODE_CHANGE",
-        "DETECTION_MODE_CHANGE",
-        "FEATURE MODE CHANGE"
-
-    ]
 
     def __init__(
         self,
-        event_bus
+        event_bus,
+        dispatcher=None,
+        debug=False
     ):
 
         self.event_bus = event_bus
+        self.dispatcher = dispatcher
+        self.debug = debug
 
     # ========================================================
     # REGISTER SUBSCRIPTIONS
@@ -130,13 +105,53 @@ class InterfaceEventServices:
 
     def register_subscriptions(
         self,
-        dispatcher
+        dispatcher=None
     ):
 
-        self.event_bus.subscribe(
-            "GUI_REGISTER",
-            dispatcher.handle_repository_update
-        )
+        if dispatcher is not None:
+
+            self.dispatcher = dispatcher
+
+        for event_name in INTERFACE_SUBSCRIPTIONS:
+
+            self.event_bus.subscribe(
+                event_name,
+                self._build_subscription_callback(
+                    event_name
+                )
+            )
+
+            if self.debug:
+
+                logging.info(
+                    "InterfaceEventServices subscribed to %s",
+                    event_name
+                )
+
+    def _build_subscription_callback(
+        self,
+        event_name
+    ):
+
+        def callback(
+            payload=None
+        ):
+
+            if self.dispatcher is None:
+
+                logging.warning(
+                    "InterfaceEventServices received %s but no dispatcher is attached.",
+                    event_name
+                )
+
+                return
+
+            self.dispatcher.handle_bus_event(
+                event_name=event_name,
+                payload=payload
+            )
+
+        return callback
 
     # ========================================================
     # PUBLISH ENABLE WIFI
@@ -148,7 +163,7 @@ class InterfaceEventServices:
     ):
 
         self._publish_mode_change(
-            event_type="NETWORK_MODE_CHANGE",
+            event_type=NETWORK_MODE_CHANGE,
             mode_category="network",
             command="ENABLE_WIFI",
             requested_mode="wifi_enabled",
@@ -166,7 +181,7 @@ class InterfaceEventServices:
     ):
 
         self._publish_mode_change(
-            event_type="NETWORK_MODE_CHANGE",
+            event_type=NETWORK_MODE_CHANGE,
             mode_category="network",
             command="ENABLE_LORA",
             requested_mode="lora_enabled",
@@ -184,7 +199,7 @@ class InterfaceEventServices:
     ):
 
         self._publish_mode_change(
-            event_type="DETECTION_MODE_CHANGE",
+            event_type=DETECTION_MODE_CHANGE,
             mode_category="detection",
             command="ENERGY_ONSET",
             requested_mode="energy_onset",
@@ -202,7 +217,7 @@ class InterfaceEventServices:
     ):
 
         self._publish_mode_change(
-            event_type="DETECTION_MODE_CHANGE",
+            event_type=DETECTION_MODE_CHANGE,
             mode_category="detection",
             command="PATTERN_ONSET",
             requested_mode="pattern_onset",
@@ -220,7 +235,7 @@ class InterfaceEventServices:
     ):
 
         self._publish_mode_change(
-            event_type="FEATURE_MODE_CHANGE",
+            event_type=FEATURE_MODE_CHANGE,
             mode_category="feature",
             command="AMP_FEATURE",
             requested_mode="amplitude_feature",
@@ -238,7 +253,7 @@ class InterfaceEventServices:
     ):
 
         self._publish_mode_change(
-            event_type="FEATURE_MODE_CHANGE",
+            event_type=FEATURE_MODE_CHANGE,
             mode_category="feature",
             command="ONSET_FEATURE",
             requested_mode="onset_feature",
@@ -260,24 +275,65 @@ class InterfaceEventServices:
         target_node: str = ""
     ):
 
+        if event_type not in INTERFACE_PUBLICATIONS:
+
+            raise ValueError(
+                f"InterfaceEventServices cannot publish unknown event: {event_type}"
+            )
+
         event = {
 
-            "event_type": event_type,
-            "source": "gui",
-            "timestamp": self._utc_now(),
+            "event_type":
+                event_type,
+
+            "source":
+                "gui",
+
+            "timestamp":
+                self._utc_now(),
 
             "payload": {
-                "mode_category": mode_category,
-                "command": command,
-                "requested_mode": requested_mode,
-                "target": target,
-                "target_node": target_node
+
+                "mode_category":
+                    mode_category,
+
+                "command":
+                    command,
+
+                "requested_mode":
+                    requested_mode,
+
+                "target":
+                    target,
+
+                "target_node":
+                    target_node
             }
         }
 
         self.event_bus.publish(
             event_type,
             event
+        )
+
+    # ========================================================
+    # EVENT INDEX HELPERS
+    # ========================================================
+
+    def get_subscriptions(
+        self
+    ):
+
+        return list(
+            INTERFACE_SUBSCRIPTIONS
+        )
+
+    def get_publications(
+        self
+    ):
+
+        return list(
+            INTERFACE_PUBLICATIONS
         )
 
     # ========================================================

@@ -23,16 +23,13 @@
 #   - Create and own communication_event_services.py
 #   - Create and own listener_manager.py
 #   - Create and own sender_manager.py
-#   - Start inbound Communication listening
-#   - Handle inbound decoded events
-#   - Publish verified inbound listener events to the local event bus
-#   - Handle outbound local GUI events
-#   - Convert outbound events to verified GUI_ events
-#   - Decide when messages should be sent
-#   - Decide when messages should be queued
-#   - Flush queued messages when communication becomes available
+#   - Start inbound UDP listening
+#   - Handle decoded inbound server events
+#   - Publish approved inbound events to the GUI event bus
+#   - Handle approved outbound GUI events
+#   - Send outbound GUI events through sender_manager.py
+#   - Queue outbound messages when sending is unavailable
 #   - Update Communication state
-#   - Publish Communication state events
 #
 # Does NOT:
 #   - Open UDP sockets directly
@@ -40,13 +37,14 @@
 #   - Receive UDP packets directly
 #   - Decode packet payloads directly
 #   - Store queued messages directly
-#   - Know Communication helper internals beyond owned managers
 #   - Perform Event Bus delivery logic
+#   - Publish unapproved Communication events
 #
 # Owner:
 #   Main / Subsystem root
 #
 # ============================================================
+
 
 # ============================================================
 # IMPORT DEFINITIONS FROM OTHER ENVIROPULSE SCRIPTS
@@ -57,7 +55,20 @@ from communication.communication_state_manager import (
 )
 
 from communication.communication_event_services import (
-    CommunicationEventServices
+    CommunicationEventServices,
+    NETWORK_CONNECTED,
+    NETWORK_DISCONNECTED,
+    EVENT_SENT,
+    GUI_REGISTER,
+    NETWORK_MODE_CHANGE,
+    DETECTION_MODE_CHANGE,
+    FEATURE_MODE_CHANGE,
+    NODE_STATE_UPDATED,
+    SERVER_NODE_REGISTER,
+    SERVER_ENVIRO_EVENT,
+    SERVER_TDOA_CALC,
+    SERVER_GPS_COORD,
+    SERVER_AVIS_LITE
 )
 
 from communication.listener_manager import (
@@ -67,6 +78,7 @@ from communication.listener_manager import (
 from communication.sender_manager import (
     SenderManager
 )
+
 
 # ============================================================
 # IMPORT SUPPORT LIBRARIES
@@ -83,6 +95,17 @@ from datetime import datetime
 # ============================================================
 
 class CommunicationDispatcher:
+    """
+    Dispatcher for the GUI Communication subsystem.
+
+    Communication receives server events from UDP, publishes approved
+    GUI bus events, receives GUI outbound events, and sends those events
+    to the configured server destination.
+    """
+
+    # ========================================================
+    # INIT
+    # ========================================================
 
     def __init__(
         self,
@@ -95,10 +118,17 @@ class CommunicationDispatcher:
 
         self.config = self._load_config()
 
+        self.debug = self.config.get(
+            "debug",
+            False
+        )
+
         self.state = CommunicationStateManager()
 
         self.event_services = CommunicationEventServices(
-            event_bus=self.event_bus
+            event_bus=self.event_bus,
+            dispatcher=self,
+            debug=self.debug
         )
 
         self.listener_manager = ListenerManager(
@@ -138,12 +168,37 @@ class CommunicationDispatcher:
 
         self.running = False
 
-        self.event_services.register_subscriptions(
-            dispatcher=self
-        )
+        self.inbound_publish_map = {
+            NODE_STATE_UPDATED:
+                self.event_services.publish_node_state_updated,
+
+            SERVER_NODE_REGISTER:
+                self.event_services.publish_server_node_register,
+
+            SERVER_ENVIRO_EVENT:
+                self.event_services.publish_server_enviro_event,
+
+            SERVER_TDOA_CALC:
+                self.event_services.publish_server_tdoa_calc,
+
+            SERVER_GPS_COORD:
+                self.event_services.publish_server_gps_coord,
+
+            SERVER_AVIS_LITE:
+                self.event_services.publish_server_avis_lite
+        }
+
+        self.outbound_send_events = {
+            GUI_REGISTER,
+            NETWORK_MODE_CHANGE,
+            DETECTION_MODE_CHANGE,
+            FEATURE_MODE_CHANGE
+        }
+
+        self.event_services.register_subscriptions()
 
     # ========================================================
-    # LOAD CONFIG
+    # CONFIG
     # ========================================================
 
     def _load_config(
@@ -161,7 +216,7 @@ class CommunicationDispatcher:
             )
 
     # ========================================================
-    # START
+    # START / STOP
     # ========================================================
 
     def start(
@@ -174,15 +229,9 @@ class CommunicationDispatcher:
 
             self.listener_manager.start()
 
-        self.publish_communication_state()
-
         logging.info(
             "[Communication] Dispatcher ready."
         )
-
-    # ========================================================
-    # STOP
-    # ========================================================
 
     def stop(
         self
@@ -194,27 +243,90 @@ class CommunicationDispatcher:
 
         self.sender_manager.close()
 
-        self.publish_communication_state()
-
         logging.info(
             "[Communication] Dispatcher stopped."
         )
 
     # ========================================================
-    # HANDLE INBOUND EVENT
+    # EVENT BUS HANDLING
+    # ========================================================
+
+    def handle_bus_event(
+        self,
+        event_name,
+        payload=None
+    ):
+        """
+        Handle events received from the GUI event bus.
+
+        Event services only forwards the subscription. Dispatcher decides
+        whether the event updates Communication state or should be sent out.
+        """
+
+        try:
+
+            if event_name == NETWORK_CONNECTED:
+
+                self._handle_network_connected(
+                    payload
+                )
+
+                return
+
+            if event_name == NETWORK_DISCONNECTED:
+
+                self._handle_network_disconnected(
+                    payload
+                )
+
+                return
+
+            if event_name in self.outbound_send_events:
+
+                outbound_event = self._build_outbound_event(
+                    event_name=event_name,
+                    payload=payload
+                )
+
+                self.send_event(
+                    outbound_event
+                )
+
+                return
+
+            logging.warning(
+                "[Communication] Unhandled bus event: %s",
+                event_name
+            )
+
+        except Exception as error:
+
+            self.state.tx_errors += 1
+
+            logging.exception(
+                "[Communication] Bus event handling error: %s",
+                error
+            )
+
+    # ========================================================
+    # INBOUND EVENT HANDLING
     # ========================================================
 
     def handle_inbound_event(
         self,
         listener_event: dict
     ):
+        """
+        Handle decoded inbound events from listener_manager.py.
+        """
 
         try:
 
             self.state.rx_count += 1
 
             self.state.last_rx_time = listener_event.get(
-                "timestamp"
+                "timestamp",
+                self._utc_now()
             )
 
             message = listener_event.get(
@@ -222,11 +334,24 @@ class CommunicationDispatcher:
                 {}
             )
 
-            event_type = message.get(
-                "event_type"
+            if not isinstance(
+                message,
+                dict
+            ):
+
+                self.state.rx_errors += 1
+
+                logging.warning(
+                    "[Communication] Inbound message was not a dictionary."
+                )
+
+                return
+
+            event_name = self._extract_event_name(
+                message
             )
 
-            if not event_type:
+            if not event_name:
 
                 self.state.rx_errors += 1
 
@@ -234,120 +359,67 @@ class CommunicationDispatcher:
                     "[Communication] Inbound message missing event_type."
                 )
 
-                self.publish_communication_state()
+                return
+
+            if event_name == NETWORK_CONNECTED:
+
+                self._handle_network_connected(
+                    message
+                )
 
                 return
 
-            self._handle_inbound_state_event(
-                event_type=event_type,
-                event=message
+            if event_name == NETWORK_DISCONNECTED:
+
+                self._handle_network_disconnected(
+                    message
+                )
+
+                return
+
+            publish_method = self.inbound_publish_map.get(
+                event_name
             )
 
-            if self.event_services.can_publish(
-                event_type
-            ):
-
-                self.event_services.publish_listener_event(
-                    event_name=event_type,
-                    event=message
-                )
-
-            else:
+            if publish_method is None:
 
                 logging.warning(
-                    f"[Communication] Unknown inbound event: "
-                    f"{event_type}"
+                    "[Communication] Unknown inbound event: %s",
+                    event_name
                 )
 
-            self.publish_communication_state()
+                return
+
+            normalized_message = self._build_inbound_bus_payload(
+                event_name=event_name,
+                message=message,
+                listener_event=listener_event
+            )
+
+            publish_method(
+                normalized_message
+            )
 
         except Exception as error:
 
             self.state.rx_errors += 1
 
             logging.exception(
-                f"[Communication] Inbound Dispatcher Error: "
-                f"{error}"
+                "[Communication] Inbound dispatcher error: %s",
+                error
             )
-
-            self.publish_communication_state()
 
     # ========================================================
-    # HANDLE OUTBOUND EVENT
-    # ========================================================
-
-    def handle_outbound_event(
-        self,
-        event: dict
-    ):
-
-        try:
-
-            event_type = event.get(
-                "event_type"
-            )
-
-            if not event_type:
-
-                self.state.tx_errors += 1
-
-                logging.warning(
-                    "[Communication] Outbound event missing event_type."
-                )
-
-                self.publish_communication_state()
-
-                return
-
-            self._handle_outbound_mode_event(
-                event_type=event_type,
-                event=event
-            )
-
-            if not self.event_services.can_send(
-                event_type
-            ):
-
-                logging.warning(
-                    f"[Communication] Event is not configured "
-                    f"for outbound sending: {event_type}"
-                )
-
-                self.publish_communication_state()
-
-                return
-
-            verified_event = (
-                self.event_services.build_gui_event(
-                    event
-                )
-            )
-
-            self.send_event(
-                verified_event
-            )
-
-            self.publish_communication_state()
-
-        except Exception as error:
-
-            self.state.tx_errors += 1
-
-            logging.exception(
-                f"[Communication] Outbound Dispatcher Error: "
-                f"{error}"
-            )
-
-            self.publish_communication_state()
-
-    # ========================================================
-    # SEND EVENT
+    # OUTBOUND SEND HANDLING
     # ========================================================
 
     def send_event(
         self,
         event: dict
     ):
+        """
+        Send or queue an outbound event.
+        """
 
         message = self.sender_manager.build_message(
             event
@@ -369,57 +441,35 @@ class CommunicationDispatcher:
 
             self.state.tx_count += 1
 
-            self.state.last_tx_time = (
-                self._utc_now()
-            )
+            self.state.last_tx_time = self._utc_now()
 
             self.event_services.publish_event_sent(
-                self._build_internal_event(
-                    event_type="EVENT_SENT",
-                    payload={
-                        "message": message,
-                        "tx_count": self.state.tx_count,
-                        "tx_errors": self.state.tx_errors,
-                        "last_tx_time": self.state.last_tx_time
-                    },
-                    target="journal"
+                self._build_event_sent_payload(
+                    message=message,
+                    queued=False
                 )
             )
 
-        else:
+            return
 
-            self.state.tx_errors += 1
+        self.state.tx_errors += 1
 
-            self.queue_event(
-                message
-            )
-
-    # ========================================================
-    # QUEUE EVENT
-    # ========================================================
+        self.queue_event(
+            message
+        )
 
     def queue_event(
         self,
         message: dict
     ):
+        """
+        Store an outbound message when sending is unavailable.
+        """
 
         if not self.queue_enabled:
 
             logging.warning(
                 "[Communication] Queue disabled. Message dropped."
-            )
-
-            self.event_services.publish_event_queued(
-                self._build_internal_event(
-                    event_type="EVENT_QUEUED",
-                    payload={
-                        "queued": False,
-                        "reason": "queue_disabled",
-                        "message": message,
-                        "queue_size": self.sender_manager.queue_size()
-                    },
-                    target="journal"
-                )
             )
 
             return
@@ -428,35 +478,23 @@ class CommunicationDispatcher:
             message
         )
 
-        self.event_services.publish_event_queued(
-            self._build_internal_event(
-                event_type="EVENT_QUEUED",
-                payload={
-                    "queued": True,
-                    "message": message,
-                    "queue_size": self.sender_manager.queue_size()
-                },
-                target="journal"
-            )
+        logging.warning(
+            "[Communication] Message queued. Queue size: %s",
+            self.sender_manager.queue_size()
         )
-
-    # ========================================================
-    # FLUSH QUEUE
-    # ========================================================
 
     def flush_queue(
         self
     ):
+        """
+        Attempt to send queued messages.
+        """
 
         if not self._can_send_now():
 
             return
 
-        queued_messages = (
-            self.sender_manager.retrieve_queue()
-        )
-
-        sent_count = 0
+        queued_messages = self.sender_manager.retrieve_queue()
 
         for message in queued_messages:
 
@@ -464,160 +502,67 @@ class CommunicationDispatcher:
                 message
             )
 
-            if success:
-
-                self.sender_manager.remove_message(
-                    message
-                )
-
-                self.state.tx_count += 1
-
-                self.state.last_tx_time = (
-                    self._utc_now()
-                )
-
-                sent_count += 1
-
-            else:
+            if not success:
 
                 self.state.tx_errors += 1
 
-                break
+                logging.warning(
+                    "[Communication] Queue flush stopped after send failure."
+                )
 
-        self.event_services.publish_queue_flushed(
-            self._build_internal_event(
-                event_type="QUEUE_FLUSHED",
-                payload={
-                    "sent_count": sent_count,
-                    "queue_size": self.sender_manager.queue_size(),
-                    "tx_count": self.state.tx_count,
-                    "tx_errors": self.state.tx_errors,
-                    "last_tx_time": self.state.last_tx_time
-                },
-                target="journal"
+                return
+
+            self.sender_manager.remove_message(
+                message
             )
-        )
 
-        self.publish_communication_state()
+            self.state.tx_count += 1
+
+            self.state.last_tx_time = self._utc_now()
+
+            self.event_services.publish_event_sent(
+                self._build_event_sent_payload(
+                    message=message,
+                    queued=True
+                )
+            )
 
     # ========================================================
-    # HANDLE INBOUND STATE EVENT
+    # NETWORK STATE HANDLING
     # ========================================================
 
-    def _handle_inbound_state_event(
+    def _handle_network_connected(
         self,
-        event_type: str,
-        event: dict
+        payload=None
     ):
 
-        if event_type == "NETWORK_CONNECTED":
+        self.state.network_connected = True
+        self.state.server_reachable = True
 
-            self.state.network_connected = True
+        self.flush_queue()
 
-            self.event_services.publish_network_connected(
-                self._build_internal_event(
-                    event_type="NETWORK_CONNECTED",
-                    payload={
-                        "network_connected": True,
-                        "source_event": event
-                    },
-                    target="gui"
-                )
+        if self.debug:
+
+            logging.info(
+                "[Communication] Network connected."
             )
 
-            self.flush_queue()
-
-        elif event_type == "NETWORK_DISCONNECTED":
-
-            self.state.network_connected = False
-
-            self.event_services.publish_network_disconnected(
-                self._build_internal_event(
-                    event_type="NETWORK_DISCONNECTED",
-                    payload={
-                        "network_connected": False,
-                        "source_event": event
-                    },
-                    target="gui"
-                )
-            )
-
-    # ========================================================
-    # HANDLE OUTBOUND MODE EVENT
-    # ========================================================
-
-    def _handle_outbound_mode_event(
+    def _handle_network_disconnected(
         self,
-        event_type: str,
-        event: dict
+        payload=None
     ):
 
-        if event_type == "ENABLE_WIFI":
+        self.state.network_connected = False
+        self.state.server_reachable = False
 
-            self.wifi_enabled = True
+        if self.debug:
 
-            self.event_services.publish_network_enabled(
-                self._build_internal_event(
-                    event_type="NETWORK_ENABLED",
-                    payload={
-                        "network": "wifi",
-                        "enabled": True,
-                        "source_event": event
-                    },
-                    target="gui"
-                )
-            )
-
-        elif event_type == "DISABLE_WIFI":
-
-            self.wifi_enabled = False
-
-            self.event_services.publish_network_disabled(
-                self._build_internal_event(
-                    event_type="NETWORK_DISABLED",
-                    payload={
-                        "network": "wifi",
-                        "enabled": False,
-                        "source_event": event
-                    },
-                    target="gui"
-                )
-            )
-
-        elif event_type == "ENABLE_LORA":
-
-            self.lora_enabled = True
-
-            self.event_services.publish_network_enabled(
-                self._build_internal_event(
-                    event_type="NETWORK_ENABLED",
-                    payload={
-                        "network": "lora",
-                        "enabled": True,
-                        "source_event": event
-                    },
-                    target="gui"
-                )
-            )
-
-        elif event_type == "DISABLE_LORA":
-
-            self.lora_enabled = False
-
-            self.event_services.publish_network_disabled(
-                self._build_internal_event(
-                    event_type="NETWORK_DISABLED",
-                    payload={
-                        "network": "lora",
-                        "enabled": False,
-                        "source_event": event
-                    },
-                    target="gui"
-                )
+            logging.info(
+                "[Communication] Network disconnected."
             )
 
     # ========================================================
-    # CAN SEND NOW
+    # VALIDATION / GATES
     # ========================================================
 
     def _can_send_now(
@@ -634,55 +579,178 @@ class CommunicationDispatcher:
 
         return True
 
-    # ========================================================
-    # PUBLISH COMMUNICATION STATE
-    # ========================================================
-
-    def publish_communication_state(
-        self
+    def _extract_event_name(
+        self,
+        message: dict
     ):
 
-        self.event_services.publish_communication_state(
-            self._build_internal_event(
-                event_type="COMMUNICATION_STATE",
-                payload={
-                    "communication_state": self.state.get_status(),
-                    "wifi_enabled": self.wifi_enabled,
-                    "lora_enabled": self.lora_enabled,
-                    "udp_enabled": self.udp_enabled,
-                    "queue_enabled": self.queue_enabled
-                },
-                target="gui"
-            )
+        return (
+            message.get("event_type")
+            or message.get("event_name")
+            or message.get("name")
         )
 
     # ========================================================
-    # BUILD INTERNAL EVENT
+    # PAYLOAD BUILDERS
     # ========================================================
 
-    def _build_internal_event(
+    def _build_inbound_bus_payload(
         self,
-        event_type: str,
-        payload: dict,
-        target: str = "gui"
+        event_name: str,
+        message: dict,
+        listener_event: dict
+    ) -> dict:
+
+        payload = dict(
+            message
+        )
+
+        payload["event_type"] = event_name
+
+        payload["_communication"] = {
+
+            "transport":
+                listener_event.get(
+                    "transport"
+                ),
+
+            "received_timestamp":
+                listener_event.get(
+                    "timestamp"
+                ),
+
+            "source_ip":
+                listener_event.get(
+                    "source_ip"
+                ),
+
+            "source_port":
+                listener_event.get(
+                    "source_port"
+                ),
+
+            "rx_count":
+                self.state.rx_count,
+
+            "rx_errors":
+                self.state.rx_errors
+        }
+
+        return payload
+
+    def _build_outbound_event(
+        self,
+        event_name: str,
+        payload=None
+    ) -> dict:
+
+        if payload is None:
+
+            payload = {}
+
+        if not isinstance(
+            payload,
+            dict
+        ):
+
+            payload = {
+                "value": payload
+            }
+
+        return {
+
+            "event_type":
+                event_name,
+
+            "source":
+                "gui",
+
+            "target":
+                "server",
+
+            "timestamp":
+                self._utc_now(),
+
+            "payload":
+                payload
+        }
+
+    def _build_event_sent_payload(
+        self,
+        message: dict,
+        queued: bool
     ) -> dict:
 
         return {
 
-            "event_type": event_type,
+            "event_type":
+                EVENT_SENT,
 
-            "source": "communication",
+            "source":
+                "communication",
 
-            "target": target,
+            "target":
+                "journal",
 
-            "timestamp": self._utc_now(),
+            "timestamp":
+                self._utc_now(),
 
-            "payload": payload
+            "payload": {
 
+                "message":
+                    message,
+
+                "sent_from_queue":
+                    queued,
+
+                "tx_count":
+                    self.state.tx_count,
+
+                "tx_errors":
+                    self.state.tx_errors,
+
+                "last_tx_time":
+                    self.state.last_tx_time,
+
+                "queue_size":
+                    self.sender_manager.queue_size()
+            }
         }
 
     # ========================================================
-    # UTC NOW
+    # STATUS
+    # ========================================================
+
+    def get_status(
+        self
+    ) -> dict:
+
+        return {
+
+            "communication_state":
+                self.state.get_status(),
+
+            "wifi_enabled":
+                self.wifi_enabled,
+
+            "lora_enabled":
+                self.lora_enabled,
+
+            "udp_enabled":
+                self.udp_enabled,
+
+            "queue_enabled":
+                self.queue_enabled,
+
+            "queue_size":
+                self.sender_manager.queue_size(),
+
+            "running":
+                self.running
+        }
+
+    # ========================================================
+    # TIME
     # ========================================================
 
     def _utc_now(
