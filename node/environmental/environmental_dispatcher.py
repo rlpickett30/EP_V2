@@ -29,7 +29,7 @@ class EnvironmentalDispatcher:
         enviro_interval_sec: Optional[int] = None,
         state_heartbeat_sec: int = 300,
         loop_delay_sec: float = 1.0,
-        required_sensors: Tuple[str, ...] = ("sht45", "bmp390"),
+        required_sensors: Tuple[str, ...] = ("sht45", "dps310"),
         weather_interval_sec: Optional[int] = None,
         debug: bool = True
     ):
@@ -65,7 +65,7 @@ class EnvironmentalDispatcher:
 
         self.sensor_states = {
             "sht45": None,
-            "bmp390": None
+            "dps310": None
         }
 
         self.enviro_online = None
@@ -151,9 +151,9 @@ class EnvironmentalDispatcher:
                 "sht45",
                 snapshot.get("sht45")
             ),
-            "bmp390": self._sensor_state(
-                "bmp390",
-                snapshot.get("bmp390")
+            "dps310": self._sensor_state(
+                "dps310",
+                snapshot.get("dps310")
             )
         }
 
@@ -228,7 +228,38 @@ class EnvironmentalDispatcher:
             now - self.last_state_publish
             >= self.state_heartbeat_sec
         )
+    
+    def _has_reportable_enviro_reading(
+        self,
+        snapshot: Dict[str, Any]
+    ) -> bool:
 
+        sht45 = snapshot.get("sht45")
+        dps310 = snapshot.get("dps310")
+
+        if isinstance(sht45, dict):
+            if (
+                sht45.get("sample_count", 0) > 0
+                and (
+                    sht45.get("temperature_c") is not None
+                    or sht45.get("humidity_rh") is not None
+                )
+            ):
+                return True
+
+        if isinstance(dps310, dict):
+            if (
+                dps310.get("sample_count", 0) > 0
+                and (
+                    dps310.get("pressure_hpa") is not None
+                    or dps310.get("temperature_c") is not None
+                    or dps310.get("altitude_m") is not None
+                )
+            ):
+                return True
+
+        return False
+    
     # --------------------------------------------------
     # Payload Builders
     # --------------------------------------------------
@@ -284,14 +315,19 @@ class EnvironmentalDispatcher:
                 "sht45",
                 "humidity_rh"
             ),
+            "humidity_percent": self._reading(
+                snapshot,
+                "sht45",
+                "humidity_rh"
+            ),
             "pressure_hpa": self._reading(
                 snapshot,
-                "bmp390",
+                "dps310",
                 "pressure_hpa"
             ),
             "altitude_m": self._reading(
                 snapshot,
-                "bmp390",
+                "dps310",
                 "altitude_m"
             ),
             "sensors": sensor_states,
@@ -350,8 +386,15 @@ class EnvironmentalDispatcher:
 
                 now = time.time()
 
+                now = time.time()
+
+                state_changed = self._state_changed(
+                    sensor_states=sensor_states,
+                    enviro_online=enviro_online
+                )
+
                 if (
-                    self._state_changed(sensor_states, enviro_online)
+                    state_changed
                     or self._state_heartbeat_due(now)
                 ):
                     self._publish_enviro_state(
@@ -359,9 +402,21 @@ class EnvironmentalDispatcher:
                         enviro_online=enviro_online
                     )
 
-                if (
+                enviro_due = (
                     now - self.last_enviro_publish
                     >= self.enviro_interval_sec
+                )
+
+                has_reportable_reading = self._has_reportable_enviro_reading(
+                    snapshot=snapshot
+                )
+
+                if (
+                    has_reportable_reading
+                    and (
+                        enviro_due
+                        or state_changed
+                    )
                 ):
                     self._publish_enviro_event(
                         snapshot=snapshot,

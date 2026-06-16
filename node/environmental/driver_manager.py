@@ -25,8 +25,7 @@ import time
 from typing import Any, Dict, Optional
 
 from environmental.SHT45_driver import SHT45Driver
-from environmental.BMP390_driver import BMP390Driver
-
+from environmental.DPS310_driver import DPS310Driver
 
 class DriverManager:
 
@@ -43,10 +42,10 @@ class DriverManager:
         self.sea_level_pressure_hpa = sea_level_pressure_hpa
 
         self.sht45: Optional[SHT45Driver] = None
-        self.bmp390: Optional[BMP390Driver] = None
+        self.dps310: Optional[DPS310Driver] = None
 
         self.sht45_start_error: Optional[str] = None
-        self.bmp390_start_error: Optional[str] = None
+        self.dps310_start_error: Optional[str] = None
 
     # --------------------------------------------------
     # Debug
@@ -66,7 +65,7 @@ class DriverManager:
         self.log("Starting environmental drivers...")
 
         self._start_sht45()
-        self._start_bmp390()
+        self._start_dps310()
 
     def _start_sht45(self):
 
@@ -88,26 +87,26 @@ class DriverManager:
             self.sht45_start_error = f"{type(error).__name__}: {error}"
             self.log(f"SHT45 startup failed: {error}")
 
-    def _start_bmp390(self):
+    def _start_dps310(self):
 
-        self.bmp390 = None
-        self.bmp390_start_error = None
+        self.dps310 = None
+        self.dps310_start_error = None
 
         try:
-            driver = BMP390Driver(
+            driver = DPS310Driver(
                 sample_hz=self.sample_hz,
                 sea_level_pressure_hpa=self.sea_level_pressure_hpa
             )
 
             driver.start()
 
-            self.bmp390 = driver
-            self.log("BMP390 started")
+            self.dps310 = driver
+            self.log("DPS310 started")
 
         except Exception as error:
-            self.bmp390 = None
-            self.bmp390_start_error = f"{type(error).__name__}: {error}"
-            self.log(f"BMP390 startup failed: {error}")
+            self.dps310 = None
+            self.dps310_start_error = f"{type(error).__name__}: {error}"
+            self.log(f"DPS310 startup failed: {error}")
 
     def stop(self):
 
@@ -121,14 +120,14 @@ class DriverManager:
             self.log(f"SHT45 stop error: {error}")
 
         try:
-            if self.bmp390:
-                self.bmp390.stop()
+            if self.dps310:
+                self.dps310.stop()
 
         except Exception as error:
-            self.log(f"BMP390 stop error: {error}")
+            self.log(f"dps310 stop error: {error}")
 
         self.sht45 = None
-        self.bmp390 = None
+        self.dps310 = None
 
     # --------------------------------------------------
     # Snapshots
@@ -183,6 +182,7 @@ class DriverManager:
             snapshot["online"] = bool(
                 started
                 and snapshot.get("driver_start_monotonic") is not None
+                and snapshot.get("sample_count", 0) > 0
                 and not snapshot.get("last_error")
             )
 
@@ -208,10 +208,10 @@ class DriverManager:
                     "humidity_rh": None
                 }
             ),
-            "bmp390": self._driver_snapshot(
-                self.bmp390,
-                driver_name="BMP390Driver",
-                start_error=self.bmp390_start_error,
+            "dps310": self._driver_snapshot(
+                self.dps310,
+                driver_name="DPS310Driver",
+                start_error=self.dps310_start_error,
                 extra_fields={
                     "sea_level_pressure_hpa": self.sea_level_pressure_hpa,
                     "pressure_hpa": None,

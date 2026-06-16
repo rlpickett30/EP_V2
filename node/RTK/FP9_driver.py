@@ -32,7 +32,7 @@ class FP9Driver:
     def __init__(
         self,
         port="/dev/ttyACM0",
-        baudrate=115200,
+        baudrate=9600,
         timeout=1.0,
         debug=True
     ):

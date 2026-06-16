@@ -1,4 +1,7 @@
 {
+    "node_id": "node_01",
+    "node_name": "EnviroPulse Node 01",
+
     "gps": {
 
         "min_satellites": 6,

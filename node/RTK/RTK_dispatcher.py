@@ -66,7 +66,8 @@ class RTKDispatcher:
         self.debug = debug
         self.config_path = config_path
         self.config = self.load_config()
-
+        self.node_id = self.config.get("node_id", "node_01")
+        self.node_name = self.config.get("node_name", self.node_id)
         self.loop_delay_sec = self.config.get(
             "loop_delay_sec",
             1.0
@@ -327,13 +328,16 @@ class RTKDispatcher:
     ) -> Dict[str, Any]:
 
         payload = {
+            "node_id": self.node_id,
+            "node_name": self.node_name,
+            "subsystem": "rtk",
             "gps_online": gps_locked,
             "gps_locked": gps_locked,
             "fix_valid": gps_locked,
             "state": "LOCKED" if gps_locked else "LOST",
             "snapshot": gps_snapshot
         }
-
+        
         return self.build_event(
             event_type="GPS_STATE",
             payload=payload
@@ -402,6 +406,9 @@ class RTKDispatcher:
     ) -> Dict[str, Any]:
 
         payload = {
+            "node_id": self.node_id,
+            "node_name": self.node_name,
+            "subsystem": "rtk",
             "pps_online": pps_locked,
             "pps_locked": pps_locked,
             "pps_valid": pps_locked,
@@ -531,6 +538,9 @@ class RTKDispatcher:
         )
 
         payload = {
+            "node_id": self.node_id,
+            "node_name": self.node_name,
+            "subsystem": "rtk",
             "rtk_online": rtk_online,
             "rtk_fixed": rtk_online,
             "rtk_status": status,
@@ -627,19 +637,22 @@ class RTKDispatcher:
         gps_coord = {
             "lat": latitude,
             "lon": longitude,
+            "alt": altitude_m,
             "altitude_m": altitude_m
-        }
+            }
 
         payload = {
+            "node_id": self.node_id,
+            "node_name": self.node_name,
+            "subsystem": "rtk",
             "gps_coord": gps_coord,
             "lat": latitude,
             "lon": longitude,
             "latitude": latitude,
             "longitude": longitude,
+            "alt": altitude_m,
             "altitude_m": altitude_m,
-            "fix_valid": self.extract_gps_locked(
-                gps_snapshot
-            ),
+            "fix_valid": self.extract_gps_locked(gps_snapshot),
             "snapshot": gps_snapshot
         }
 
@@ -660,8 +673,8 @@ class RTKDispatcher:
 
         return {
             "event_type": event_type,
-            "source": "rtk",
-            "target": "sender",
+            "source": self.node_id,
+            "target": "server",
             "timestamp": self.get_utc_timestamp(),
             "payload": payload
         }
