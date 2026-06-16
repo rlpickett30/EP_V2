@@ -1,0 +1,17 @@
+git
+liblapack-dev
+libopenblas-dev
+libportaudio2
+libsndfile1
+libsqlite3-0
+portaudio19-dev
+python-is-python3
+python3-dev
+python3-gpiozero
+python3-libgpiod
+python3-pip
+python3-rpi-lgpio
+python3-smbus2
+python3-spidev
+python3-venv
+sqlite3

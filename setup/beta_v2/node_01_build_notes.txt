@@ -1,0 +1,8 @@
+===== PYTHON =====
+Python 3.13.5
+
+===== PIP FREEZE =====
+
+===== PIP LIST =====
+
+===== APT MANUAL PACKAGES USED FOR NODE =====
