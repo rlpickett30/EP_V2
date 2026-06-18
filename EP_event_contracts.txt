@@ -1,0 +1,416 @@
+MASTER EVENT PUBLISHER LIST
+EnviroPulse V2
+Status: Draft from drawings, not code-verified
+
+Rule:
+“Publisher” means the subsystem that places the event onto that system’s local event bus.
+For inbound network events, the original source may be another system, but the local publisher is the Communication-listener.
+
+============================================================
+SERVER SYSTEM
+=============
+
+---
+
+## Server / Communication-listener
+
+Publishes GUI inbound events:
+DETECTION_MODE_CHANGE
+Publisher: Server Communication-listener
+
+FEATURE_MODE_CHANGE
+Publisher: Server Communication-listener
+
+NETWORK_MODE_CHANGE
+Publisher: Server Communication-listener
+
+GUI_REGISTER
+Publisher: Server Communication-listener
+
+Publishes node inbound events:
+NODE_REGISTER
+Publisher: Server Communication-listener
+
+RTK_STATE
+Publisher: Server Communication-listener
+
+GPS_STATE
+Publisher: Server Communication-listener
+
+PPS_STATE
+Publisher: Server Communication-listener
+
+ENVIRO_STATE
+Publisher: Server Communication-listener
+
+ENVIRO_EVENT
+Publisher: Server Communication-listener
+
+GPS_COORD
+Publisher: Server Communication-listener
+
+AVIS_LITE
+Publisher: Server Communication-listener
+
+TDOA_RECORDING
+Publisher: Server Communication-listener
+
+Publishes internal communication events:
+NETWORK_CONNECTED
+Publisher: Server Communication-listener / Communication state logic
+
+NETWORK_DISCONNECTED
+Publisher: Server Communication-listener / Communication state logic
+
+---
+
+## Server / Communication-sender
+
+EVENT_SENT
+Publisher: Server Communication-sender
+
+---
+
+## Server / Platform Registry
+
+Publishes mode-control events:
+TDOA_CHANGE_MODE
+Publisher: Server Platform Registry / Mode Manager
+
+COMMUNICATION_CHANGE_MODE
+Publisher: Server Platform Registry / Mode Manager
+
+SEND_NODE_CHANGE_MODE
+Publisher: Server Platform Registry / Mode Manager
+
+Publishes registry events:
+REGISTRY_UPDATED
+Publisher: Server Platform Registry / Registry Manager
+
+SERVER_NODE_REGISTER
+Publisher: Server Platform Registry / Registry Manager
+
+Publishes server-verified event products:
+SERVER_ENVIRO_EVENT
+Publisher: Server Platform Registry / Event Verification Manager
+
+SERVER_GPS_COORD
+Publisher: Server Platform Registry / Event Verification Manager
+
+SERVER_AVIS_LITE
+Publisher: Server Platform Registry / Event Verification Manager
+
+SERVER_TDOA_CALC
+Publisher: Server Platform Registry / TDOA Result Verification Manager
+
+Publishes state events:
+NODE_STATE_UPDATED
+Publisher: Server Platform Registry / State Manager
+
+NODE_TDOA_STATE
+Publisher: Server Platform Registry / State Manager or TDOA Readiness Manager
+
+---
+
+## Server / TDOA
+
+Publishes mode status:
+TDOA_MODE_UPDATED
+Publisher: Server TDOA
+
+Publishes readiness status:
+TDOA_NODE_STATE_UPDATED
+Publisher: Server TDOA
+
+TDOA_CAPABLE
+Publisher: Server TDOA
+
+Publishes recording workflow events:
+TDOA_REQUEST
+Publisher: Server TDOA
+
+TDOA_COMPLETE_SET
+Publisher: Server TDOA / Recording Manager / Cluster Consensus
+
+Publishes calculation events:
+TDOA_CALC
+Publisher: Server TDOA / Solver
+
+---
+
+## Server / Database
+
+DATABASE_UPDATED
+Publisher: Server Database
+
+---
+
+## Server / Event Journal
+
+No control events published.
+Publisher role: none.
+
+Event Journal is subscription-only in the current drawing.
+
+============================================================
+GUI SYSTEM
+==========
+
+---
+
+## GUI / Main
+
+GUI_REGISTER
+Publisher: GUI Main
+
+---
+
+## GUI / Interface
+
+NETWORK_MODE_CHANGE
+Publisher: GUI Interface / Command Manager
+
+DETECTION_MODE_CHANGE
+Publisher: GUI Interface / Command Manager
+
+FEATURE_MODE_CHANGE
+Publisher: GUI Interface / Command Manager
+
+---
+
+## GUI / Communication-sender
+
+EVENT_SENT
+Publisher: GUI Communication-sender
+
+---
+
+## GUI / Communication-listener
+
+Publishes server inbound events:
+NODE_STATE_UPDATED
+Publisher: GUI Communication-listener
+
+SERVER_NODE_REGISTER
+Publisher: GUI Communication-listener
+
+SERVER_ENVIRO_EVENT
+Publisher: GUI Communication-listener
+
+SERVER_GPS_COORD
+Publisher: GUI Communication-listener
+
+SERVER_AVIS_LITE
+Publisher: GUI Communication-listener
+
+SERVER_TDOA_CALC
+Publisher: GUI Communication-listener
+
+Publishes internal communication events:
+NETWORK_CONNECTED
+Publisher: GUI Communication-listener / Communication state logic
+
+NETWORK_DISCONNECTED
+Publisher: GUI Communication-listener / Communication state logic
+
+---
+
+## GUI / Node Repository
+
+NEW_NODE_REGISTERED
+Publisher: GUI Node Repository
+
+REPOSITORY_STATE_UPDATE
+Publisher: GUI Node Repository
+
+REPOSITORY_EVENT_UPDATE
+Publisher: GUI Node Repository
+
+---
+
+## GUI / Event Journal
+
+No control events published.
+Publisher role: none.
+
+Event Journal is subscription-only in the current drawing.
+
+============================================================
+NODE SYSTEM
+===========
+
+---
+
+## Node / Main
+
+NODE_REGISTER
+Publisher: Node Main
+
+---
+
+## Node / Communication-listener
+
+Publishes server inbound events:
+TDOA_REQUEST
+Publisher: Node Communication-listener
+
+SEND_NODE_CHANGE_MODE
+Publisher: Node Communication-listener
+
+Publishes internal communication events:
+NETWORK_CONNECTED
+Publisher: Node Communication-listener / Communication state logic
+
+NETWORK_DISCONNECTED
+Publisher: Node Communication-listener / Communication state logic
+
+---
+
+## Node / Communication-sender
+
+EVENT_SENT
+Publisher: Node Communication-sender
+
+---
+
+## Node / Microphone
+
+TDOA_RECORDING
+Publisher: Node Microphone
+
+RECORDING_AVAILABLE
+Publisher: Node Microphone
+
+---
+
+## Node / BirdNet
+
+AVIS_LITE
+Publisher: Node BirdNet
+
+---
+
+## Node / RTK
+
+RTK_STATE
+Publisher: Node RTK
+
+GPS_STATE
+Publisher: Node RTK / GPS Driver
+
+PPS_STATE
+Publisher: Node RTK / PPS Driver
+
+GPS_COORD
+Publisher: Node RTK / GPS Driver
+
+---
+
+## Node / Environmental
+
+ENVIRO_STATE
+Publisher: Node Environmental
+
+ENVIRO_EVENT
+Publisher: Node Environmental
+
+---
+
+## Node / Event Journal
+
+No control events published.
+Publisher role: none.
+
+Event Journal is subscription-only in the current drawing.
+
+============================================================
+GLOBAL CANONICAL EVENT SET
+==========================
+
+Mode / command events:
+NETWORK_MODE_CHANGE
+DETECTION_MODE_CHANGE
+FEATURE_MODE_CHANGE
+TDOA_CHANGE_MODE
+COMMUNICATION_CHANGE_MODE
+SEND_NODE_CHANGE_MODE
+
+Registration events:
+GUI_REGISTER
+NODE_REGISTER
+REGISTRY_UPDATED
+SERVER_NODE_REGISTER
+NEW_NODE_REGISTERED
+
+Node state events:
+RTK_STATE
+GPS_STATE
+PPS_STATE
+ENVIRO_STATE
+NODE_STATE_UPDATED
+NODE_TDOA_STATE
+TDOA_NODE_STATE_UPDATED
+TDOA_CAPABLE
+
+Node data / observation events:
+ENVIRO_EVENT
+GPS_COORD
+AVIS_LITE
+SERVER_ENVIRO_EVENT
+SERVER_GPS_COORD
+SERVER_AVIS_LITE
+
+TDOA workflow events:
+TDOA_REQUEST
+TDOA_RECORDING
+RECORDING_AVAILABLE
+TDOA_COMPLETE_SET
+TDOA_CALC
+SERVER_TDOA_CALC
+TDOA_MODE_UPDATED
+
+GUI repository events:
+REPOSITORY_STATE_UPDATE
+REPOSITORY_EVENT_UPDATE
+
+Communication events:
+NETWORK_CONNECTED
+NETWORK_DISCONNECTED
+EVENT_SENT
+
+Database events:
+DATABASE_UPDATED
+
+============================================================
+LEGACY ALIAS WATCH LIST
+=======================
+
+These names should be searched across the full repo and marked as legacy aliases unless we find an intentional reason to keep them:
+
+GUI_NETWORK_MODE_CHANGE
+GUI_DETECTION_MODE_CHANGE
+GUI_FEATURE_MODE_CHANGE
+
+Canonical replacements:
+NETWORK_MODE_CHANGE
+DETECTION_MODE_CHANGE
+FEATURE_MODE_CHANGE
+
+============================================================
+FIRST GREP TARGETS
+==================
+
+Search these first across the whole EP_V2 repo:
+
+GUI_NETWORK_MODE_CHANGE
+GUI_DETECTION_MODE_CHANGE
+GUI_FEATURE_MODE_CHANGE
+NETWORK_MODE_CHANGE
+DETECTION_MODE_CHANGE
+FEATURE_MODE_CHANGE
+
+Expected result:
+GUI Interface should publish the unprefixed canonical names.
+GUI Communication-sender should subscribe to the unprefixed canonical names.
+Server Communication-listener should recognize the unprefixed canonical names.
+Server Platform Registry should subscribe to the unprefixed canonical names.

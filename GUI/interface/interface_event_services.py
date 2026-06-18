@@ -15,8 +15,7 @@
 # Does:
 #   - Register Interface subscriptions
 #   - Subscribe Interface to Node Repository publications
-#   - Publish operator mode-change events
-#   - Preserve existing server-facing command payload shape
+#   - Publish canonical GUI mode-change events
 #
 # Does NOT:
 #   - Update GUI widgets
@@ -165,8 +164,7 @@ class InterfaceEventServices:
         self._publish_mode_change(
             event_type=NETWORK_MODE_CHANGE,
             mode_category="network",
-            command="ENABLE_WIFI",
-            requested_mode="wifi_enabled",
+            requested_mode="enable_wifi",
             target="node",
             target_node=target_node
         )
@@ -183,8 +181,7 @@ class InterfaceEventServices:
         self._publish_mode_change(
             event_type=NETWORK_MODE_CHANGE,
             mode_category="network",
-            command="ENABLE_LORA",
-            requested_mode="lora_enabled",
+            requested_mode="enable_lora",
             target="node",
             target_node=target_node
         )
@@ -201,7 +198,6 @@ class InterfaceEventServices:
         self._publish_mode_change(
             event_type=DETECTION_MODE_CHANGE,
             mode_category="detection",
-            command="ENERGY_ONSET",
             requested_mode="energy_onset",
             target="server",
             target_node=target_node
@@ -219,7 +215,6 @@ class InterfaceEventServices:
         self._publish_mode_change(
             event_type=DETECTION_MODE_CHANGE,
             mode_category="detection",
-            command="PATTERN_ONSET",
             requested_mode="pattern_onset",
             target="server",
             target_node=target_node
@@ -237,8 +232,7 @@ class InterfaceEventServices:
         self._publish_mode_change(
             event_type=FEATURE_MODE_CHANGE,
             mode_category="feature",
-            command="AMP_FEATURE",
-            requested_mode="amplitude_feature",
+            requested_mode="amp_feature",
             target="server",
             target_node=target_node
         )
@@ -255,7 +249,6 @@ class InterfaceEventServices:
         self._publish_mode_change(
             event_type=FEATURE_MODE_CHANGE,
             mode_category="feature",
-            command="ONSET_FEATURE",
             requested_mode="onset_feature",
             target="server",
             target_node=target_node
@@ -269,7 +262,6 @@ class InterfaceEventServices:
         self,
         event_type: str,
         mode_category: str,
-        command: str,
         requested_mode: str,
         target: str,
         target_node: str = ""
@@ -297,10 +289,10 @@ class InterfaceEventServices:
                 "mode_category":
                     mode_category,
 
-                "command":
-                    command,
-
                 "requested_mode":
+                    requested_mode,
+
+                "command":
                     requested_mode,
 
                 "target":

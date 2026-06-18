@@ -357,7 +357,7 @@ class CommunicationDispatcher:
                 {
                     "source": "platform_registry",
                     "payload": {
-                        "reason": "GUI_NETWORK_MODE_CHANGE",
+                        "reason": "NETWORK_MODE_CHANGE",
                         "mode_payload": {
                             "incoming_event": "enable_wifi",
                             "mode": {

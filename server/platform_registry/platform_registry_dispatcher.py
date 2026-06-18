@@ -206,7 +206,13 @@ class PlatformRegistryDispatcher:
         """
 
         event_name, payload = self._parse_event_args(args)
-
+        
+        print(
+            "[REGISTRY TRACE] handle_gui_mode_change entered:",
+            event_name,
+            payload
+        )
+        
         if not self._event_is_gui_register(event_name):
             self._debug_log(
                 f"Ignored unknown registry event: {event_name}"
@@ -231,12 +237,16 @@ class PlatformRegistryDispatcher:
         
     def handle_gui_mode_change(self, *args):
         """
-        Handle known GUI mode-change events.
-        
-        Current known inbound event:
-            GUI_FEATURE_MODE_CHANGE
+        Handle canonical GUI mode-change events.
+            
+        Canonical inbound events:
+            NETWORK_MODE_CHANGE
+            DETECTION_MODE_CHANGE
+            FEATURE_MODE_CHANGE
 
-        Current outbound event:
+        Outbound events:
+            SEND_NODE_CHANGE_MODE
+            COMMUNICATION_CHANGE_MODE
             TDOA_CHANGE_MODE
         """
 
@@ -253,14 +263,39 @@ class PlatformRegistryDispatcher:
                 "GUI mode change ignored. Missing payload."
             )
             return
-
-        mode_event_name = self._gui_command_to_mode_event(
-            payload.get("command")
+        
+        payload = self._normalize_gui_mode_payload(
+            event_name=event_name,
+            payload=payload
         )
 
+        print(
+            "[REGISTRY TRACE] normalized GUI mode payload:",
+            payload
+        )
+        
+        command = (
+            payload.get("command")
+            or payload.get("requested_mode")
+        )
+        
+        print(
+            "[REGISTRY TRACE] command:",
+            command
+        )   
+
+        mode_event_name = self._gui_command_to_mode_event(
+            command
+        )
+        
+        print(
+            "[REGISTRY TRACE] mode_event_name:",
+            mode_event_name
+        )
+        
         if mode_event_name is None:
             self._debug_log(
-                f"GUI mode change ignored. Unknown command: {payload.get('command')}"
+                f"GUI mode change ignored. Unknown command/requested_mode: {command}"
             )
             return
 
@@ -274,7 +309,12 @@ class PlatformRegistryDispatcher:
             event_name=mode_event_name,
             payload=mode_payload
         )
-
+        
+        print(
+            "[REGISTRY TRACE] mode_manager result:",
+            result
+        )
+        
         if not result.get("success"):
             self._debug_log(
                 f"Mode manager rejected mode change: {result.get('reason')}"
@@ -302,7 +342,9 @@ class PlatformRegistryDispatcher:
 
         source_event_type = str(event_name).strip().upper()
 
-        if source_event_type == "GUI_NETWORK_MODE_CHANGE":
+        if source_event_type in [
+            "NETWORK_MODE_CHANGE"
+        ]:
 
             if self._network_mode_target_is_node(payload):
                 self.event_services.publish_send_node_change_mode(
@@ -310,7 +352,7 @@ class PlatformRegistryDispatcher:
                 )
 
                 self._debug_log(
-                    "GUI_NETWORK_MODE_CHANGE handled. SEND_NODE_CHANGE_MODE published."
+                    f"{source_event_type} handled. SEND_NODE_CHANGE_MODE published."
                 )
 
                 return
@@ -320,7 +362,7 @@ class PlatformRegistryDispatcher:
             )
 
             self._debug_log(
-                "GUI_NETWORK_MODE_CHANGE handled. COMMUNICATION_CHANGE_MODE published."
+                f"{source_event_type} handled. COMMUNICATION_CHANGE_MODE published."
             )
 
             return
@@ -328,11 +370,16 @@ class PlatformRegistryDispatcher:
         self.event_services.publish_tdoa_change_mode(
             server_payload
         )
-
+        
+        print(
+            "[REGISTRY TRACE] publishing TDOA_CHANGE_MODE:",
+            server_payload
+        )
+        
         self._debug_log(
             f"{source_event_type} handled. TDOA_CHANGE_MODE published."
         )
-     
+        
     def handle_node_register(self, *args):
         """
         Handle NODE_REGISTER.
@@ -672,42 +719,53 @@ class PlatformRegistryDispatcher:
     
     def _event_is_gui_mode_change(self, event_name):
         """
-        Return True when event is GUI_FEATURE_MODE_CHANGE.
+        Return True when event is FEATURE_MODE_CHANGE.
         """
 
         if event_name is None:
             return False
 
         return str(event_name).strip().upper() in [
-            "GUI_FEATURE_MODE_CHANGE",
-            "GUI_DETECTION_MODE_CHANGE",
-            "GUI_NETWORK_MODE_CHANGE"
+            "FEATURE_MODE_CHANGE",
+            "DETECTION_MODE_CHANGE",
+            "NETWORK_MODE_CHANGE"
         ]
-
+    
     def _gui_command_to_mode_event(self, command):
         """
-        Convert GUI command labels into mode manager event names.
+        Validate canonical GUI mode payload values and return the
+        internal PlatformRegistryModeManager mode name.
+
+        Clean contract:
+            event_type tells the command category.
+            command/requested_mode carries the lowercase mode value.
         """
 
         if command is None:
             return None
-        
-        command_map = {
-            "ONSET_FEATURE": "onset_feature",
-            "AMP_FEATURE": "amp_feature",
-            "ENERGY_ONSET": "energy_onset",
-            "PATTERN_ONSET": "pattern_onset",
-            "ENERGY_OFFSET": "energy_offset",
-            "PATTERN_OFFSET": "pattern_offset",
-            "ENABLE_WIFI": "enable_wifi",
-            "DISABLE_WIFI": "disable_wifi",
-            "ENABLE_LORA": "enable_lora",
-            "DISABLE_LORA": "disable_lora"
+
+        mode_name = str(
+            command
+        ).strip().lower()
+
+        valid_modes = {
+            "energy_onset",
+            "pattern_onset",
+            "energy_offset",
+            "pattern_offset",
+            "onset_feature",
+            "amp_feature",
+            "enable_wifi",
+            "disable_wifi",
+            "enable_lora",
+            "disable_lora"
         }
 
-        return command_map.get(
-            str(command).strip().upper()
-        )
+        if mode_name not in valid_modes:
+            return None
+
+        return mode_name
+   
     def _event_is_node_register(self, event_name):
         """
         Return True when event is NODE_REGISTER.
@@ -769,7 +827,7 @@ class PlatformRegistryDispatcher:
             "node_id": node_id,
             "destination": gui_payload.get("target", "server"),
             "requested_by": gui_payload.get("gui_id", "gui"),
-            "timestamp_utc": gui_payload.get("timestamp_utc"),
+            "timestamp_utc": gui_payload.get("timestamp_utc") or gui_payload.get("timestamp"),
             "mode_category": gui_payload.get("mode_category"),
             "command": gui_payload.get("command"),
             "requested_mode": gui_payload.get("requested_mode"),
@@ -925,7 +983,63 @@ class PlatformRegistryDispatcher:
                 "alt",
                 normalized.get("altitude")
             )    
-    
+    def _normalize_gui_mode_payload(
+        self,
+        event_name,
+        payload
+    ):
+        """
+        Normalize GUI mode-change payloads so handle_gui_mode_change()
+        receives the actual command fields.
+        
+        Expected clean command fields:
+            mode_category
+            command
+            requested_mode
+            target
+            target_node
+
+        This handles the case where Communication republishes the full
+        GUI event envelope as the server-bus payload.
+        """
+
+        if not isinstance(payload, dict):
+            return {}
+
+        normalized = dict(payload)
+
+        while (
+           isinstance(normalized.get("payload"), dict)
+           and not normalized.get("command")
+           and not normalized.get("requested_mode")
+        ):
+
+            outer = dict(normalized)
+            inner = dict(
+                outer.get("payload", {})
+            )
+
+            inner.setdefault(
+                "event_type",
+                outer.get("event_type", event_name)
+            )
+
+            for metadata_key in [
+                "event_id",
+                "source",
+                "source_name",
+                "target",
+                "simulated",
+                "timestamp",
+                "timestamp_utc"
+            ]:
+
+                if metadata_key in outer and metadata_key not in inner:
+                    inner[metadata_key] = outer.get(metadata_key)
+
+            normalized = inner
+
+        return normalized
     
     
     # ========================================================

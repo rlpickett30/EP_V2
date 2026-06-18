@@ -1,304 +1,636 @@
-GUI EVENT CONTRACTS
+CANONICAL PLATFORM EVENT INDEX
 EnviroPulse V2
+Scope: GUI-side event flow
+Status: Draft from drawings, not code-verified
 
-Document Status: Active bookkeeping contract
-Document Scope: GUI-originated events and verified GUI communication behavior currently observed in the system.
-Last Updated: 2026-06-08
+Document rule:
+Each event entry uses the following structure:
 
-============================================================
-HEADING STANDARD
-============================================================
-
-This document records only events that are currently known to exist in the running GUI system.
-
-Each event contract must include:
-
-1. Publication event name.
-2. Publishing subsystem.
-3. Payload format expected.
-4. Current subscribers.
-5. Description of publication.
-
-Contract rules:
-
-1. Add only verified events.
-2. Do not document planned events as active contracts.
-3. Do not rename an event in this document unless the implementation has also changed.
-4. If an event is converted before transmission, preserve both the local source event name and the outbound event name.
-5. Payload fields must match the currently observed journal payloads.
-6. Unknown subscribers must be marked as unknown, not guessed.
-7. Server-side behavior must not be assumed from GUI-side transmission alone.
-8. EVENT_SENT is treated as a communication confirmation event, not as the original GUI command event.
+EVENT_NAME:
+Purpose:
+Publishing subsystem:
+Subscribing subsystem(s):
+Reason for subscription:
+Path / timeline:
+Current status:
+Notes / legacy aliases:
 
 ============================================================
-KNOWN EVENT INDEX
+GUI / MODE COMMAND EVENTS
+=========================
+
+NETWORK_MODE_CHANGE:
+Purpose:
+GUI command requesting a network/transport mode change, such as Wi-Fi or LoRa.
+
+Publishing subsystem:
+GUI Interface
+
+Subscribing subsystem(s):
+GUI Communication-Sender
+GUI Event Journal
+Server Communication-listener, after UDP transmission
+
+Reason for subscription:
+Communication-Sender must transmit the command to the server.
+Event Journal records that the GUI published the command.
+Server Communication-listener receives the command as GUI inbound traffic.
+
+Path / timeline:
+GUI Interface button/action
+-> NETWORK_MODE_CHANGE
+-> GUI Communication-Sender
+-> UDP to Server
+-> Server Communication-listener
+-> Server Platform Registry / Mode Manager
+
+Current status:
+Drawing is correct.
+Code likely has a naming or subscription mismatch in GUI Interface or GUI Communication-Sender.
+
+Notes / legacy aliases:
+Legacy alias: GUI_NETWORK_MODE_CHANGE
+Canonical name: NETWORK_MODE_CHANGE
+Do not use the GUI_ prefix as canonical.
+
+DETECTION_MODE_CHANGE:
+Purpose:
+GUI command requesting a detection mode change.
+
+Publishing subsystem:
+GUI Interface
+
+Subscribing subsystem(s):
+GUI Communication-Sender
+GUI Event Journal
+Server Communication-listener, after UDP transmission
+
+Reason for subscription:
+Communication-Sender must transmit the command to the server.
+Event Journal records that the GUI published the command.
+Server Communication-listener receives the command as GUI inbound traffic.
+
+Path / timeline:
+GUI Interface button/action
+-> DETECTION_MODE_CHANGE
+-> GUI Communication-Sender
+-> UDP to Server
+-> Server Communication-listener
+-> Server Platform Registry / Mode Manager
+-> TDOA_CHANGE_MODE
+
+Current status:
+Drawing is correct.
+Code likely has a naming or subscription mismatch in GUI Interface or GUI Communication-Sender.
+
+Notes / legacy aliases:
+Legacy alias: GUI_DETECTION_MODE_CHANGE
+Canonical name: DETECTION_MODE_CHANGE
+Do not use the GUI_ prefix as canonical.
+
+FEATURE_MODE_CHANGE:
+Purpose:
+GUI command requesting a TDOA/detection feature mode change.
+
+Publishing subsystem:
+GUI Interface
+
+Subscribing subsystem(s):
+GUI Communication-Sender
+GUI Event Journal
+Server Communication-listener, after UDP transmission
+
+Reason for subscription:
+Communication-Sender must transmit the command to the server.
+Event Journal records that the GUI published the command.
+Server Communication-listener receives the command as GUI inbound traffic.
+
+Path / timeline:
+GUI Interface button/action
+-> FEATURE_MODE_CHANGE
+-> GUI Communication-Sender
+-> UDP to Server
+-> Server Communication-listener
+-> Server Platform Registry / Mode Manager
+-> TDOA_CHANGE_MODE
+
+Current status:
+Drawing is correct.
+Code likely has a naming or subscription mismatch in GUI Interface or GUI Communication-Sender.
+
+Notes / legacy aliases:
+Legacy alias: GUI_FEATURE_MODE_CHANGE
+Canonical name: FEATURE_MODE_CHANGE
+Do not use the GUI_ prefix as canonical.
+
 ============================================================
+GUI REGISTRATION EVENTS
+=======================
 
-GUI Publisher:
+GUI_REGISTER:
+Purpose:
+GUI registration event sent to the server.
 
-1. GUI_REGISTER
-2. FEATURE_MODE_CHANGE
-3. NETWORK_MODE_CHANGE
-4. DETECTION_MODE_CHANGE
+Publishing subsystem:
+GUI Main
 
-Communication Publisher:
+Subscribing subsystem(s):
+GUI Communication-Sender
+GUI Event Journal
+Server Communication-listener, after UDP transmission
 
-5. EVENT_SENT
+Reason for subscription:
+Communication-Sender must transmit GUI registration to the server.
+Event Journal records the registration.
+Server Communication-listener receives GUI registration and republishes it server-side.
+
+Path / timeline:
+GUI Main startup
+-> GUI_REGISTER
+-> GUI Communication-Sender
+-> UDP to Server
+-> Server Communication-listener
+-> Server Platform Registry / Registry Manager
+
+Current status:
+Drawn as GUI Main publication and Communication-Sender subscription.
+
+Notes / legacy aliases:
+None identified.
 
 ============================================================
-BODY: CONTRACTS ARRANGED BY PUBLISHING SUBSYSTEM
-============================================================
+SERVER INBOUND EVENTS
+=====================
+
+SERVER_NODE_REGISTER:
+Purpose:
+Server-verified node registration received by GUI.
+
+Publishing subsystem:
+GUI Communication-listener, after receiving from server.
+
+Subscribing subsystem(s):
+GUI Node Repository
+GUI Event Journal
+
+Reason for subscription:
+Node Repository creates or refreshes the GUI-side node record.
+Event Journal records the received server event.
+
+Path / timeline:
+Server Platform Registry
+-> Server Communication-Sender
+-> UDP to GUI
+-> GUI Communication-listener
+-> SERVER_NODE_REGISTER
+-> GUI Node Repository
+-> NEW_NODE_REGISTERED
+
+Current status:
+Drawn as Communication-listener publication and Node Repository subscription.
+
+Notes / legacy aliases:
+This is the server-promoted version of NODE_REGISTER.
+
+NODE_STATE_UPDATED:
+Purpose:
+Server-verified node state update received by GUI.
+
+Publishing subsystem:
+GUI Communication-listener, after receiving from server.
+
+Subscribing subsystem(s):
+GUI Node Repository
+GUI Event Journal
+
+Reason for subscription:
+Node Repository updates node state records.
+Event Journal records the received state update.
+
+Path / timeline:
+Server Platform Registry
+-> Server Communication-Sender
+-> UDP to GUI
+-> GUI Communication-listener
+-> NODE_STATE_UPDATED
+-> GUI Node Repository
+-> REPOSITORY_STATE_UPDATE
+
+Current status:
+Drawn as Communication-listener publication and Node Repository subscription.
+
+Notes / legacy aliases:
+This is the GUI-facing state update event from server.
+
+SERVER_ENVIRO_EVENT:
+Purpose:
+Server-verified environmental event received by GUI.
+
+Publishing subsystem:
+GUI Communication-listener, after receiving from server.
+
+Subscribing subsystem(s):
+GUI Node Repository
+GUI Event Journal
+
+Reason for subscription:
+Node Repository updates environmental event records.
+Event Journal records the received server event.
+
+Path / timeline:
+Server Platform Registry
+-> Server Communication-Sender
+-> UDP to GUI
+-> GUI Communication-listener
+-> SERVER_ENVIRO_EVENT
+-> GUI Node Repository
+-> REPOSITORY_EVENT_UPDATE
+
+Current status:
+Drawn as Communication-listener publication and Node Repository subscription.
+
+Notes / legacy aliases:
+This is the server-promoted version of ENVIRO_EVENT.
+
+SERVER_GPS_COORD:
+Purpose:
+Server-verified GPS coordinate event received by GUI.
+
+Publishing subsystem:
+GUI Communication-listener, after receiving from server.
+
+Subscribing subsystem(s):
+GUI Node Repository
+GUI Event Journal
+
+Reason for subscription:
+Node Repository updates node coordinate/location records.
+Event Journal records the received server event.
+
+Path / timeline:
+Server Platform Registry
+-> Server Communication-Sender
+-> UDP to GUI
+-> GUI Communication-listener
+-> SERVER_GPS_COORD
+-> GUI Node Repository
+-> REPOSITORY_EVENT_UPDATE
+
+Current status:
+Drawn as Communication-listener publication and Node Repository subscription.
+
+Notes / legacy aliases:
+This is the server-promoted version of GPS_COORD.
+
+SERVER_AVIS_LITE:
+Purpose:
+Server-verified lightweight bird detection event received by GUI.
+
+Publishing subsystem:
+GUI Communication-listener, after receiving from server.
+
+Subscribing subsystem(s):
+GUI Node Repository
+GUI Event Journal
+
+Reason for subscription:
+Node Repository updates bird detection/event records.
+Event Journal records the received server event.
+
+Path / timeline:
+Server Platform Registry
+-> Server Communication-Sender
+-> UDP to GUI
+-> GUI Communication-listener
+-> SERVER_AVIS_LITE
+-> GUI Node Repository
+-> REPOSITORY_EVENT_UPDATE
+
+Current status:
+Drawn as Communication-listener publication and Node Repository subscription.
+
+Notes / legacy aliases:
+This is the server-promoted version of AVIS_LITE.
+
+SERVER_TDOA_CALC:
+Purpose:
+Server-verified TDOA localization result received by GUI.
+
+Publishing subsystem:
+GUI Communication-listener, after receiving from server.
+
+Subscribing subsystem(s):
+GUI Node Repository
+GUI Event Journal
+
+Reason for subscription:
+Node Repository updates localization/event records.
+Event Journal records the received server event.
+
+Path / timeline:
+Server Platform Registry
+-> Server Communication-Sender
+-> UDP to GUI
+-> GUI Communication-listener
+-> SERVER_TDOA_CALC
+-> GUI Node Repository
+-> REPOSITORY_EVENT_UPDATE
+
+Current status:
+Drawn as Communication-listener publication and Node Repository subscription.
+
+Notes / legacy aliases:
+This is the server-promoted version of TDOA_CALC.
 
 ============================================================
-PUBLISHING SUBSYSTEM: GUI
+NODE REPOSITORY EVENTS
+======================
+
+NEW_NODE_REGISTERED:
+Purpose:
+GUI-side repository event indicating a new or refreshed node registration.
+
+Publishing subsystem:
+GUI Node Repository
+
+Subscribing subsystem(s):
+GUI Interface
+GUI Event Journal
+
+Reason for subscription:
+Interface updates node tabs, node lists, or display objects.
+Event Journal records repository activity.
+
+Path / timeline:
+SERVER_NODE_REGISTER
+-> GUI Node Repository
+-> NEW_NODE_REGISTERED
+-> GUI Interface
+
+Current status:
+Drawn as Node Repository publication and Interface subscription.
+
+Notes / legacy aliases:
+None identified.
+
+REPOSITORY_STATE_UPDATE:
+Purpose:
+GUI-side repository event indicating node state records changed.
+
+Publishing subsystem:
+GUI Node Repository
+
+Subscribing subsystem(s):
+GUI Interface
+GUI Event Journal
+
+Reason for subscription:
+Interface updates node state display, badges, or status panels.
+Event Journal records repository state activity.
+
+Path / timeline:
+NODE_STATE_UPDATED
+-> GUI Node Repository
+-> REPOSITORY_STATE_UPDATE
+-> GUI Interface
+
+Current status:
+Drawn as Node Repository publication and Interface subscription.
+
+Notes / legacy aliases:
+None identified.
+
+REPOSITORY_EVENT_UPDATE:
+Purpose:
+GUI-side repository event indicating node event records changed.
+
+Publishing subsystem:
+GUI Node Repository
+
+Subscribing subsystem(s):
+GUI Interface
+GUI Event Journal
+
+Reason for subscription:
+Interface updates environmental, GPS, bird, or TDOA event displays.
+Event Journal records repository event activity.
+
+Path / timeline:
+SERVER_ENVIRO_EVENT, SERVER_GPS_COORD, SERVER_AVIS_LITE, or SERVER_TDOA_CALC
+-> GUI Node Repository
+-> REPOSITORY_EVENT_UPDATE
+-> GUI Interface
+
+Current status:
+Drawn as Node Repository publication and Interface subscription.
+
+Notes / legacy aliases:
+None identified.
+
 ============================================================
+COMMUNICATION EVENTS
+====================
 
-------------------------------------------------------------
-EVENT CONTRACT: GUI_REGISTER
-------------------------------------------------------------
+NETWORK_CONNECTED:
+Purpose:
+GUI Communication status event indicating the network path is connected.
 
-Publication Event Name:
+Publishing subsystem:
+GUI Communication-listener or GUI Communication state logic
+
+Subscribing subsystem(s):
+GUI Event Journal
+Possibly GUI Communication internals
+
+Reason for subscription:
+Event Journal records GUI-side network availability.
+Communication internals may update local connection state.
+
+Path / timeline:
+GUI Communication detects connection available
+-> NETWORK_CONNECTED
+-> GUI Event Journal
+
+Current status:
+Drawn as Communication event and Event Journal subscription.
+
+Notes / legacy aliases:
+Need code verification for whether this means server UDP, general Wi-Fi, or active transport state.
+
+NETWORK_DISCONNECTED:
+Purpose:
+GUI Communication status event indicating the network path is disconnected.
+
+Publishing subsystem:
+GUI Communication-listener or GUI Communication state logic
+
+Subscribing subsystem(s):
+GUI Event Journal
+Possibly GUI Communication internals
+
+Reason for subscription:
+Event Journal records GUI-side network loss.
+Communication internals may update local connection state.
+
+Path / timeline:
+GUI Communication detects connection loss
+-> NETWORK_DISCONNECTED
+-> GUI Event Journal
+
+Current status:
+Drawn as Communication event and Event Journal subscription.
+
+Notes / legacy aliases:
+Need code verification for whether this means server UDP, general Wi-Fi, or active transport state.
+
+EVENT_SENT:
+Purpose:
+GUI Communication-Sender confirmation that an outbound message was sent or handed to transport.
+
+Publishing subsystem:
+GUI Communication-Sender
+
+Subscribing subsystem(s):
+GUI Event Journal
+
+Reason for subscription:
+Event Journal records outbound GUI traffic.
+
+Path / timeline:
+GUI Communication-Sender receives outbound event
+-> sends to server
+-> EVENT_SENT
+-> GUI Event Journal
+
+Current status:
+Drawn as Communication-Sender publication and Event Journal subscription.
+
+Notes / legacy aliases:
+Need to confirm whether EVENT_SENT means attempted send or successful transport handoff.
+
+============================================================
+GUI COMMUNICATION-SENDER SUBSCRIPTION RULE
+==========================================
+
+GUI Communication-Sender subscribes to:
+NETWORK_MODE_CHANGE
+DETECTION_MODE_CHANGE
+FEATURE_MODE_CHANGE
 GUI_REGISTER
 
-Publishing Subsystem:
-GUI
-
-Payload Format Expected:
-{
-    'gui_id': str,
-    'gui_name': str,
-    'gui_version': str,
-    'role': str
-}
-
-Currently Observed Payload:
-{
-    'gui_id': 'gui_01',
-    'gui_name': 'EnviroPulse GUI',
-    'gui_version': '2.0',
-    'role': 'operator_interface'
-}
-
-Current Subscribers:
-Unknown from current journal evidence.
-
-Description of Publication:
-The GUI publishes GUI_REGISTER when the EnviroPulse GUI starts and identifies itself to the internal system as an operator interface. The current journal confirms publication from source gui at startup.
-
-Observed Journal Evidence:
-Time: 2026-06-08T10:49:26
-Source: gui
-Event: GUI_REGISTER
-
-------------------------------------------------------------
-EVENT CONTRACT: FEATURE_MODE_CHANGE
-------------------------------------------------------------
-
-Publication Event Name:
-FEATURE_MODE_CHANGE
-
-Publishing Subsystem:
-GUI
-
-Payload Format Expected:
-{
-    'mode_category': str,
-    'command': str,
-    'requested_mode': str,
-    'target': str,
-    'target_node': str
-}
-
-Currently Observed Payload:
-{
-    'mode_category': 'feature',
-    'command': 'ONSET_FEATURE',
-    'requested_mode': 'onset_feature',
-    'target': 'server',
-    'target_node': ''
-}
-
-Current Subscribers:
-gui_communication_sender
-
-Description of Publication:
-The GUI publishes FEATURE_MODE_CHANGE when the operator selects a feature-mode command. The current observed command requests ONSET_FEATURE, with requested_mode set to onset_feature and target set to server. The communication sender converts this local GUI event into outbound event_type GUI_FEATURE_MODE_CHANGE before transmission.
-
-Outbound Communication Mapping Currently Observed:
-Local Source Event Name: FEATURE_MODE_CHANGE
-Outbound Event Type: GUI_FEATURE_MODE_CHANGE
-Verified By: gui_communication_sender
-Outbound Target: server
-
-Observed Journal Evidence:
-Time: 2026-06-08T10:49:29
-Source: gui
-Event: FEATURE_MODE_CHANGE
-
-------------------------------------------------------------
-EVENT CONTRACT: NETWORK_MODE_CHANGE
-------------------------------------------------------------
-
-Publication Event Name:
-NETWORK_MODE_CHANGE
-
-Publishing Subsystem:
-GUI
-
-Payload Format Expected:
-{
-    'mode_category': str,
-    'command': str,
-    'requested_mode': str,
-    'target': str,
-    'target_node': str
-}
-
-Currently Observed Payload:
-{
-    'mode_category': 'network',
-    'command': 'ENABLE_LORA',
-    'requested_mode': 'lora_enabled',
-    'target': 'node',
-    'target_node': ''
-}
-
-Current Subscribers:
-gui_communication_sender
-
-Description of Publication:
-The GUI publishes NETWORK_MODE_CHANGE when the operator selects a network-mode command. The current observed command requests ENABLE_LORA, with requested_mode set to lora_enabled and target set to node. The communication sender converts this local GUI event into outbound event_type GUI_NETWORK_MODE_CHANGE before transmission.
-
-Outbound Communication Mapping Currently Observed:
-Local Source Event Name: NETWORK_MODE_CHANGE
-Outbound Event Type: GUI_NETWORK_MODE_CHANGE
-Verified By: gui_communication_sender
-Outbound Target: server
-
-Observed Journal Evidence:
-Time: 2026-06-08T10:50:05
-Source: gui
-Event: NETWORK_MODE_CHANGE
-
-------------------------------------------------------------
-EVENT CONTRACT: DETECTION_MODE_CHANGE
-------------------------------------------------------------
-
-Publication Event Name:
-DETECTION_MODE_CHANGE
-
-Publishing Subsystem:
-GUI
-
-Payload Format Expected:
-{
-    'mode_category': str,
-    'command': str,
-    'requested_mode': str,
-    'target': str,
-    'target_node': str
-}
-
-Currently Observed Payload:
-{
-    'mode_category': 'detection',
-    'command': 'PATTERN_ONSET',
-    'requested_mode': 'pattern_onset',
-    'target': 'server',
-    'target_node': ''
-}
-
-Current Subscribers:
-gui_communication_sender
-
-Description of Publication:
-The GUI publishes DETECTION_MODE_CHANGE when the operator selects a detection-mode command. The current observed command requests PATTERN_ONSET, with requested_mode set to pattern_onset and target set to server. The communication sender converts this local GUI event into outbound event_type GUI_DETECTION_MODE_CHANGE before transmission.
-
-Outbound Communication Mapping Currently Observed:
-Local Source Event Name: DETECTION_MODE_CHANGE
-Outbound Event Type: GUI_DETECTION_MODE_CHANGE
-Verified By: gui_communication_sender
-Outbound Target: server
-
-Observed Journal Evidence:
-Time: 2026-06-08T10:50:06
-Source: gui
-Event: DETECTION_MODE_CHANGE
-
-============================================================
-PUBLISHING SUBSYSTEM: COMMUNICATION
-============================================================
-
-------------------------------------------------------------
-EVENT CONTRACT: EVENT_SENT
-------------------------------------------------------------
-
-Publication Event Name:
+GUI Communication-Sender publishes:
 EVENT_SENT
 
-Publishing Subsystem:
-Communication
+============================================================
+GUI COMMUNICATION-LISTENER PUBLICATION RULE
+===========================================
 
-Payload Format Expected:
-{
-    'message': {
-        'event_type': str,
-        'source': str,
-        'timestamp': str,
-        'payload': dict,
-        'source_event_type': str,
-        'verified_by': str,
-        'target': str
-    },
-    'tx_count': int,
-    'tx_errors': int,
-    'last_tx_time': str
-}
-
-Currently Observed Payload Pattern:
-EVENT_SENT has been observed after GUI mode-change events are transmitted by the communication sender. The nested message preserves the original GUI payload, records the source_event_type, adds the outbound GUI_* event_type, and records gui_communication_sender as the verifier.
-
-Current Subscribers:
-Unknown from current journal evidence.
-
-Description of Publication:
-The communication subsystem publishes EVENT_SENT after it sends an outbound message. The current journal confirms EVENT_SENT publications for FEATURE_MODE_CHANGE, NETWORK_MODE_CHANGE, and DETECTION_MODE_CHANGE transmissions. This event currently confirms local transmission behavior only. It does not prove final server-side handling beyond the sender's completed send action.
-
-Observed Journal Evidence:
-Time: 2026-06-08T10:49:29
-Source: communication
-Event: EVENT_SENT
-Source Event Type: FEATURE_MODE_CHANGE
-Outbound Event Type: GUI_FEATURE_MODE_CHANGE
-
-Time: 2026-06-08T10:50:05
-Source: communication
-Event: EVENT_SENT
-Source Event Type: NETWORK_MODE_CHANGE
-Outbound Event Type: GUI_NETWORK_MODE_CHANGE
-
-Time: 2026-06-08T10:50:06
-Source: communication
-Event: EVENT_SENT
-Source Event Type: DETECTION_MODE_CHANGE
-Outbound Event Type: GUI_DETECTION_MODE_CHANGE
+GUI Communication-listener publishes:
+NODE_STATE_UPDATED
+SERVER_AVIS_LITE
+SERVER_ENVIRO_EVENT
+SERVER_TDOA_CALC
+SERVER_GPS_COORD
+SERVER_NODE_REGISTER
+NETWORK_CONNECTED
+NETWORK_DISCONNECTED
 
 ============================================================
-CURRENT VERIFIED OUTBOUND GUI EVENT TYPES
+GUI NODE REPOSITORY SUBSCRIPTION RULE
+=====================================
+
+GUI Node Repository subscribes to:
+NODE_STATE_UPDATED
+SERVER_AVIS_LITE
+SERVER_ENVIRO_EVENT
+SERVER_TDOA_CALC
+SERVER_GPS_COORD
+SERVER_NODE_REGISTER
+
+GUI Node Repository publishes:
+REPOSITORY_STATE_UPDATE
+REPOSITORY_EVENT_UPDATE
+NEW_NODE_REGISTERED
+
 ============================================================
+GUI INTERFACE SUBSCRIPTION RULE
+===============================
 
-1. GUI_FEATURE_MODE_CHANGE
-2. GUI_NETWORK_MODE_CHANGE
-3. GUI_DETECTION_MODE_CHANGE
+GUI Interface subscribes to:
+REPOSITORY_STATE_UPDATE
+REPOSITORY_EVENT_UPDATE
+NEW_NODE_REGISTERED
 
-These are currently observed as outbound communication event_type values inside EVENT_SENT payloads. They are not the original local GUI publication event names.
+GUI Interface publishes:
+NETWORK_MODE_CHANGE
+DETECTION_MODE_CHANGE
+FEATURE_MODE_CHANGE
 
 ============================================================
-OPEN UNKNOWNS
+GUI MAIN PUBLICATION RULE
+=========================
+
+GUI Main publishes:
+GUI_REGISTER
+
 ============================================================
+GUI EVENT JOURNAL SUBSCRIPTION RULE
+===================================
 
-1. Current subscriber for GUI_REGISTER is not proven by the provided journal evidence.
-2. Current subscriber for EVENT_SENT is not proven by the provided journal evidence.
-3. Server-side receive behavior is not documented here unless verified by server journal evidence.
-4. Server-side handling behavior is not documented here unless verified by server-side event publication or state change evidence.
+GUI Event Journal subscribes to:
+NODE_REPOSITORY
+REPOSITORY_STATE_UPDATE
+REPOSITORY_EVENT_UPDATE
+NEW_NODE_REGISTERED
+NETWORK_MODE_CHANGE
+DETECTION_MODE_CHANGE
+FEATURE_MODE_CHANGE
+GUI_REGISTER
+NODE_STATE_UPDATED
+SERVER_AVIS_LITE
+SERVER_ENVIRO_EVENT
+SERVER_TDOA_CALC
+SERVER_GPS_COORD
+SERVER_NODE_REGISTER
+NETWORK_CONNECTED
+NETWORK_DISCONNECTED
+EVENT_SENT
 
+============================================================
+IMMEDIATE GUI BUG TARGET
+========================
+
+Problem:
+The GUI drawing uses canonical mode names:
+
+NETWORK_MODE_CHANGE
+DETECTION_MODE_CHANGE
+FEATURE_MODE_CHANGE
+
+But the server sees mode-change traffic as unknown inbound events.
+
+Current diagnosis:
+The likely mismatch is in GUI Interface code or GUI Communication-Sender subscriptions.
+
+Expected GUI behavior:
+Interface publishes:
+NETWORK_MODE_CHANGE
+DETECTION_MODE_CHANGE
+FEATURE_MODE_CHANGE
+
+Communication-Sender subscribes to:
+NETWORK_MODE_CHANGE
+DETECTION_MODE_CHANGE
+FEATURE_MODE_CHANGE
+
+Communication-Sender sends those exact event_type values to server.
+
+Legacy aliases to scan for:
+GUI_NETWORK_MODE_CHANGE
+GUI_DETECTION_MODE_CHANGE
+GUI_FEATURE_MODE_CHANGE
+
+Canonical names:
+NETWORK_MODE_CHANGE
+DETECTION_MODE_CHANGE
+FEATURE_MODE_CHANGE

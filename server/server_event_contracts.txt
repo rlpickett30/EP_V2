@@ -1,0 +1,1278 @@
+CANONICAL PLATFORM EVENT INDEX
+EnviroPulse V2
+Scope: Server-side event flow
+Status: Draft from drawings, not code-verified
+
+Document rule:
+Each event entry uses the following structure:
+
+EVENT_NAME:
+Purpose:
+Publishing subsystem:
+Subscribing subsystem(s):
+Reason for subscription:
+Path / timeline:
+Current status:
+Notes / legacy aliases:
+
+============================================================
+GUI / MODE COMMAND EVENTS
+=========================
+
+DETECTION_MODE_CHANGE:
+Purpose:
+GUI command requesting a change to the active detection method.
+
+Publishing subsystem:
+GUI Interface / GUI Command Manager
+Server Communication-listener republishes it after receiving it from GUI.
+
+Subscribing subsystem(s):
+Server Communication-listener
+Platform Registry / Mode Manager
+Event Journal
+
+Reason for subscription:
+Communication-listener must recognize the inbound GUI command and place it onto the server event bus.
+Platform Registry validates and translates the command into a TDOA-facing mode command.
+Event Journal records the inbound command.
+
+Path / timeline:
+GUI command button
+-> GUI Communication
+-> UDP to Server
+-> Server Communication-listener
+-> Platform Registry / Mode Manager
+-> TDOA_CHANGE_MODE
+-> TDOA
+
+Current status:
+Partially broken.
+The server receives the event over Communication, but Communication currently logs it as an unknown inbound event.
+
+Notes / legacy aliases:
+Legacy alias: GUI_DETECTION_MODE_CHANGE
+Canonical name recommendation: DETECTION_MODE_CHANGE
+Likely payload values: ENABLE_PATTERN_ONSET, ENABLE_ENERGY_ONSET
+Do not redesign this into a combined mode event for V2.0.
+
+FEATURE_MODE_CHANGE:
+Purpose:
+GUI command requesting a change to optional TDOA/detection feature handling.
+
+Publishing subsystem:
+GUI Interface / GUI Command Manager
+Server Communication-listener republishes it after receiving it from GUI.
+
+Subscribing subsystem(s):
+Server Communication-listener
+Platform Registry / Mode Manager
+Event Journal
+
+Reason for subscription:
+Communication-listener must recognize the inbound GUI command and place it onto the server event bus.
+Platform Registry validates and translates the command into a TDOA-facing mode command.
+Event Journal records the inbound command.
+
+Path / timeline:
+GUI command button
+-> GUI Communication
+-> UDP to Server
+-> Server Communication-listener
+-> Platform Registry / Mode Manager
+-> TDOA_CHANGE_MODE
+-> TDOA
+
+Current status:
+Partially broken.
+The server receives the event over Communication, but Communication currently logs it as an unknown inbound event.
+
+Notes / legacy aliases:
+Legacy alias: GUI_FEATURE_MODE_CHANGE
+Canonical name recommendation: FEATURE_MODE_CHANGE
+Likely payload values: AMPLITUDE_ON, AMPLITUDE_OFF
+Do not redesign this into a combined mode event for V2.0.
+
+NETWORK_MODE_CHANGE:
+Purpose:
+GUI command requesting a network/transport mode change, such as Wi-Fi or LoRa.
+
+Publishing subsystem:
+GUI Interface / GUI Command Manager
+Server Communication-listener republishes it after receiving it from GUI.
+
+Subscribing subsystem(s):
+Server Communication-listener
+Platform Registry / Mode Manager
+Event Journal
+
+Reason for subscription:
+Communication-listener must recognize the inbound GUI command and place it onto the server event bus.
+Platform Registry validates whether this affects server Communication, node Communication, or both.
+Event Journal records the inbound command.
+
+Path / timeline:
+GUI command button
+-> GUI Communication
+-> UDP to Server
+-> Server Communication-listener
+-> Platform Registry / Mode Manager
+-> COMMUNICATION_CHANGE_MODE and/or SEND_NODE_CHANGE_MODE
+-> Communication-sender
+
+Current status:
+Partially broken.
+The server receives the event over Communication, but Communication currently logs it as an unknown inbound event.
+
+Notes / legacy aliases:
+Legacy alias: GUI_NETWORK_MODE_CHANGE
+Canonical name recommendation: NETWORK_MODE_CHANGE
+Likely payload values: ENABLE_WIFI, ENABLE_LORA
+
+GUI_REGISTER:
+Purpose:
+Inbound GUI registration event.
+
+Publishing subsystem:
+GUI Communication
+Server Communication-listener republishes it after receiving it from GUI.
+
+Subscribing subsystem(s):
+Server Communication-listener
+Platform Registry / Registry Manager
+Event Journal
+
+Reason for subscription:
+Communication-listener receives and republishes the registration.
+Platform Registry records or refreshes the active GUI connection.
+Event Journal records the GUI registration.
+
+Path / timeline:
+GUI
+-> Server Communication-listener
+-> Platform Registry / Registry Manager
+-> REGISTRY_UPDATED
+
+Current status:
+Drawn as a valid Platform Registry subscription.
+
+Notes / legacy aliases:
+None identified.
+
+============================================================
+NODE INBOUND EVENTS
+===================
+
+NODE_REGISTER:
+Purpose:
+Inbound node registration event.
+
+Publishing subsystem:
+Node Communication
+Server Communication-listener republishes it after receiving it from a node.
+
+Subscribing subsystem(s):
+Server Communication-listener
+Platform Registry / Registry Manager
+Event Journal
+
+Reason for subscription:
+Communication-listener receives and republishes the node registration.
+Platform Registry records or refreshes node identity and availability.
+Event Journal records the raw inbound registration.
+
+Path / timeline:
+Node
+-> Server Communication-listener
+-> Platform Registry / Registry Manager
+-> SERVER_NODE_REGISTER and REGISTRY_UPDATED
+
+Current status:
+Drawn as Platform Registry subscription.
+
+Notes / legacy aliases:
+None identified.
+
+RTK_STATE:
+Purpose:
+Inbound node state update reporting RTK availability.
+
+Publishing subsystem:
+Node RTK subsystem
+Server Communication-listener republishes it after receiving it from a node.
+
+Subscribing subsystem(s):
+Server Communication-listener
+Platform Registry / State Manager
+Event Journal
+
+Reason for subscription:
+Communication-listener receives and republishes the state update.
+Platform Registry updates node state tracking and may evaluate TDOA readiness.
+Event Journal records the raw inbound state update.
+
+Path / timeline:
+Node RTK subsystem
+-> Server Communication-listener
+-> Platform Registry / State Manager
+-> NODE_STATE_UPDATED
+-> possible NODE_TDOA_STATE
+
+Current status:
+Drawn as Platform Registry subscription.
+
+Notes / legacy aliases:
+None identified.
+
+GPS_STATE:
+Purpose:
+Inbound node state update reporting GPS availability.
+
+Publishing subsystem:
+Node RTK/GPS subsystem
+Server Communication-listener republishes it after receiving it from a node.
+
+Subscribing subsystem(s):
+Server Communication-listener
+Platform Registry / State Manager
+Event Journal
+
+Reason for subscription:
+Communication-listener receives and republishes the state update.
+Platform Registry updates node state tracking and may evaluate TDOA readiness.
+Event Journal records the raw inbound state update.
+
+Path / timeline:
+Node GPS subsystem
+-> Server Communication-listener
+-> Platform Registry / State Manager
+-> NODE_STATE_UPDATED
+-> possible NODE_TDOA_STATE
+
+Current status:
+Drawn as Platform Registry subscription.
+
+Notes / legacy aliases:
+None identified.
+
+PPS_STATE:
+Purpose:
+Inbound node state update reporting PPS lock or PPS availability.
+
+Publishing subsystem:
+Node RTK/PPS subsystem
+Server Communication-listener republishes it after receiving it from a node.
+
+Subscribing subsystem(s):
+Server Communication-listener
+Platform Registry / State Manager
+Event Journal
+
+Reason for subscription:
+Communication-listener receives and republishes the state update.
+Platform Registry updates node state tracking and may evaluate TDOA readiness.
+Event Journal records the raw inbound state update.
+
+Path / timeline:
+Node PPS subsystem
+-> Server Communication-listener
+-> Platform Registry / State Manager
+-> NODE_STATE_UPDATED
+-> possible NODE_TDOA_STATE
+
+Current status:
+Drawn as Platform Registry subscription.
+
+Notes / legacy aliases:
+None identified.
+
+ENVIRO_STATE:
+Purpose:
+Inbound node state update reporting environmental subsystem availability.
+
+Publishing subsystem:
+Node Environmental subsystem
+Server Communication-listener republishes it after receiving it from a node.
+
+Subscribing subsystem(s):
+Server Communication-listener
+Platform Registry / State Manager
+Event Journal
+
+Reason for subscription:
+Communication-listener receives and republishes the state update.
+Platform Registry updates node state tracking and may evaluate TDOA readiness.
+Event Journal records the raw inbound state update.
+
+Path / timeline:
+Node Environmental subsystem
+-> Server Communication-listener
+-> Platform Registry / State Manager
+-> NODE_STATE_UPDATED
+-> possible NODE_TDOA_STATE
+
+Current status:
+Drawn as Platform Registry subscription.
+
+Notes / legacy aliases:
+None identified.
+
+ENVIRO_EVENT:
+Purpose:
+Inbound node environmental measurement event.
+
+Publishing subsystem:
+Node Environmental subsystem
+Server Communication-listener republishes it after receiving it from a node.
+
+Subscribing subsystem(s):
+Server Communication-listener
+Platform Registry / Event Verification Manager
+Event Journal
+
+Reason for subscription:
+Communication-listener receives and republishes the raw node event.
+Platform Registry verifies and promotes the event to SERVER_ENVIRO_EVENT.
+Event Journal records the raw inbound event.
+
+Path / timeline:
+Node Environmental subsystem
+-> Server Communication-listener
+-> Platform Registry
+-> SERVER_ENVIRO_EVENT
+
+Current status:
+Drawn as Platform Registry subscription.
+
+Notes / legacy aliases:
+None identified.
+
+GPS_COORD:
+Purpose:
+Inbound node GPS coordinate event.
+
+Publishing subsystem:
+Node RTK/GPS subsystem
+Server Communication-listener republishes it after receiving it from a node.
+
+Subscribing subsystem(s):
+Server Communication-listener
+Platform Registry / Event Verification Manager
+Event Journal
+
+Reason for subscription:
+Communication-listener receives and republishes the raw node event.
+Platform Registry verifies and promotes the event to SERVER_GPS_COORD.
+Event Journal records the raw inbound event.
+
+Path / timeline:
+Node GPS subsystem
+-> Server Communication-listener
+-> Platform Registry
+-> SERVER_GPS_COORD
+
+Current status:
+Drawn as Platform Registry subscription.
+
+Notes / legacy aliases:
+None identified.
+
+AVIS_LITE:
+Purpose:
+Inbound lightweight bird detection event.
+
+Publishing subsystem:
+Node BirdNET / Avis subsystem
+Server Communication-listener republishes it after receiving it from a node.
+
+Subscribing subsystem(s):
+Server Communication-listener
+Platform Registry / Event Verification Manager
+TDOA
+Event Journal
+
+Reason for subscription:
+Communication-listener receives and republishes the raw node event.
+Platform Registry verifies and promotes the event to SERVER_AVIS_LITE.
+TDOA may use the raw event as a candidate trigger.
+Event Journal records the raw inbound event.
+
+Path / timeline:
+Node BirdNET / Avis subsystem
+-> Server Communication-listener
+-> Platform Registry
+-> SERVER_AVIS_LITE
+
+Parallel TDOA path:
+Node BirdNET / Avis subsystem
+-> Server Communication-listener
+-> TDOA candidate logic
+-> possible TDOA_REQUEST
+
+Current status:
+Drawn as Platform Registry subscription and TDOA subscription.
+
+Notes / legacy aliases:
+TDOA may consume raw AVIS_LITE.
+Database should consume SERVER_AVIS_LITE, not raw AVIS_LITE.
+
+TDOA_RECORDING:
+Purpose:
+Inbound node response containing or referencing a synchronized recording.
+
+Publishing subsystem:
+Node Microphone subsystem
+Server Communication-listener republishes it after receiving it from a node.
+
+Subscribing subsystem(s):
+Server Communication-listener
+TDOA
+Event Journal
+
+Reason for subscription:
+Communication-listener receives and republishes the node recording response.
+TDOA collects recording responses until a complete valid set exists.
+Event Journal records the inbound recording event.
+
+Path / timeline:
+TDOA_REQUEST
+-> node microphone recording
+-> TDOA_RECORDING
+-> Server Communication-listener
+-> TDOA recording manager
+-> possible TDOA_COMPLETE_SET
+
+Current status:
+Drawn as TDOA subscription.
+
+Notes / legacy aliases:
+Need to confirm whether payload contains raw audio, file path, metadata, or staged recording reference.
+
+============================================================
+PLATFORM REGISTRY PUBLICATIONS
+==============================
+
+REGISTRY_UPDATED:
+Purpose:
+Notice that Platform Registry changed its stored registry state.
+
+Publishing subsystem:
+Platform Registry / Registry Manager
+
+Subscribing subsystem(s):
+Event Journal
+Possibly GUI through Communication-sender if enabled by code
+
+Reason for subscription:
+Event Journal records registry changes.
+GUI may eventually use it to update known server/node state, but this is not shown clearly as an outbound send event in the current drawing.
+
+Path / timeline:
+GUI_REGISTER or NODE_REGISTER
+-> Platform Registry / Registry Manager
+-> REGISTRY_UPDATED
+
+Current status:
+Drawn as Platform Registry publication and Event Journal subscription.
+
+Notes / legacy aliases:
+Need code verification for whether this is server-internal only or sent outward.
+
+SERVER_NODE_REGISTER:
+Purpose:
+Server-verified node registration event.
+
+Publishing subsystem:
+Platform Registry / Registry Manager
+
+Subscribing subsystem(s):
+Communication-sender
+Database
+Event Journal
+Possibly GUI repository after Communication-sender forwards it
+
+Reason for subscription:
+Communication-sender forwards verified node registration to GUI.
+Database archives verified node registration.
+Event Journal records verified registration.
+
+Path / timeline:
+NODE_REGISTER
+-> Platform Registry
+-> SERVER_NODE_REGISTER
+-> Communication-sender
+-> GUI
+
+Parallel archival path:
+SERVER_NODE_REGISTER
+-> Database
+-> DATABASE_UPDATED
+
+Current status:
+Drawn as Platform Registry publication, Communication-sender subscription, Database subscription, and Event Journal subscription.
+
+Notes / legacy aliases:
+This is the server-promoted version of NODE_REGISTER.
+SERVER_NODE_REGISTER appears twice in the Journal drawing column; treat as one canonical event unless code proves otherwise.
+
+SERVER_ENVIRO_EVENT:
+Purpose:
+Server-verified environmental measurement event.
+
+Publishing subsystem:
+Platform Registry / Event Verification Manager
+
+Subscribing subsystem(s):
+Communication-sender
+Database
+Event Journal
+Possibly GUI repository after Communication-sender forwards it
+
+Reason for subscription:
+Communication-sender forwards verified environmental data to GUI.
+Database archives verified environmental data.
+Event Journal records the verified event.
+GUI repository updates environmental display after receiving it.
+
+Path / timeline:
+ENVIRO_EVENT
+-> Platform Registry
+-> SERVER_ENVIRO_EVENT
+-> Communication-sender
+-> GUI
+
+Parallel archival path:
+SERVER_ENVIRO_EVENT
+-> Database
+-> DATABASE_UPDATED
+
+Current status:
+Drawn as Platform Registry publication, Communication-sender subscription, Database subscription, and Event Journal subscription.
+
+Notes / legacy aliases:
+This is the server-promoted version of ENVIRO_EVENT.
+
+SERVER_GPS_COORD:
+Purpose:
+Server-verified GPS coordinate event.
+
+Publishing subsystem:
+Platform Registry / Event Verification Manager
+
+Subscribing subsystem(s):
+Communication-sender
+Database
+Event Journal
+Possibly GUI repository after Communication-sender forwards it
+
+Reason for subscription:
+Communication-sender forwards verified GPS coordinates to GUI.
+Database archives verified coordinate history.
+Event Journal records the verified event.
+GUI repository updates node position/map state after receiving it.
+
+Path / timeline:
+GPS_COORD
+-> Platform Registry
+-> SERVER_GPS_COORD
+-> Communication-sender
+-> GUI
+
+Parallel archival path:
+SERVER_GPS_COORD
+-> Database
+-> DATABASE_UPDATED
+
+Current status:
+Drawn as Platform Registry publication, Communication-sender subscription, Database subscription, and Event Journal subscription.
+
+Notes / legacy aliases:
+This is the server-promoted version of GPS_COORD.
+
+SERVER_AVIS_LITE:
+Purpose:
+Server-verified lightweight bird detection event.
+
+Publishing subsystem:
+Platform Registry / Event Verification Manager
+
+Subscribing subsystem(s):
+Communication-sender
+Database
+Event Journal
+Possibly GUI repository after Communication-sender forwards it
+
+Reason for subscription:
+Communication-sender forwards verified bird detections to GUI.
+Database archives verified bird detections.
+Event Journal records the verified event.
+GUI repository updates bird detection display after receiving it.
+
+Path / timeline:
+AVIS_LITE
+-> Platform Registry
+-> SERVER_AVIS_LITE
+-> Communication-sender
+-> GUI
+
+Parallel archival path:
+SERVER_AVIS_LITE
+-> Database
+-> DATABASE_UPDATED
+
+Current status:
+Drawn as Platform Registry publication, Communication-sender subscription, Database subscription, and Event Journal subscription.
+
+Notes / legacy aliases:
+This is the server-promoted version of AVIS_LITE.
+TDOA may still consume raw AVIS_LITE separately.
+
+SERVER_TDOA_CALC:
+Purpose:
+Server-verified TDOA localization result.
+
+Publishing subsystem:
+Platform Registry / TDOA Result Verification Manager
+
+Subscribing subsystem(s):
+Communication-sender
+Database
+Event Journal
+Possibly GUI repository after Communication-sender forwards it
+
+Reason for subscription:
+Communication-sender forwards the verified localization result to GUI.
+Database archives the final verified calculation.
+Event Journal records the verified calculation.
+GUI repository/map displays the localization result after receiving it.
+
+Path / timeline:
+TDOA_CALC
+-> Platform Registry
+-> SERVER_TDOA_CALC
+-> Communication-sender
+-> GUI
+
+Parallel archival path:
+SERVER_TDOA_CALC
+-> Database
+-> DATABASE_UPDATED
+
+Current status:
+Drawn as Platform Registry publication, Communication-sender subscription, Database subscription, and Event Journal subscription.
+
+Notes / legacy aliases:
+This is the server-promoted version of TDOA_CALC.
+
+NODE_STATE_UPDATED:
+Purpose:
+Server notice that one node state value changed.
+
+Publishing subsystem:
+Platform Registry / State Manager
+
+Subscribing subsystem(s):
+Communication-sender
+Event Journal
+Possibly GUI repository after Communication-sender forwards it
+
+Reason for subscription:
+Communication-sender forwards node state updates to GUI.
+Event Journal records state changes.
+GUI repository updates node state badges after receiving it.
+
+Path / timeline:
+RTK_STATE, GPS_STATE, PPS_STATE, or ENVIRO_STATE
+-> Platform Registry / State Manager
+-> NODE_STATE_UPDATED
+-> Communication-sender
+-> GUI
+
+Current status:
+Drawn as Platform Registry publication, Communication-sender subscription, and Event Journal subscription.
+
+Notes / legacy aliases:
+This should fire on individual state updates.
+This is different from NODE_TDOA_STATE.
+Database subscription is not shown in the current drawing.
+
+NODE_TDOA_STATE:
+Purpose:
+Server notice that a node has reached the complete TDOA-ready condition.
+
+Publishing subsystem:
+Platform Registry / State Manager or TDOA Readiness Manager
+
+Subscribing subsystem(s):
+TDOA
+Event Journal
+Possibly Communication-sender
+Possibly GUI repository after Communication-sender forwards it
+
+Reason for subscription:
+TDOA tracks which nodes are eligible for synchronized recording and localization.
+Event Journal records readiness changes.
+GUI may display TDOA readiness if forwarded.
+
+Path / timeline:
+RTK_STATE + GPS_STATE + PPS_STATE + ENVIRO_STATE ready for a node
+-> Platform Registry readiness check
+-> NODE_TDOA_STATE
+-> TDOA
+
+Current status:
+Drawn as Platform Registry publication and TDOA subscription.
+Event Journal also subscribes.
+
+Notes / legacy aliases:
+This should not fire on every individual state update.
+It should fire only when the complete TDOA-ready condition changes.
+
+============================================================
+TDOA EVENTS
+===========
+
+TDOA_CHANGE_MODE:
+Purpose:
+Server-owned command telling TDOA to update one of its active operating modes.
+
+Publishing subsystem:
+Platform Registry / Mode Manager
+
+Subscribing subsystem(s):
+TDOA
+Event Journal
+
+Reason for subscription:
+TDOA applies the validated mode change.
+Event Journal records the internal mode-change handoff.
+
+Path / timeline:
+DETECTION_MODE_CHANGE or FEATURE_MODE_CHANGE
+-> Platform Registry / Mode Manager
+-> TDOA_CHANGE_MODE
+-> TDOA
+-> TDOA_MODE_UPDATED
+
+Current status:
+Drawn as Platform Registry publication, TDOA subscription, and Event Journal subscription.
+
+Notes / legacy aliases:
+For V2.0, keep the existing two-command external design.
+Do not collapse DETECTION_MODE_CHANGE and FEATURE_MODE_CHANGE into a new combined design right now.
+Need code verification that payload preserves whether the original command was detection or feature mode.
+
+TDOA_MODE_UPDATED:
+Purpose:
+Notice that TDOA successfully updated its active mode setting.
+
+Publishing subsystem:
+TDOA
+
+Subscribing subsystem(s):
+Event Journal
+Possibly Communication-sender if GUI mode status display is implemented
+
+Reason for subscription:
+Event Journal records the TDOA mode update.
+GUI may eventually display current TDOA mode if this event is forwarded.
+
+Path / timeline:
+TDOA_CHANGE_MODE
+-> TDOA applies mode setting
+-> TDOA_MODE_UPDATED
+-> Event Journal
+
+Current status:
+Drawn as TDOA publication and Event Journal subscription.
+
+Notes / legacy aliases:
+Need code verification for whether this is internal only or forwarded to GUI.
+
+TDOA_NODE_STATE_UPDATED:
+Purpose:
+Notice that TDOA updated its internal view of node TDOA readiness.
+
+Publishing subsystem:
+TDOA
+
+Subscribing subsystem(s):
+Event Journal
+Possibly Communication-sender if GUI TDOA readiness display is implemented
+
+Reason for subscription:
+Event Journal records TDOA’s internal readiness tracking.
+GUI may eventually display the TDOA subsystem’s readiness view if forwarded.
+
+Path / timeline:
+NODE_TDOA_STATE
+-> TDOA readiness tracking
+-> TDOA_NODE_STATE_UPDATED
+-> Event Journal
+
+Current status:
+Drawn as TDOA publication and Event Journal subscription.
+
+Notes / legacy aliases:
+Different from NODE_STATE_UPDATED.
+This belongs to TDOA’s internal readiness view.
+
+TDOA_CAPABLE:
+Purpose:
+TDOA system status event indicating enough nodes are currently ready for TDOA operation.
+
+Publishing subsystem:
+TDOA
+
+Subscribing subsystem(s):
+TDOA internal candidate/filter logic
+Event Journal
+Possibly Communication-sender if GUI “TDOA armed” display is implemented
+
+Reason for subscription:
+TDOA candidate logic should only request synchronized recordings when enough capable nodes exist.
+Event Journal records when the system becomes TDOA-capable.
+GUI may eventually display armed/capable status if forwarded.
+
+Path / timeline:
+Multiple NODE_TDOA_STATE events
+-> TDOA readiness manager
+-> TDOA_CAPABLE
+-> TDOA candidate logic
+
+Current status:
+Drawn as TDOA publication, TDOA internal subscription, and Event Journal subscription.
+
+Notes / legacy aliases:
+Current expected threshold is minimum four TDOA-capable nodes unless code says otherwise.
+
+TDOA_REQUEST:
+Purpose:
+Command requesting synchronized recordings from TDOA-capable nodes.
+
+Publishing subsystem:
+TDOA
+
+Subscribing subsystem(s):
+Communication-sender
+Event Journal
+
+Reason for subscription:
+Communication-sender transmits the request to nodes.
+Event Journal records the active recording request.
+
+Path / timeline:
+TDOA_CAPABLE + accepted AVIS_LITE candidate
+-> TDOA_REQUEST
+-> Communication-sender
+-> nodes
+
+Current status:
+Drawn as TDOA publication, Communication-sender subscription, and Event Journal subscription.
+
+Notes / legacy aliases:
+Need to confirm target format: selected nodes, all capable nodes, or cluster ID.
+
+TDOA_COMPLETE_SET:
+Purpose:
+Notice that the required TDOA recording set has been collected and is ready for analysis.
+
+Publishing subsystem:
+TDOA recording manager / cluster consensus logic
+
+Subscribing subsystem(s):
+TDOA analysis manager
+Event Journal
+
+Reason for subscription:
+TDOA analysis should run only after enough valid recordings are available.
+Event Journal records when a complete set is formed.
+
+Path / timeline:
+Multiple TDOA_RECORDING events
+-> TDOA recording manager validates set
+-> TDOA_COMPLETE_SET
+-> TDOA analysis manager
+-> TDOA_CALC
+
+Current status:
+Drawn as TDOA publication, TDOA internal subscription, and Event Journal subscription.
+
+Notes / legacy aliases:
+This appears to be an internal TDOA handoff event.
+
+TDOA_CALC:
+Purpose:
+Raw TDOA localization calculation result produced by the TDOA subsystem.
+
+Publishing subsystem:
+TDOA
+
+Subscribing subsystem(s):
+Platform Registry
+Event Journal
+
+Reason for subscription:
+Platform Registry verifies or promotes the calculation to SERVER_TDOA_CALC.
+Event Journal records the raw calculation result.
+
+Path / timeline:
+TDOA_COMPLETE_SET
+-> TDOA analysis / solver
+-> TDOA_CALC
+-> Platform Registry
+-> SERVER_TDOA_CALC
+
+Current status:
+Drawn as TDOA publication, Platform Registry subscription, and Event Journal subscription.
+
+Notes / legacy aliases:
+SERVER_TDOA_CALC is the server-promoted version.
+Database should consume SERVER_TDOA_CALC, not raw TDOA_CALC.
+
+============================================================
+COMMUNICATION EVENTS
+====================
+
+COMMUNICATION_CHANGE_MODE:
+Purpose:
+Server-owned command telling server Communication to change its own active communication behavior.
+
+Publishing subsystem:
+Platform Registry / Mode Manager
+
+Subscribing subsystem(s):
+Communication-sender
+Communication state manager, if separated in code
+Event Journal
+
+Reason for subscription:
+Communication must know whether server-side outbound behavior should use Wi-Fi, LoRa, or another transport.
+Event Journal records the internal communication-mode command.
+
+Path / timeline:
+NETWORK_MODE_CHANGE
+-> Platform Registry / Mode Manager
+-> COMMUNICATION_CHANGE_MODE
+-> Communication-sender / Communication state manager
+
+Current status:
+Drawn as Platform Registry publication, Communication-sender subscription, and Event Journal subscription.
+
+Notes / legacy aliases:
+Possible naming cleanup candidate: COMMUNICATION_MODE_CHANGE.
+Do not rename until code scan confirms current usage.
+
+SEND_NODE_CHANGE_MODE:
+Purpose:
+Server-owned outbound instruction telling Communication to send a mode-change command to one or more nodes.
+
+Publishing subsystem:
+Platform Registry / Mode Manager
+
+Subscribing subsystem(s):
+Communication-sender
+Event Journal
+
+Reason for subscription:
+Communication-sender needs a clear event meaning “transmit this mode command to node(s).”
+Event Journal records the node-facing mode command request.
+
+Path / timeline:
+NETWORK_MODE_CHANGE
+-> Platform Registry / Mode Manager
+-> SEND_NODE_CHANGE_MODE
+-> Communication-sender
+-> node(s)
+-> EVENT_SENT
+
+Current status:
+Drawn as Platform Registry publication, Communication-sender subscription, and Event Journal subscription.
+
+Notes / legacy aliases:
+Need to confirm whether this only handles network mode or can also forward other modes later.
+
+EVENT_SENT:
+Purpose:
+Confirmation that Communication-sender attempted or completed an outbound transmission.
+
+Publishing subsystem:
+Communication-sender
+
+Subscribing subsystem(s):
+Event Journal
+
+Reason for subscription:
+Event Journal records outbound transmissions for audit and debugging.
+
+Path / timeline:
+Communication-sender receives outbound event
+-> sends payload externally
+-> EVENT_SENT
+-> Event Journal
+
+Current status:
+Drawn as Communication-sender publication and Event Journal subscription.
+
+Notes / legacy aliases:
+Need to confirm whether EVENT_SENT means attempted send or confirmed successful send.
+Recommendation: Make EVENT_SENT mean successful handoff to the sender transport, with payload status if failure tracking is needed.
+
+NETWORK_CONNECTED:
+Purpose:
+Communication status event indicating that a network path is connected.
+
+Publishing subsystem:
+Server Communication
+
+Subscribing subsystem(s):
+Event Journal
+
+Reason for subscription:
+Event Journal records network availability changes for debugging and uptime tracking.
+
+Path / timeline:
+Communication detects connection available
+-> NETWORK_CONNECTED
+-> Event Journal
+
+Current status:
+Drawn as Event Journal subscription.
+
+Notes / legacy aliases:
+Need to confirm whether this applies to GUI UDP, node UDP, LoRa, Wi-Fi, or any active transport.
+
+NETWORK_DISCONNECTED:
+Purpose:
+Communication status event indicating that a network path is disconnected.
+
+Publishing subsystem:
+Server Communication
+
+Subscribing subsystem(s):
+Event Journal
+
+Reason for subscription:
+Event Journal records network loss for debugging and uptime tracking.
+
+Path / timeline:
+Communication detects connection loss
+-> NETWORK_DISCONNECTED
+-> Event Journal
+
+Current status:
+Drawn as Event Journal subscription.
+
+Notes / legacy aliases:
+Need to confirm whether this applies to GUI UDP, node UDP, LoRa, Wi-Fi, or any active transport.
+
+============================================================
+DATABASE EVENTS
+===============
+
+DATABASE_UPDATED:
+Purpose:
+Notice that Database completed a database update.
+
+Publishing subsystem:
+Database
+
+Subscribing subsystem(s):
+Event Journal
+Possibly Communication-sender if GUI database-status display is implemented later
+
+Reason for subscription:
+Event Journal records database activity.
+GUI may eventually display database status, but this is not required for control flow.
+
+Path / timeline:
+Database receives a server-verified event
+-> Database writes or updates record
+-> DATABASE_UPDATED
+-> Event Journal
+
+Current status:
+Drawn as Database publication and Event Journal subscription.
+
+Notes / legacy aliases:
+Recommendation: DATABASE_UPDATED should mean successful committed write, not merely attempted write.
+
+============================================================
+DATABASE SUBSCRIPTION RULE
+==========================
+
+Database subscribes to:
+SERVER_NODE_REGISTER
+SERVER_ENVIRO_EVENT
+SERVER_GPS_COORD
+SERVER_AVIS_LITE
+SERVER_TDOA_CALC
+
+Database does not subscribe to these in the current drawing:
+NODE_REGISTER
+ENVIRO_EVENT
+GPS_COORD
+AVIS_LITE
+TDOA_CALC
+NODE_STATE_UPDATED
+NODE_TDOA_STATE
+TDOA_REQUEST
+TDOA_RECORDING
+TDOA_COMPLETE_SET
+EVENT_SENT
+
+============================================================
+COMMUNICATION-SENDER SUBSCRIPTION RULE
+======================================
+
+Communication-sender subscribes to:
+COMMUNICATION_CHANGE_MODE
+SEND_NODE_CHANGE_MODE
+SERVER_NODE_REGISTER
+SERVER_ENVIRO_EVENT
+SERVER_GPS_COORD
+SERVER_AVIS_LITE
+NODE_STATE_UPDATED
+TDOA_REQUEST
+SERVER_TDOA_CALC
+
+Communication-sender publishes:
+EVENT_SENT
+
+============================================================
+PLATFORM REGISTRY SUBSCRIPTION RULE
+===================================
+
+Platform Registry subscribes to:
+DETECTION_MODE_CHANGE
+FEATURE_MODE_CHANGE
+NETWORK_MODE_CHANGE
+GUI_REGISTER
+NODE_REGISTER
+ENVIRO_EVENT
+GPS_COORD
+AVIS_LITE
+RTK_STATE
+GPS_STATE
+PPS_STATE
+ENVIRO_STATE
+TDOA_CALC
+
+Platform Registry publishes:
+TDOA_CHANGE_MODE
+COMMUNICATION_CHANGE_MODE
+SEND_NODE_CHANGE_MODE
+REGISTRY_UPDATED
+SERVER_NODE_REGISTER
+SERVER_ENVIRO_EVENT
+SERVER_GPS_COORD
+SERVER_AVIS_LITE
+NODE_STATE_UPDATED
+NODE_TDOA_STATE
+SERVER_TDOA_CALC
+
+============================================================
+TDOA SUBSCRIPTION RULE
+======================
+
+TDOA subscribes to:
+TDOA_CHANGE_MODE
+NODE_TDOA_STATE
+TDOA_CAPABLE
+AVIS_LITE
+TDOA_RECORDING
+TDOA_COMPLETE_SET
+
+TDOA publishes:
+TDOA_MODE_UPDATED
+TDOA_NODE_STATE_UPDATED
+TDOA_CAPABLE
+TDOA_REQUEST
+TDOA_COMPLETE_SET
+TDOA_CALC
+
+============================================================
+EVENT JOURNAL SUBSCRIPTION RULE
+===============================
+
+Event Journal subscribes to:
+DETECTION_MODE_CHANGE
+FEATURE_MODE_CHANGE
+NETWORK_MODE_CHANGE
+GUI_REGISTER
+NODE_REGISTER
+RTK_STATE
+GPS_STATE
+PPS_STATE
+ENVIRO_STATE
+ENVIRO_EVENT
+GPS_COORD
+AVIS_LITE
+TDOA_RECORDING
+REGISTRY_UPDATED
+SERVER_NODE_REGISTER
+SERVER_ENVIRO_EVENT
+SERVER_GPS_COORD
+SERVER_AVIS_LITE
+SERVER_TDOA_CALC
+NODE_STATE_UPDATED
+NODE_TDOA_STATE
+TDOA_CHANGE_MODE
+TDOA_MODE_UPDATED
+TDOA_NODE_STATE_UPDATED
+TDOA_CAPABLE
+TDOA_REQUEST
+TDOA_COMPLETE_SET
+TDOA_CALC
+COMMUNICATION_CHANGE_MODE
+SEND_NODE_CHANGE_MODE
+EVENT_SENT
+NETWORK_CONNECTED
+NETWORK_DISCONNECTED
+DATABASE_UPDATED
+
+============================================================
+IMMEDIATE BUG TARGET
+====================
+
+Problem:
+GUI sends:
+NETWORK_MODE_CHANGE
+DETECTION_MODE_CHANGE
+FEATURE_MODE_CHANGE
+
+Server Communication receives them, but logs them as unknown inbound events.
+
+Expected handling:
+Server Communication-listener should classify these as known GUI inbound events and publish them to the server event bus.
+
+Expected downstream owner:
+Platform Registry / Mode Manager
+
+Expected resulting publications:
+NETWORK_MODE_CHANGE
+-> Platform Registry
+-> COMMUNICATION_CHANGE_MODE and/or SEND_NODE_CHANGE_MODE
+
+DETECTION_MODE_CHANGE
+-> Platform Registry
+-> TDOA_CHANGE_MODE
+
+FEATURE_MODE_CHANGE
+-> Platform Registry
+-> TDOA_CHANGE_MODE
+
+Legacy aliases to preserve during transition:
+GUI_NETWORK_MODE_CHANGE
+GUI_DETECTION_MODE_CHANGE
+GUI_FEATURE_MODE_CHANGE
+
+Canonical recommendation:
+Use unprefixed names as canonical:
+NETWORK_MODE_CHANGE
+DETECTION_MODE_CHANGE
+FEATURE_MODE_CHANGE
+
+Reason:
+The event name should describe the command.
+The source should live in the payload as source=gui.

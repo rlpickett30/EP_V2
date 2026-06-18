@@ -49,10 +49,10 @@ SERVER_ENVIRO_EVENT = "SERVER_ENVIRO_EVENT"
 GPS_COORD = "GPS_COORD"
 SERVER_GPS_COORD = "SERVER_GPS_COORD"
 
-GUI_FEATURE_MODE_CHANGE = "GUI_FEATURE_MODE_CHANGE"
+FEATURE_MODE_CHANGE = "FEATURE_MODE_CHANGE"
 TDOA_CHANGE_MODE = "TDOA_CHANGE_MODE"
-GUI_DETECTION_MODE_CHANGE = "GUI_DETECTION_MODE_CHANGE"
-GUI_NETWORK_MODE_CHANGE = "GUI_NETWORK_MODE_CHANGE"
+DETECTION_MODE_CHANGE = "DETECTION_MODE_CHANGE"
+NETWORK_MODE_CHANGE = "NETWORK_MODE_CHANGE"
 COMMUNICATION_CHANGE_MODE = "COMMUNICATION_CHANGE_MODE"
 SEND_NODE_CHANGE_MODE = "SEND_NODE_CHANGE_MODE"
 
@@ -108,17 +108,17 @@ class PlatformRegistryEventServices:
         )
         
         self.event_bus.subscribe(
-            GUI_FEATURE_MODE_CHANGE,
+            FEATURE_MODE_CHANGE,
             dispatcher.handle_gui_mode_change
         )
         
         self.event_bus.subscribe(
-            GUI_DETECTION_MODE_CHANGE,
+            DETECTION_MODE_CHANGE,
             dispatcher.handle_gui_mode_change
         )
         
         self.event_bus.subscribe(
-            GUI_NETWORK_MODE_CHANGE,
+            NETWORK_MODE_CHANGE,
             dispatcher.handle_gui_mode_change
         )
         
@@ -166,15 +166,15 @@ class PlatformRegistryEventServices:
         )
         
         self._debug_print(
-            "Subscribed to GUI_FEATURE_MODE_CHANGE"
+            "Subscribed to FEATURE_MODE_CHANGE"
         )
     
         self._debug_print(
-            "Subscribed to GUI_DETECTION_MODE_CHANGE"
+            "Subscribed to DETECTION_MODE_CHANGE"
         )
         
         self._debug_print(
-            "Subscribed to GUI_NETWORK_MODE_CHANGE"
+            "Subscribed to NETWORK_MODE_CHANGE"
         )
         
         self._debug_print(
@@ -276,6 +276,7 @@ class PlatformRegistryEventServices:
         """
 
         event_package = {
+            "event_type": TDOA_CHANGE_MODE,
             "source": "platform_registry",
             "payload": {
                 "reason": mode_payload.get("source_event_type"),
@@ -287,7 +288,7 @@ class PlatformRegistryEventServices:
             TDOA_CHANGE_MODE,
             event_package
         )
-
+        
         self._debug_print(
             "Published TDOA_CHANGE_MODE"
         )
@@ -299,6 +300,7 @@ class PlatformRegistryEventServices:
         """
 
         event_package = {
+            "event_type": COMMUNICATION_CHANGE_MODE,
             "source": "platform_registry",
             "payload": {
                 "reason": mode_payload.get("source_event_type"),
@@ -322,6 +324,7 @@ class PlatformRegistryEventServices:
         """
 
         event_package = {
+            "event_type": SEND_NODE_CHANGE_MODE,
             "source": "platform_registry",
             "payload": {
                 "reason": mode_payload.get("source_event_type"),

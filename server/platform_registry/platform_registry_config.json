@@ -117,7 +117,7 @@
             ]
         },
         "mode": {
-            "publish_only_on_change": true,
+            "publish_only_on_change": false,
             "include_previous_value": true,
             "include_mode_snapshot": true,
             "default_target_type": "node"

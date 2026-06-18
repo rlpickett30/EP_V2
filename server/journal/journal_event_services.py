@@ -51,7 +51,7 @@ class JournalEventServices:
     #
     # --------------------------------------------------------
     #
-    # GUI_FEATURE_MODE_CHANGE
+    # FEATURE_MODE_CHANGE
     #
     # Published By:
     #     Communication listener after UDP decode
@@ -65,7 +65,7 @@ class JournalEventServices:
     #
     # --------------------------------------------------------
     #
-    # GUI_NETWORK_MODE_CHANGE
+    # NETWORK_MODE_CHANGE
     #
     # Published By:
     #     Communication listener after UDP decode
@@ -79,7 +79,7 @@ class JournalEventServices:
     #
     # --------------------------------------------------------
     #
-    # GUI_DETECTION_MODE_CHANGE
+    # DETECTION_MODE_CHANGE
     #
     # Published By:
     #     Communication listener after UDP decode
@@ -123,9 +123,9 @@ class JournalEventServices:
 
         "GUI_REGISTER",
         "NODE_REGISTER",
-        "GUI_FEATURE_MODE_CHANGE",
-        "GUI_NETWORK_MODE_CHANGE",
-        "GUI_DETECTION_MODE_CHANGE",
+        "FEATURE_MODE_CHANGE",
+        "NETWORK_MODE_CHANGE",
+        "DETECTION_MODE_CHANGE",
 
         "TDOA_CHANGE_MODE",
         "TDOA_MODE_UPDATED",

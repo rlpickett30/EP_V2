@@ -317,7 +317,7 @@ class TDOADispatcher:
                 "event_type": "TDOA_CHANGE_MODE",
                 "source": "platform_registry",
                 "payload": {
-                    "reason": "GUI_FEATURE_MODE_CHANGE",
+                    "reason": "FEATURE_MODE_CHANGE",
                     "mode_payload": {
                         "incoming_event": "onset_feature",
                         "mode": {

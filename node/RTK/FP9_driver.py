@@ -4,49 +4,61 @@ FP9_driver.py
 u-blox ZED-F9P Driver
 
 Responsibilities:
-    - Connect to ZED-F9P over USB serial.
-    - Read NMEA sentences.
-    - Parse basic GPS fix data from GGA and RMC sentences.
-    - Return raw hardware facts.
+- Connect to ZED-F9P over USB serial.
+- Read mixed USB serial data from the receiver.
+- Parse NMEA GGA and RMC sentences.
+- Extract RTCM3 packets produced by a base receiver.
+- Write RTCM3 packets into a rover receiver.
+- Send basic UBX configuration messages for temporary Survey-In base mode.
+- Return raw hardware facts.
 
 Does NOT:
-    - Own EventBus logic.
-    - Publish events.
-    - Own node identity.
-    - Claim true PPS lock from USB serial.
+- Own EventBus logic.
+- Publish events.
+- Own node identity.
+- Claim true PPS lock from USB serial.
 
 Notes:
-    The SparkFun PPS LED can indicate that the ZED-F9P has a valid
-    timepulse, but USB serial does not prove that the Raspberry Pi
-    has measured the PPS edge.
-
-    True PPS readiness for TDOA should come from the ZED-F9P PPS pin
-    wired to a Raspberry Pi GPIO input.
+- The SparkFun PPS LED can indicate that the ZED-F9P has a valid
+  timepulse, but USB serial does not prove that the Raspberry Pi has
+  measured the PPS edge.
+- True PPS readiness for TDOA should come from the ZED-F9P PPS pin wired
+  to a Raspberry Pi GPIO input.
+- RTK correction transport is handled above this driver by RTK base and
+  rover managers.
 """
 
 from __future__ import annotations
 
+import threading
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import serial
 
 
 class FP9Driver:
+
     def __init__(
         self,
         port: str = "/dev/ttyACM0",
-        baudrate: int = 9600,
-        timeout: float = 1.0,
+        baudrate: int = 38400,
+        timeout: float = 0.05,
         debug: bool = True,
     ):
         self.port = port
-        self.baudrate = baudrate
-        self.timeout = timeout
+        self.baudrate = int(baudrate)
+        self.timeout = float(timeout)
         self.debug = debug
 
         self.serial_port: Optional[serial.Serial] = None
         self.connected = False
+
+        self.serial_lock = threading.RLock()
+
+        self.nmea_buffer = b""
+        self.rtcm_buffer = b""
+        self.pending_rtcm_packets: List[bytes] = []
 
         self.last_gps_data: Dict[str, Any] = {
             "fix_valid": False,
@@ -65,51 +77,317 @@ class FP9Driver:
     # Debug
     # --------------------------------------------------
 
-    def log(self, message: str) -> None:
+    def log(
+        self,
+        message: str
+    ) -> None:
+
         if self.debug:
-            print(f"[FP9Driver] {message}")
+            print(
+                f"[FP9Driver] {message}"
+            )
 
     # --------------------------------------------------
     # Lifecycle
     # --------------------------------------------------
 
-    def connect(self) -> None:
-        try:
-            self.serial_port = serial.Serial(
-                port=self.port,
-                baudrate=self.baudrate,
-                timeout=self.timeout,
-            )
+    def connect(
+        self
+    ) -> None:
 
-            self.connected = True
-            self.log(f"Connected to {self.port}")
+        with self.serial_lock:
 
-        except Exception as error:
+            if self.connected and self.serial_port:
+                return
+
+            try:
+                self.serial_port = serial.Serial(
+                    port=self.port,
+                    baudrate=self.baudrate,
+                    timeout=self.timeout,
+                    write_timeout=1,
+                )
+
+                self.connected = True
+                self.log(
+                    f"Connected to {self.port} at {self.baudrate} baud"
+                )
+
+            except Exception as error:
+                self.connected = False
+                self.serial_port = None
+                self.log(
+                    f"Connection failed: {error}"
+                )
+
+    def disconnect(
+        self
+    ) -> None:
+
+        with self.serial_lock:
+
+            try:
+                if self.serial_port:
+                    self.serial_port.close()
+
+            except Exception as error:
+                self.log(
+                    f"Disconnect error: {error}"
+                )
+
             self.connected = False
             self.serial_port = None
-            self.log(f"Connection failed: {error}")
 
-    def disconnect(self) -> None:
+    def reconnect(
+        self
+    ) -> None:
+
+        self.disconnect()
+        time.sleep(0.25)
+        self.connect()
+
+    # --------------------------------------------------
+    # Serial I/O
+    # --------------------------------------------------
+
+    def read_available(
+        self,
+        max_bytes: int = 4096
+    ) -> bytes:
+
+        if not self.connected or not self.serial_port:
+            return b""
+
         try:
-            if self.serial_port:
-                self.serial_port.close()
+            with self.serial_lock:
+                return self.serial_port.read(
+                    max_bytes
+                )
 
         except Exception as error:
-            self.log(f"Disconnect error: {error}")
+            self.log(
+                f"Read error: {error}"
+            )
+            self.connected = False
+            return b""
 
-        self.connected = False
-        self.serial_port = None
+    def write_bytes(
+        self,
+        data: bytes
+    ) -> int:
+
+        if not data:
+            return 0
+
+        if not self.connected or not self.serial_port:
+            return 0
+
+        try:
+            with self.serial_lock:
+                written = self.serial_port.write(
+                    data
+                )
+                self.serial_port.flush()
+                return int(
+                    written
+                )
+
+        except Exception as error:
+            self.log(
+                f"Write error: {error}"
+            )
+            self.connected = False
+            return 0
+
+    # --------------------------------------------------
+    # Mixed Stream Processing
+    # --------------------------------------------------
+
+    def poll_serial(
+        self,
+        duration_sec: float = 0.20,
+        read_size: int = 4096
+    ) -> Dict[str, int]:
+
+        if not self.connected:
+            self.connect()
+
+        start = time.time()
+
+        stats = {
+            "bytes_read": 0,
+            "nmea_lines": 0,
+            "rtcm_packets": 0,
+        }
+
+        while time.time() - start < duration_sec:
+            data = self.read_available(
+                read_size
+            )
+
+            if not data:
+                continue
+
+            result = self.process_bytes(
+                data
+            )
+
+            stats["bytes_read"] += result["bytes_read"]
+            stats["nmea_lines"] += result["nmea_lines"]
+            stats["rtcm_packets"] += result["rtcm_packets"]
+
+        return stats
+
+    def process_bytes(
+        self,
+        data: bytes
+    ) -> Dict[str, int]:
+
+        if not data:
+            return {
+                "bytes_read": 0,
+                "nmea_lines": 0,
+                "rtcm_packets": 0,
+            }
+
+        nmea_lines = self.process_nmea_bytes(
+            data
+        )
+
+        rtcm_packets = self.process_rtcm_bytes(
+            data
+        )
+
+        return {
+            "bytes_read": len(data),
+            "nmea_lines": nmea_lines,
+            "rtcm_packets": rtcm_packets,
+        }
+
+    def process_nmea_bytes(
+        self,
+        data: bytes
+    ) -> int:
+
+        self.nmea_buffer += data
+
+        if len(self.nmea_buffer) > 65536:
+            self.nmea_buffer = self.nmea_buffer[-32768:]
+
+        parsed_count = 0
+
+        while b"\n" in self.nmea_buffer:
+            raw_line, self.nmea_buffer = self.nmea_buffer.split(
+                b"\n",
+                1,
+            )
+
+            sentence = raw_line.decode(
+                "ascii",
+                errors="ignore",
+            ).strip()
+
+            if not sentence.startswith("$"):
+                continue
+
+            self.parse_sentence(
+                sentence
+            )
+
+            parsed_count += 1
+
+        return parsed_count
+
+    def process_rtcm_bytes(
+        self,
+        data: bytes
+    ) -> int:
+
+        self.rtcm_buffer += data
+
+        if len(self.rtcm_buffer) > 131072:
+            self.rtcm_buffer = self.rtcm_buffer[-65536:]
+
+        packets, self.rtcm_buffer = self.extract_rtcm_packets(
+            self.rtcm_buffer
+        )
+
+        if packets:
+            self.pending_rtcm_packets.extend(
+                packets
+            )
+
+        return len(
+            packets
+        )
+
+    def extract_rtcm_packets(
+        self,
+        buffer: bytes
+    ) -> Tuple[List[bytes], bytes]:
+
+        packets: List[bytes] = []
+
+        while True:
+            start = buffer.find(
+                b"\xd3"
+            )
+
+            if start < 0:
+                return packets, b""
+
+            if start > 0:
+                buffer = buffer[start:]
+
+            if len(buffer) < 3:
+                return packets, buffer
+
+            # RTCM3 reserves the upper 6 bits of byte 1.
+            # If they are nonzero, this was probably a random 0xD3 byte.
+            if buffer[1] & 0xFC:
+                buffer = buffer[1:]
+                continue
+
+            length = (
+                (
+                    buffer[1] & 0x03
+                ) << 8
+            ) | buffer[2]
+
+            packet_length = 3 + length + 3
+
+            if len(buffer) < packet_length:
+                return packets, buffer
+
+            packet = buffer[:packet_length]
+            packets.append(
+                packet
+            )
+
+            buffer = buffer[packet_length:]
+
+    def consume_rtcm_packets(
+        self
+    ) -> List[bytes]:
+
+        packets = self.pending_rtcm_packets
+        self.pending_rtcm_packets = []
+        return packets
 
     # --------------------------------------------------
     # NMEA Helpers
     # --------------------------------------------------
 
-    def read_sentence(self) -> Optional[str]:
+    def read_sentence(
+        self
+    ) -> Optional[str]:
+
         if not self.connected or not self.serial_port:
             return None
 
         try:
-            raw = self.serial_port.readline()
+            with self.serial_lock:
+                raw = self.serial_port.readline()
 
             if not raw:
                 return None
@@ -125,7 +403,9 @@ class FP9Driver:
             return sentence
 
         except Exception as error:
-            self.log(f"Read error: {error}")
+            self.log(
+                f"Read sentence error: {error}"
+            )
             self.connected = False
             return None
 
@@ -134,18 +414,30 @@ class FP9Driver:
         value: str,
         hemisphere: str,
     ) -> Optional[float]:
+
         if not value or not hemisphere:
             return None
 
         try:
-            raw = float(value)
+            raw = float(
+                value
+            )
 
-            degrees = int(raw // 100)
-            minutes = raw - (degrees * 100)
+            degrees = int(
+                raw // 100
+            )
+            minutes = raw - (
+                degrees * 100
+            )
 
-            decimal = degrees + (minutes / 60.0)
+            decimal = degrees + (
+                minutes / 60.0
+            )
 
-            if hemisphere in ("S", "W"):
+            if hemisphere in (
+                "S",
+                "W",
+            ):
                 decimal *= -1
 
             return decimal
@@ -157,12 +449,14 @@ class FP9Driver:
         self,
         fix_quality: int,
     ) -> str:
+
         mapping = {
             0: "NO_FIX",
             1: "GPS",
             2: "DGPS",
             4: "RTK_FIXED",
             5: "RTK_FLOAT",
+            6: "DEAD_RECKONING",
         }
 
         return mapping.get(
@@ -178,7 +472,10 @@ class FP9Driver:
         self,
         sentence: str,
     ) -> None:
-        parts = sentence.split(",")
+
+        parts = sentence.split(
+            ","
+        )
 
         if len(parts) < 10:
             return
@@ -194,10 +491,21 @@ class FP9Driver:
                 parts[5],
             )
 
-            fix_quality = int(parts[6]) if parts[6] else 0
-            satellites = int(parts[7]) if parts[7] else 0
-            hdop = float(parts[8]) if parts[8] else None
-            altitude_m = float(parts[9]) if parts[9] else None
+            fix_quality = int(
+                parts[6]
+            ) if parts[6] else 0
+
+            satellites = int(
+                parts[7]
+            ) if parts[7] else 0
+
+            hdop = float(
+                parts[8]
+            ) if parts[8] else None
+
+            altitude_m = float(
+                parts[9]
+            ) if parts[9] else None
 
             fix_valid = (
                 fix_quality > 0
@@ -214,20 +522,27 @@ class FP9Driver:
                     "satellites": satellites,
                     "hdop": hdop,
                     "fix_quality": fix_quality,
-                    "rtk_status": self.fix_quality_to_status(fix_quality),
+                    "rtk_status": self.fix_quality_to_status(
+                        fix_quality
+                    ),
                     "timestamp": time.time(),
                     "last_sentence": sentence,
                 }
             )
 
         except Exception as error:
-            self.log(f"GGA parse error: {error}")
+            self.log(
+                f"GGA parse error: {error}"
+            )
 
     def parse_rmc(
         self,
         sentence: str,
     ) -> None:
-        parts = sentence.split(",")
+
+        parts = sentence.split(
+            ","
+        )
 
         if len(parts) < 7:
             return
@@ -261,46 +576,175 @@ class FP9Driver:
                 )
 
         except Exception as error:
-            self.log(f"RMC parse error: {error}")
+            self.log(
+                f"RMC parse error: {error}"
+            )
 
     def parse_sentence(
         self,
         sentence: str,
     ) -> None:
-        sentence_type = sentence.split(",", 1)[0]
 
-        if sentence_type.endswith("GGA"):
-            self.parse_gga(sentence)
+        sentence_type = sentence.split(
+            ",",
+            1,
+        )[0]
 
-        elif sentence_type.endswith("RMC"):
-            self.parse_rmc(sentence)
+        if sentence_type.endswith(
+            "GGA"
+        ):
+            self.parse_gga(
+                sentence
+            )
+
+        elif sentence_type.endswith(
+            "RMC"
+        ):
+            self.parse_rmc(
+                sentence
+            )
 
     # --------------------------------------------------
     # GPS
     # --------------------------------------------------
 
-    def get_gps_data(self) -> Dict[str, Any]:
+    def get_gps_data(
+        self
+    ) -> Dict[str, Any]:
+
         if not self.connected:
-            return dict(self.last_gps_data)
+            self.connect()
 
-        for _ in range(25):
-            sentence = self.read_sentence()
+        self.poll_serial(
+            duration_sec=0.20
+        )
 
-            if sentence is None:
-                continue
+        return dict(
+            self.last_gps_data
+        )
 
-            self.parse_sentence(sentence)
+    # --------------------------------------------------
+    # RTK / UBX Config
+    # --------------------------------------------------
 
-            if self.last_gps_data["fix_valid"]:
-                break
+    def configure_survey_in_base(
+        self,
+        duration_sec: int = 120,
+        accuracy_limit_mm: int = 5000,
+        rtcm_messages: Optional[List[str]] = None,
+        port_type: str = "USB",
+    ) -> bool:
 
-        return dict(self.last_gps_data)
+        if rtcm_messages is None:
+            rtcm_messages = [
+                "1005",
+                "1077",
+                "1087",
+                "1097",
+                "1127",
+                "1230",
+            ]
+
+        try:
+            from pyubx2 import UBXMessage
+
+        except Exception as error:
+            self.log(
+                f"pyubx2 is required for base configuration: {error}"
+            )
+            return False
+
+        if not self.connected:
+            self.connect()
+
+        if not self.connected or not self.serial_port:
+            return False
+
+        try:
+            layers = 1
+            transaction = 0
+
+            rtcm_cfg = []
+
+            for rtcm_type in rtcm_messages:
+                rtcm_cfg.append(
+                    [
+                        f"CFG_MSGOUT_RTCM_3X_TYPE{rtcm_type}_{port_type}",
+                        1,
+                    ]
+                )
+
+            rtcm_msg = UBXMessage.config_set(
+                layers,
+                transaction,
+                rtcm_cfg,
+            )
+
+            acc_limit_01mm = int(
+                round(
+                    float(accuracy_limit_mm) / 0.1,
+                    0,
+                )
+            )
+
+            survey_cfg = [
+                (
+                    "CFG_TMODE_MODE",
+                    1,
+                ),
+                (
+                    "CFG_TMODE_SVIN_ACC_LIMIT",
+                    acc_limit_01mm,
+                ),
+                (
+                    "CFG_TMODE_SVIN_MIN_DUR",
+                    int(duration_sec),
+                ),
+                (
+                    f"CFG_MSGOUT_UBX_NAV_SVIN_{port_type}",
+                    1,
+                ),
+            ]
+
+            survey_msg = UBXMessage.config_set(
+                layers,
+                transaction,
+                survey_cfg,
+            )
+
+            self.log(
+                "Configuring RTCM output"
+            )
+            self.write_bytes(
+                rtcm_msg.serialize()
+            )
+            time.sleep(
+                0.25
+            )
+
+            self.log(
+                "Configuring Survey-In base mode"
+            )
+            self.write_bytes(
+                survey_msg.serialize()
+            )
+
+            return True
+
+        except Exception as error:
+            self.log(
+                f"Survey-In config failed: {error}"
+            )
+            return False
 
     # --------------------------------------------------
     # PPS
     # --------------------------------------------------
 
-    def get_pps_data(self) -> Dict[str, Any]:
+    def get_pps_data(
+        self
+    ) -> Dict[str, Any]:
+
         return {
             "pps_valid": False,
             "pps_source": "not_measured_by_usb_serial",
@@ -311,15 +755,22 @@ class FP9Driver:
     # Status
     # --------------------------------------------------
 
-    def get_status(self) -> Dict[str, Any]:
+    def get_status(
+        self
+    ) -> Dict[str, Any]:
+
         return {
             "connected": self.connected,
             "port": self.port,
             "baudrate": self.baudrate,
+            "pending_rtcm_packets": len(
+                self.pending_rtcm_packets
+            ),
         }
 
 
 if __name__ == "__main__":
+
     driver = FP9Driver(
         debug=True,
     )
@@ -329,15 +780,12 @@ if __name__ == "__main__":
 
         while True:
             gps_data = driver.get_gps_data()
-            pps_data = driver.get_pps_data()
 
             print()
             print("GPS")
             print(gps_data)
-
-            print()
-            print("PPS")
-            print(pps_data)
+            print("STATUS")
+            print(driver.get_status())
 
             time.sleep(2)
 

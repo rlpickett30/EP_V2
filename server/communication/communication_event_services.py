@@ -59,7 +59,7 @@ class CommunicationEventServices:
     #
     # --------------------------------------------------------
     #
-    # GUI_FEATURE_MODE_CHANGE
+    # FEATURE_MODE_CHANGE
     #
     # Published By:
     #     Communication listener after UDP decode
@@ -73,7 +73,7 @@ class CommunicationEventServices:
     #
     # --------------------------------------------------------
     #
-    # GUI_NETWORK_MODE_CHANGE
+    # NETWORK_MODE_CHANGE
     #
     # Published By:
     #     Communication listener after UDP decode
@@ -87,7 +87,7 @@ class CommunicationEventServices:
     #
     # --------------------------------------------------------
     #
-    # GUI_DETECTION_MODE_CHANGE
+    # DETECTION_MODE_CHANGE
     #
     # Published By:
     #     Communication listener after UDP decode
@@ -153,9 +153,9 @@ class CommunicationEventServices:
     # Listener:
     #     GUI_REGISTER
     #     NODE_REGISTER
-    #     GUI_FEATURE_MODE_CHANGE
-    #     GUI_NETWORK_MODE_CHANGE
-    #     GUI_DETECTION_MODE_CHANGE
+    #     FEATURE_MODE_CHANGE
+    #     NETWORK_MODE_CHANGE
+    #     DETECTION_MODE_CHANGE
     #
     # Internal:
     #     NETWORK_CONNECTED
@@ -182,9 +182,9 @@ class CommunicationEventServices:
         "ENVIRO_EVENT",
         "GPS_COORD",
         
-        "GUI_FEATURE_MODE_CHANGE",
-        "GUI_NETWORK_MODE_CHANGE",
-        "GUI_DETECTION_MODE_CHANGE"
+        "FEATURE_MODE_CHANGE",
+        "NETWORK_MODE_CHANGE",
+        "DETECTION_MODE_CHANGE"
 
     ]
     
