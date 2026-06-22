@@ -1,52 +1,85 @@
-"""
-birdnet_manager.py
-
-Responsibilities:
-
-- Locate recordings
-- Run BirdNET analysis
-- Convert BirdNET detections into EnviroPulse events
-- Generate AVIS event IDs
-- Preserve event lineage
-
-This module intentionally knows nothing about:
-
-- EventBus
-- Publishers
-- Subscribers
-- GPS hardware
-- Timing loops
-- State machines
-"""
+# ============================================================
+# birdnet_manager.py
+#
+# EnviroPulse V2.0
+#
+# Subsystem:
+#   BirdNET
+#
+# Role:
+#   Manager
+#
+# Purpose:
+#   Run BirdNET analysis on a supplied WAV recording path and return
+#   normalized BirdNET detection packages to the BirdNET dispatcher.
+#
+# Expected config source:
+#   None
+#
+# Expected config section:
+#   None
+#
+# Does:
+#   - Validate the supplied WAV path
+#   - Call birdnet_analyzer.py
+#   - Convert BirdNET detections into normalized detection packages
+#   - Preserve recording lineage
+#
+# Does NOT:
+#   - Subscribe to the event bus
+#   - Publish events
+#   - Build final AVIS_LITE platform events
+#   - Guess recording paths from recording IDs
+#   - Read or write BirdNET configuration
+#   - Own GPS state
+#
+# Owner:
+#   birdnet_dispatcher.py
+#
+# ============================================================
 
 from __future__ import annotations
+
+# ============================================================
+# IMPORT DEFINITIONS FROM OTHER ENVIROPULSE SCRIPTS
+# ============================================================
+
+from birdnet.birdnet_analyzer import analyze_wav
+
+# ============================================================
+# IMPORT SUPPORT LIBRARIES
+# ============================================================
 
 import time
 
 from pathlib import Path
 
-from birdnet.birdnet_analyzer import analyze_wav
 
+# ============================================================
+# CLASS DEFINITIONS
+# ============================================================
 
 class BirdNetManager:
 
+    # ========================================================
+    # INIT
+    # ========================================================
+
     def __init__(
         self,
-        recordings_path,
         debug=True
     ):
 
-        self.recordings_path = Path(
-            recordings_path
-        )
-
         self.debug = debug
 
-    # --------------------------------------------------
-    # Debug
-    # --------------------------------------------------
+    # ========================================================
+    # DEBUG
+    # ========================================================
 
-    def log(self, message):
+    def log(
+        self,
+        message
+    ):
 
         if self.debug:
 
@@ -54,25 +87,11 @@ class BirdNetManager:
                 f"[BirdNetManager] {message}"
             )
 
-    # --------------------------------------------------
-    # Recording Path Lookup
-    # --------------------------------------------------
+    # ========================================================
+    # DETECTION PACKAGE BUILDER
+    # ========================================================
 
-    def get_recording_path(
-        self,
-        recording_id
-    ):
-
-        return (
-            self.recordings_path
-            / f"{recording_id}.wav"
-        )
-
-    # --------------------------------------------------
-    # Event Builder
-    # --------------------------------------------------
-
-    def build_avis_event(
+    def build_detection_package(
         self,
         recording_id,
         detection
@@ -87,67 +106,64 @@ class BirdNetManager:
         )
 
         return {
-
-            # --------------------------------------------------
-            # Event Identity
-            # --------------------------------------------------
-
-            "event_type":
-                "AVIS_LITE",
-
-            "birdnet_event_id":
-                birdnet_event_id,
-
-            "birdnet_event_utc":
-                birdnet_event_utc,
-
-            # --------------------------------------------------
-            # Lineage
-            # --------------------------------------------------
-
-            "recording_id":
-                recording_id,
-
-            # --------------------------------------------------
-            # Detection
-            # --------------------------------------------------
-
-            "species_code":
-                detection["species_code"],
-
-            "common_name":
-                detection["common_name"],
-
-            "confidence":
-                detection["confidence"],
-
-            # --------------------------------------------------
-            # BirdNET Timing
-            # --------------------------------------------------
-
-            "birdnet_start_time":
-                detection["start_time"],
-
-            "birdnet_end_time":
-                detection["end_time"]
+            "birdnet_event_id": birdnet_event_id,
+            "birdnet_event_utc": birdnet_event_utc,
+            "recording_id": recording_id,
+            "species_code": detection.get(
+                "species_code",
+                "unknown"
+            ),
+            "common_name": detection.get(
+                "common_name",
+                "unknown"
+            ),
+            "confidence": detection.get(
+                "confidence",
+                0.0
+            ),
+            "birdnet_start_time": detection.get(
+                "start_time",
+                0.0
+            ),
+            "birdnet_end_time": detection.get(
+                "end_time",
+                0.0
+            )
         }
 
-    # --------------------------------------------------
-    # Main Processing
-    # --------------------------------------------------
+    # ========================================================
+    # MAIN PROCESSING
+    # ========================================================
 
     def process_recording(
         self,
         recording_id,
+        recording_path,
         latitude,
         longitude,
         week,
         min_confidence
     ):
 
-        wav_path = self.get_recording_path(
-            recording_id
+        if recording_path is None:
+
+            self.log(
+                "Recording ignored because recording_path was missing"
+            )
+
+            return []
+
+        wav_path = Path(
+            recording_path
         )
+
+        if not wav_path.exists():
+
+            self.log(
+                f"Recording ignored because WAV file does not exist: {wav_path}"
+            )
+
+            return []
 
         self.log(
             f"Processing {wav_path}"
@@ -155,27 +171,27 @@ class BirdNetManager:
 
         detections = analyze_wav(
             audio_path=wav_path,
-            latitude=latitude,
-            longitude=longitude,
+            lat=latitude,
+            lon=longitude,
             week=week,
-            min_confidence=min_confidence
+            min_conf=min_confidence
         )
 
-        events = []
+        detection_packages = []
 
         for detection in detections:
 
-            event = self.build_avis_event(
-                recording_id,
-                detection
+            detection_package = self.build_detection_package(
+                recording_id=recording_id,
+                detection=detection
             )
 
-            events.append(
-                event
+            detection_packages.append(
+                detection_package
             )
 
         self.log(
-            f"Created {len(events)} AVIS events"
+            f"Created {len(detection_packages)} BirdNET detection packages"
         )
 
-        return events
+        return detection_packages

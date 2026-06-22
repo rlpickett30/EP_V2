@@ -10,7 +10,9 @@
 #   Dispatcher
 #
 # Purpose:
-#   Own the BirdNET subsystem workflow.
+#   Own the BirdNET subsystem workflow. Receive recording and GPS events,
+#   coordinate BirdNetManager analysis, and publish canonical AVIS_LITE
+#   events through BirdNetEventServices.
 #
 # Expected config source:
 #   birdnet_config.json
@@ -22,10 +24,11 @@
 #   - Load BirdNET configuration
 #   - Start the BirdNET subsystem
 #   - Register BirdNET event subscriptions
-#   - Track runtime BirdNET location settings
+#   - Track runtime BirdNET location state
 #   - Handle GPS_COORD events
 #   - Handle RECORDING_AVAILABLE events
 #   - Coordinate BirdNetManager
+#   - Build canonical AVIS_LITE events
 #   - Publish AVIS_LITE events through BirdNetEventServices
 #
 # Does NOT:
@@ -36,6 +39,7 @@
 #   - Publish state events
 #   - Publish mode events
 #   - Own node registration
+#   - Send AVIS_LITE to the server directly
 #
 # Owner:
 #   Main / Subsystem root
@@ -78,6 +82,7 @@ class BirdNetDispatcher:
         debug=None
     ):
 
+        self.event_bus = event_bus
         self.config_path = config_path
         self.config = self.load_config()
 
@@ -92,35 +97,35 @@ class BirdNetDispatcher:
 
             self.debug = debug
 
-        # ----------------------------------------------------
-        # Runtime location state.
-        #
-        # Important:
-        # These values intentionally start from the configured
-        # Durango defaults every boot. GPS updates may change
-        # runtime values, but this dispatcher does not write
-        # last-seen GPS values back into config.
-        # ----------------------------------------------------
-
         self.current_latitude = self.config.get(
-            "default_latitude"
+            "current_latitude",
+            self.config.get(
+                "default_latitude"
+            )
         )
 
         self.current_longitude = self.config.get(
-            "default_longitude"
+            "current_longitude",
+            self.config.get(
+                "default_longitude"
+            )
         )
 
-        self.gps_acquired = False
+        self.gps_acquired = bool(
+            self.config.get(
+                "gps_acquired",
+                False
+            )
+        )
+
+        self.started = False
 
         self.manager = BirdNetManager(
-            recordings_path=self.config[
-                "recordings_path"
-            ],
             debug=self.debug
         )
 
         self.event_services = BirdNetEventServices(
-            event_bus=event_bus,
+            event_bus=self.event_bus,
             debug=self.debug
         )
 
@@ -164,14 +169,34 @@ class BirdNetDispatcher:
         self
     ):
 
+        if self.started:
+
+            self.log(
+                "BirdNET subsystem already started"
+            )
+
+            return
+
         self.log(
             "Starting BirdNET subsystem"
         )
 
         self.register_subscriptions()
 
+        self.started = True
+
         self.log(
             "BirdNET subsystem started"
+        )
+
+    def stop(
+        self
+    ):
+
+        self.started = False
+
+        self.log(
+            "BirdNET subsystem stopped"
         )
 
     # ========================================================
@@ -206,7 +231,7 @@ class BirdNetDispatcher:
         if not self.should_use_gps_updates():
 
             self.log(
-                "Ignoring GPS_COORD because GPS updates are disabled"
+                "GPS_COORD ignored because GPS updates are disabled"
             )
 
             return
@@ -220,30 +245,40 @@ class BirdNetDispatcher:
             {}
         )
 
-        latitude = gps_coord.get(
-            "lat",
-            payload.get(
+        latitude = self.get_first_available(
+            gps_coord,
+            [
                 "lat",
-                payload.get(
+                "latitude"
+            ],
+            default=self.get_first_available(
+                payload,
+                [
+                    "lat",
                     "latitude"
-                )
+                ]
             )
         )
 
-        longitude = gps_coord.get(
-            "lon",
-            payload.get(
+        longitude = self.get_first_available(
+            gps_coord,
+            [
                 "lon",
-                payload.get(
+                "longitude"
+            ],
+            default=self.get_first_available(
+                payload,
+                [
+                    "lon",
                     "longitude"
-                )
+                ]
             )
         )
 
         if latitude is None or longitude is None:
 
             self.log(
-                "GPS_COORD ignored because lat/lon were missing"
+                "GPS_COORD ignored because latitude or longitude was missing"
             )
 
             return
@@ -265,14 +300,26 @@ class BirdNetDispatcher:
         event
     ):
 
-        payload = self.get_payload(
+        event_dict = self.get_event_dict(
             event
         )
 
-        recording_id = payload.get(
-            "recording_id",
-            event.get(
-                "recording_id"
+        payload = self.get_payload(
+            event_dict
+        )
+
+        recording_id = self.get_first_available(
+            payload,
+            [
+                "recording_id",
+                "event_id"
+            ],
+            default=self.get_first_available(
+                event_dict,
+                [
+                    "recording_id",
+                    "event_id"
+                ]
             )
         )
 
@@ -284,53 +331,154 @@ class BirdNetDispatcher:
 
             return
 
-        recording_path = payload.get(
-            "recording_path",
-            event.get(
-                "recording_path"
+        recording_path = self.get_first_available(
+            payload,
+            [
+                "recording_path",
+                "wav_path"
+            ],
+            default=self.get_first_available(
+                event_dict,
+                [
+                    "recording_path",
+                    "wav_path"
+                ]
             )
         )
+
+        if recording_path is None:
+
+            self.log(
+                "RECORDING_AVAILABLE ignored because recording_path was missing"
+            )
+
+            return
 
         self.log(
             f"Recording received: {recording_id}"
         )
 
-        avis_lite_events = self.manager.process_recording(
-            recording_id=recording_id,
-            latitude=self.current_latitude,
-            longitude=self.current_longitude,
-            week=self.get_week(),
-            min_confidence=self.config[
-                "min_confidence"
-            ]
-        )
+        try:
 
-        for avis_lite_event in avis_lite_events:
+            detection_packages = self.manager.process_recording(
+                recording_id=recording_id,
+                recording_path=recording_path,
+                latitude=self.current_latitude,
+                longitude=self.current_longitude,
+                week=self.get_week(),
+                min_confidence=self.get_min_confidence()
+            )
 
-            simulator_form_event = self.build_simulator_form_avis_lite(
-                avis_lite_event=avis_lite_event,
+        except Exception as error:
+
+            self.log(
+                f"BirdNET processing failed for {recording_id}: {error}"
+            )
+
+            return
+
+        if not detection_packages:
+
+            self.log(
+                f"No BirdNET detections met threshold for {recording_id}"
+            )
+
+            return
+
+        for detection_package in detection_packages:
+
+            avis_lite_event = self.build_avis_lite_event(
+                detection_package=detection_package,
                 source_payload=payload,
                 recording_id=recording_id,
                 recording_path=recording_path
             )
 
             self.event_services.publish_avis_lite(
-                simulator_form_event
+                avis_lite_event
             )
+
+        self.log(
+            f"Published {len(detection_packages)} AVIS_LITE event(s) for {recording_id}"
+        )
 
     # ========================================================
     # AVIS_LITE EVENT NORMALIZATION
     # ========================================================
 
-    def build_simulator_form_avis_lite(
+    def build_avis_lite_event(
         self,
-        avis_lite_event,
+        detection_package,
         source_payload,
         recording_id,
         recording_path
     ):
 
         detection_time_utc = self.get_utc_timestamp()
+
+        species_common = self.get_first_available(
+            detection_package,
+            [
+                "species_common",
+                "common_name"
+            ],
+            default="unknown"
+        )
+
+        species_scientific = self.get_first_available(
+            detection_package,
+            [
+                "species_scientific",
+                "scientific_name"
+            ],
+            default="unknown"
+        )
+
+        species_code = self.get_first_available(
+            detection_package,
+            [
+                "species_code"
+            ],
+            default="unknown"
+        )
+
+        confidence = self.get_first_available(
+            detection_package,
+            [
+                "confidence"
+            ],
+            default=0.0
+        )
+
+        birdnet_event_id = self.get_first_available(
+            detection_package,
+            [
+                "birdnet_event_id"
+            ]
+        )
+
+        birdnet_event_utc = self.get_first_available(
+            detection_package,
+            [
+                "birdnet_event_utc"
+            ]
+        )
+
+        birdnet_start_time = self.get_first_available(
+            detection_package,
+            [
+                "birdnet_start_time",
+                "start_time"
+            ]
+        )
+
+        birdnet_end_time = self.get_first_available(
+            detection_package,
+            [
+                "birdnet_end_time",
+                "end_time"
+            ]
+        )
 
         payload = {
             "node_id": source_payload.get(
@@ -339,36 +487,42 @@ class BirdNetDispatcher:
             "node_name": source_payload.get(
                 "node_name"
             ),
-            "species_common": self.get_first_available(
-                avis_lite_event,
-                [
-                    "species_common",
-                    "common_name"
-                ],
-                default="unknown"
-            ),
-            "species_scientific": self.get_first_available(
-                avis_lite_event,
-                [
-                    "species_scientific",
-                    "scientific_name"
-                ],
-                default="unknown"
-            ),
-            "confidence": avis_lite_event.get(
-                "confidence",
-                0.0
-            ),
-            "detection_time_utc": self.get_first_available(
-                avis_lite_event,
-                [
-                    "detection_time_utc",
-                    "birdnet_event_utc"
-                ],
-                default=detection_time_utc
-            ),
+            "species_common": species_common,
+            "species_scientific": species_scientific,
+            "species_code": species_code,
+            "confidence": confidence,
+            "detection_time_utc": detection_time_utc,
+            "birdnet_event_id": birdnet_event_id,
+            "birdnet_event_utc": birdnet_event_utc,
+            "birdnet_start_time": birdnet_start_time,
+            "birdnet_end_time": birdnet_end_time,
             "recording_id": recording_id,
-            "recording_path": recording_path
+            "recording_path": recording_path,
+            "wav_path": source_payload.get(
+                "wav_path",
+                recording_path
+            ),
+            "recording_utc": source_payload.get(
+                "recording_utc"
+            ),
+            "sample_rate": source_payload.get(
+                "sample_rate"
+            ),
+            "channels": source_payload.get(
+                "channels"
+            ),
+            "duration_sec": source_payload.get(
+                "duration_sec"
+            ),
+            "recording_type": source_payload.get(
+                "recording_type"
+            ),
+            "sync_source": source_payload.get(
+                "sync_source"
+            ),
+            "pps_locked": source_payload.get(
+                "pps_locked"
+            )
         }
 
         return {
@@ -403,6 +557,15 @@ class BirdNetDispatcher:
             .week
         )
 
+    def get_min_confidence(
+        self
+    ):
+
+        return self.config.get(
+            "min_confidence",
+            0.25
+        )
+
     # ========================================================
     # RUNTIME LOCATION SETTINGS
     # ========================================================
@@ -430,6 +593,20 @@ class BirdNetDispatcher:
     # ========================================================
     # EVENT HELPERS
     # ========================================================
+
+    def get_event_dict(
+        self,
+        event
+    ):
+
+        if isinstance(
+            event,
+            dict
+        ):
+
+            return event
+
+        return {}
 
     def get_payload(
         self,
@@ -462,6 +639,13 @@ class BirdNetDispatcher:
         keys,
         default=None
     ):
+
+        if not isinstance(
+            source,
+            dict
+        ):
+
+            return default
 
         for key in keys:
 
