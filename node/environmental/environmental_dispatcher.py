@@ -1,23 +1,60 @@
 #!/usr/bin/env python3
-"""
-environmental_dispatcher.py
-
-Environmental Subsystem Dispatcher
-
-Responsibilities:
-- Start and stop environmental drivers
-- Poll environmental sensor snapshots
-- Publish ENVIRO_STATE when readiness changes or heartbeat is due
-- Publish ENVIRO_EVENT on the configured environmental cadence
-"""
+# ============================================================
+# environmental_dispatcher.py
+#
+# EnviroPulse V2.0
+#
+# Subsystem:
+#   Environmental
+#
+# Role:
+#   Dispatcher
+#
+# Purpose:
+#   Own the environmental subsystem workflow.
+#
+# Expected config source:
+#   environmental_config.json
+#   node_config.json
+#
+# Expected config section:
+#   environmental_config root
+#   node_config["node_id"], node_config["node_name"]
+#
+# Does:
+#   - Load environmental subsystem configuration.
+#   - Resolve node identity from provided values or node_config.json.
+#   - Start and stop environmental managers.
+#   - Poll environmental sensor snapshots.
+#   - Track environmental state.
+#   - Publish ENVIRO_STATE.
+#   - Publish ENVIRO_EVENT when readings are available.
+#
+# Does NOT:
+#   - Own sensor driver implementation.
+#   - Publish directly to the event bus.
+#   - Subscribe directly to the event bus.
+#   - Own platform registry state.
+#   - Own node registration.
+#
+# Owner:
+#   node_main.py
+#
+# ============================================================
 
 from __future__ import annotations
 
-import time
-from typing import Any, Dict, Optional, Tuple
-
 from environmental.driver_manager import DriverManager
 from environmental.environmental_event_services import EnvironmentalEventServices
+
+import json
+import socket
+import time
+
+from pathlib import Path
+from typing import Any
+from typing import Dict
+from typing import Optional
 
 
 class EnvironmentalDispatcher:
@@ -25,150 +62,407 @@ class EnvironmentalDispatcher:
     def __init__(
         self,
         event_bus,
-        node_id: str = "node_01",
-        enviro_interval_sec: Optional[int] = None,
-        state_heartbeat_sec: int = 300,
-        loop_delay_sec: float = 1.0,
-        required_sensors: Tuple[str, ...] = ("sht45", "dps310"),
-        weather_interval_sec: Optional[int] = None,
-        debug: bool = True
+        node_id: Optional[str] = None,
+        node_name: Optional[str] = None,
+        config_path: Optional[str] = None,
+        node_config_path: Optional[str] = None,
+        debug: Optional[bool] = None,
     ):
 
-        self.debug = debug
-        self.node_id = node_id
+        self.paths = self.resolve_paths(
+            config_path=config_path,
+            node_config_path=node_config_path,
+        )
 
-        # Backward-compatible alias for the old WEATHER cadence name.
-        if enviro_interval_sec is None:
-            enviro_interval_sec = (
-                weather_interval_sec
-                if weather_interval_sec is not None
-                else 300
+        self.config = self.load_json_or_default(
+            path=self.paths["environmental_config"],
+            default_value=self.default_config(),
+        )
+
+        node_identity = self.resolve_node_identity(
+            node_id=node_id,
+            node_name=node_name,
+        )
+
+        self.node_id = node_identity["node_id"]
+        self.node_name = node_identity["node_name"]
+
+        if debug is None:
+            self.debug = bool(
+                self.config.get(
+                    "debug",
+                    True,
+                )
+            )
+        else:
+            self.debug = bool(
+                debug
             )
 
-        self.enviro_interval_sec = enviro_interval_sec
-        self.state_heartbeat_sec = state_heartbeat_sec
-        self.loop_delay_sec = loop_delay_sec
-        self.required_sensors = required_sensors
+        self.enabled = bool(
+            self.config.get(
+                "enabled",
+                True,
+            )
+        )
+
+        self.enviro_interval_sec = float(
+            self.config.get(
+                "enviro_interval_sec",
+                300,
+            )
+        )
+
+        self.state_heartbeat_sec = float(
+            self.config.get(
+                "state_heartbeat_sec",
+                300,
+            )
+        )
+
+        self.loop_delay_sec = float(
+            self.config.get(
+                "loop_delay_sec",
+                1.0,
+            )
+        )
+
+        self.required_sensors = list(
+            self.config.get(
+                "required_sensors",
+                [],
+            )
+        )
 
         self.driver_manager = DriverManager(
-            debug=debug
+            config=self.config,
+            debug=self.debug,
         )
 
         self.event_services = EnvironmentalEventServices(
             event_bus=event_bus,
-            node_id=node_id,
-            debug=debug
+            node_id=self.node_id,
+            debug=self.debug,
         )
 
         self.last_enviro_publish = 0.0
         self.last_state_publish = 0.0
 
-        self.sensor_states = {
-            "sht45": None,
-            "dps310": None
-        }
+        self.sensor_states: Dict[str, Optional[bool]] = {}
+        self.enviro_online: Optional[bool] = None
 
-        self.enviro_online = None
         self.running = False
 
-    # --------------------------------------------------
-    # Debug
-    # --------------------------------------------------
+    # ============================================================
+    # CONFIG
+    # ============================================================
 
-    def log(self, message: str):
+    def resolve_paths(
+        self,
+        config_path: Optional[str],
+        node_config_path: Optional[str],
+    ) -> Dict[str, Path]:
+
+        environmental_dir = Path(__file__).resolve().parent
+        node_dir = environmental_dir.parent
+
+        if config_path:
+            environmental_config = Path(
+                config_path
+            )
+        else:
+            environmental_config = (
+                environmental_dir / "environmental_config.json"
+            )
+
+        if node_config_path:
+            node_config = Path(
+                node_config_path
+            )
+        else:
+            node_config = node_dir / "node_config.json"
+
+        return {
+            "environmental_config": environmental_config,
+            "node_config": node_config,
+        }
+
+    def default_config(
+        self,
+    ) -> Dict[str, Any]:
+
+        return {
+            "enabled": True,
+            "sample_hz": 1.0,
+            "enviro_interval_sec": 300,
+            "state_heartbeat_sec": 300,
+            "loop_delay_sec": 1.0,
+            "sea_level_pressure_hpa": 1013.25,
+            "required_sensors": [
+                "sht45",
+                "dps310",
+            ],
+            "sensors": {
+                "sht45": {
+                    "enabled": True,
+                },
+                "dps310": {
+                    "enabled": True,
+                },
+                "bmp390": {
+                    "enabled": False,
+                },
+            },
+            "debug": True,
+        }
+
+    def load_json_or_default(
+        self,
+        path: Path,
+        default_value: Dict[str, Any],
+    ) -> Dict[str, Any]:
+
+        try:
+            if not path.exists():
+                return dict(
+                    default_value
+                )
+
+            with path.open(
+                "r",
+                encoding="utf-8",
+            ) as file:
+                data = json.load(
+                    file
+                )
+
+            if isinstance(
+                data,
+                dict,
+            ):
+                return data
+
+            return dict(
+                default_value
+            )
+
+        except Exception:
+            return dict(
+                default_value
+            )
+
+    # ============================================================
+    # NODE IDENTITY
+    # ============================================================
+
+    def resolve_node_identity(
+        self,
+        node_id: Optional[str],
+        node_name: Optional[str],
+    ) -> Dict[str, str]:
+
+        config_identity = self.load_json_or_default(
+            path=self.paths["node_config"],
+            default_value={},
+        )
+
+        resolved_node_id = (
+            node_id
+            or config_identity.get(
+                "node_id"
+            )
+            or self.hostname_node_id()
+        )
+
+        resolved_node_name = (
+            node_name
+            or config_identity.get(
+                "node_name"
+            )
+            or self.infer_node_name(
+                resolved_node_id
+            )
+        )
+
+        return {
+            "node_id": str(
+                resolved_node_id
+            ),
+            "node_name": str(
+                resolved_node_name
+            ),
+        }
+
+    def hostname_node_id(
+        self,
+    ) -> str:
+
+        hostname = socket.gethostname()
+        return hostname.replace(
+            "-",
+            "_",
+        )
+
+    def infer_node_name(
+        self,
+        node_id: str,
+    ) -> str:
+
+        return node_id.replace(
+            "_",
+            " "
+        ).title()
+
+    # ============================================================
+    # DEBUG
+    # ============================================================
+
+    def log(
+        self,
+        message: str,
+    ) -> None:
 
         if self.debug:
-            print(f"[EnvironmentalDispatcher] {message}")
+            print(
+                f"[EnvironmentalDispatcher] {message}"
+            )
 
-    # --------------------------------------------------
-    # Lifecycle
-    # --------------------------------------------------
+    # ============================================================
+    # LIFECYCLE
+    # ============================================================
 
-    def start(self):
+    def start(
+        self,
+    ) -> None:
 
-        self.log("Starting environmental subsystem")
+        self.log(
+            f"Starting environmental subsystem as {self.node_id}"
+        )
 
-        self.driver_manager.start()
+        if self.enabled:
+            self.driver_manager.start()
+        else:
+            self.log(
+                "Environmental subsystem disabled by config"
+            )
 
         self.running = True
         self.run()
 
-    def stop(self):
+    def stop(
+        self,
+    ) -> None:
 
-        self.log("Stopping environmental subsystem")
+        self.log(
+            "Stopping environmental subsystem"
+        )
 
         self.running = False
         self.driver_manager.stop()
 
-    # --------------------------------------------------
-    # State Logic
-    # --------------------------------------------------
-    
-    def _is_online(self, sensor_snapshot: Optional[Dict[str, Any]]) -> bool:
+    # ============================================================
+    # STATE LOGIC
+    # ============================================================
 
-        if not isinstance(sensor_snapshot, dict):
-            return False
-
-        if "online" in sensor_snapshot:
-            return bool(sensor_snapshot.get("online"))
-
-        if sensor_snapshot.get("last_error"):
-            return False
-
-        if sensor_snapshot.get("driver_start_monotonic") is None:
-            return False
-
-        return True
-
-    def _sensor_state(
+    def is_sensor_online(
         self,
-        sensor_name: str,
-        sensor_snapshot: Optional[Dict[str, Any]]
+        sensor_snapshot: Optional[Dict[str, Any]],
+    ) -> bool:
+
+        if not isinstance(
+            sensor_snapshot,
+            dict,
+        ):
+            return False
+
+        return bool(
+            sensor_snapshot.get(
+                "online",
+                False,
+            )
+        )
+
+    def build_sensor_state(
+        self,
+        sensor_snapshot: Optional[Dict[str, Any]],
     ) -> Dict[str, Any]:
 
-        if not isinstance(sensor_snapshot, dict):
+        if not isinstance(
+            sensor_snapshot,
+            dict,
+        ):
             return {
                 "online": False,
                 "started": False,
                 "last_error": "missing_snapshot",
-                "sample_count": 0
+                "sample_count": 0,
             }
 
         return {
-            "online": self._is_online(sensor_snapshot),
-            "started": bool(sensor_snapshot.get("started", False)),
-            "last_error": sensor_snapshot.get("last_error"),
-            "sample_count": sensor_snapshot.get("sample_count", 0)
+            "online": self.is_sensor_online(
+                sensor_snapshot
+            ),
+            "started": bool(
+                sensor_snapshot.get(
+                    "started",
+                    False,
+                )
+            ),
+            "last_error": sensor_snapshot.get(
+                "last_error"
+            ),
+            "sample_count": sensor_snapshot.get(
+                "sample_count",
+                0,
+            ),
         }
 
-    def _build_sensor_states(
+    def build_sensor_states(
         self,
-        snapshot: Dict[str, Any]
+        snapshot: Dict[str, Any],
     ) -> Dict[str, Dict[str, Any]]:
 
-        return {
-            "sht45": self._sensor_state(
-                "sht45",
-                snapshot.get("sht45")
-            ),
-            "dps310": self._sensor_state(
-                "dps310",
-                snapshot.get("dps310")
-            )
-        }
+        sensor_states: Dict[str, Dict[str, Any]] = {}
 
-    def _state_label(
+        for sensor_name, sensor_snapshot in snapshot.items():
+            if sensor_name in {
+                "timestamp",
+                "enabled",
+            }:
+                continue
+
+            sensor_states[sensor_name] = self.build_sensor_state(
+                sensor_snapshot
+            )
+
+        return sensor_states
+
+    def state_label(
         self,
-        sensor_states: Dict[str, Dict[str, Any]]
+        sensor_states: Dict[str, Dict[str, Any]],
     ) -> str:
+
+        if not self.enabled:
+            return "DISABLED"
+
+        if not self.required_sensors:
+            return "UNCONFIGURED"
 
         online_count = sum(
             1
             for sensor_name in self.required_sensors
-            if sensor_states.get(sensor_name, {}).get("online")
+            if sensor_states.get(
+                sensor_name,
+                {},
+            ).get(
+                "online",
+                False,
+            )
         )
 
-        if online_count == len(self.required_sensors):
+        if online_count == len(
+            self.required_sensors
+        ):
             return "ONLINE"
 
         if online_count == 0:
@@ -176,20 +470,32 @@ class EnvironmentalDispatcher:
 
         return "DEGRADED"
 
-    def _is_enviro_online(
+    def is_enviro_online(
         self,
-        sensor_states: Dict[str, Dict[str, Any]]
+        sensor_states: Dict[str, Dict[str, Any]],
     ) -> bool:
 
+        if not self.enabled:
+            return False
+
+        if not self.required_sensors:
+            return False
+
         return all(
-            sensor_states.get(sensor_name, {}).get("online", False)
+            sensor_states.get(
+                sensor_name,
+                {},
+            ).get(
+                "online",
+                False,
+            )
             for sensor_name in self.required_sensors
         )
 
-    def _state_changed(
+    def state_changed(
         self,
         sensor_states: Dict[str, Dict[str, Any]],
-        enviro_online: bool
+        enviro_online: bool,
     ) -> bool:
 
         if self.enviro_online is None:
@@ -199,9 +505,13 @@ class EnvironmentalDispatcher:
             return True
 
         for sensor_name, sensor_state in sensor_states.items():
+            previous_state = self.sensor_states.get(
+                sensor_name
+            )
 
-            previous_state = self.sensor_states.get(sensor_name)
-            current_online = sensor_state.get("online")
+            current_online = sensor_state.get(
+                "online"
+            )
 
             if previous_state is None:
                 return True
@@ -211,195 +521,254 @@ class EnvironmentalDispatcher:
 
         return False
 
-    def _store_state(
+    def store_state(
         self,
         sensor_states: Dict[str, Dict[str, Any]],
-        enviro_online: bool
-    ):
+        enviro_online: bool,
+    ) -> None:
 
         for sensor_name, sensor_state in sensor_states.items():
-            self.sensor_states[sensor_name] = sensor_state.get("online")
+            self.sensor_states[sensor_name] = sensor_state.get(
+                "online"
+            )
 
         self.enviro_online = enviro_online
 
-    def _state_heartbeat_due(self, now: float) -> bool:
+    def state_heartbeat_due(
+        self,
+        now: float,
+    ) -> bool:
 
         return (
             now - self.last_state_publish
             >= self.state_heartbeat_sec
         )
-    
-    def _has_reportable_enviro_reading(
+
+    # ============================================================
+    # READING HELPERS
+    # ============================================================
+
+    def has_reportable_enviro_reading(
         self,
-        snapshot: Dict[str, Any]
+        snapshot: Dict[str, Any],
     ) -> bool:
 
-        sht45 = snapshot.get("sht45")
-        dps310 = snapshot.get("dps310")
+        for sensor_name, sensor_snapshot in snapshot.items():
+            if sensor_name in {
+                "timestamp",
+                "enabled",
+            }:
+                continue
 
-        if isinstance(sht45, dict):
-            if (
-                sht45.get("sample_count", 0) > 0
-                and (
-                    sht45.get("temperature_c") is not None
-                    or sht45.get("humidity_rh") is not None
-                )
+            if not isinstance(
+                sensor_snapshot,
+                dict,
             ):
-                return True
+                continue
 
-        if isinstance(dps310, dict):
-            if (
-                dps310.get("sample_count", 0) > 0
-                and (
-                    dps310.get("pressure_hpa") is not None
-                    or dps310.get("temperature_c") is not None
-                    or dps310.get("altitude_m") is not None
-                )
+            if sensor_snapshot.get(
+                "sample_count",
+                0,
+            ) <= 0:
+                continue
+
+            for field_name in (
+                "temperature_c",
+                "humidity_rh",
+                "pressure_hpa",
+                "altitude_m",
             ):
-                return True
+                if sensor_snapshot.get(
+                    field_name
+                ) is not None:
+                    return True
 
         return False
-    
-    # --------------------------------------------------
-    # Payload Builders
-    # --------------------------------------------------
 
-    def _reading(
+    def first_reading(
         self,
         snapshot: Dict[str, Any],
-        sensor_name: str,
-        field_name: str
+        sensor_order,
+        field_name: str,
     ):
 
-        sensor_snapshot = snapshot.get(sensor_name)
+        for sensor_name in sensor_order:
+            sensor_snapshot = snapshot.get(
+                sensor_name
+            )
 
-        if not isinstance(sensor_snapshot, dict):
-            return None
+            if not isinstance(
+                sensor_snapshot,
+                dict,
+            ):
+                continue
 
-        return sensor_snapshot.get(field_name)
+            value = sensor_snapshot.get(
+                field_name
+            )
 
-    def _build_state_payload(
+            if value is not None:
+                return value
+
+        return None
+
+    # ============================================================
+    # PAYLOAD BUILDERS
+    # ============================================================
+
+    def build_state_payload(
         self,
         sensor_states: Dict[str, Dict[str, Any]],
-        enviro_online: bool
+        enviro_online: bool,
     ) -> Dict[str, Any]:
 
         return {
+            "node_id": self.node_id,
+            "node_name": self.node_name,
             "subsystem": "environmental",
-            "state": self._state_label(sensor_states),
+            "state": self.state_label(
+                sensor_states
+            ),
             "online": enviro_online,
-            "enabled": True,
+            "enabled": self.enabled,
             "enviro_online": enviro_online,
-            "required_sensors": list(self.required_sensors),
-            "sensors": sensor_states
-        }
-
-    def _build_enviro_payload(
-        self,
-        snapshot: Dict[str, Any],
-        sensor_states: Dict[str, Dict[str, Any]],
-        enviro_online: bool
-    ) -> Dict[str, Any]:
-
-        return {
-            "subsystem": "environmental",
-            "online": enviro_online,
-            "state": self._state_label(sensor_states),
-            "temperature_c": self._reading(
-                snapshot,
-                "sht45",
-                "temperature_c"
-            ),
-            "humidity_rh": self._reading(
-                snapshot,
-                "sht45",
-                "humidity_rh"
-            ),
-            "humidity_percent": self._reading(
-                snapshot,
-                "sht45",
-                "humidity_rh"
-            ),
-            "pressure_hpa": self._reading(
-                snapshot,
-                "dps310",
-                "pressure_hpa"
-            ),
-            "altitude_m": self._reading(
-                snapshot,
-                "dps310",
-                "altitude_m"
+            "required_sensors": list(
+                self.required_sensors
             ),
             "sensors": sensor_states,
-            "snapshot": snapshot
         }
 
-    # --------------------------------------------------
-    # Publishers
-    # --------------------------------------------------
+    def build_enviro_payload(
+        self,
+        snapshot: Dict[str, Any],
+        sensor_states: Dict[str, Dict[str, Any]],
+        enviro_online: bool,
+    ) -> Dict[str, Any]:
 
-    def _publish_enviro_state(
+        temperature_c = self.first_reading(
+            snapshot,
+            [
+                "sht45",
+                "dps310",
+                "bmp390",
+            ],
+            "temperature_c",
+        )
+
+        humidity_rh = self.first_reading(
+            snapshot,
+            [
+                "sht45",
+            ],
+            "humidity_rh",
+        )
+
+        pressure_hpa = self.first_reading(
+            snapshot,
+            [
+                "dps310",
+                "bmp390",
+            ],
+            "pressure_hpa",
+        )
+
+        altitude_m = self.first_reading(
+            snapshot,
+            [
+                "dps310",
+                "bmp390",
+            ],
+            "altitude_m",
+        )
+
+        return {
+            "node_id": self.node_id,
+            "node_name": self.node_name,
+            "subsystem": "environmental",
+            "online": enviro_online,
+            "enabled": self.enabled,
+            "state": self.state_label(
+                sensor_states
+            ),
+            "temperature_c": temperature_c,
+            "humidity_rh": humidity_rh,
+            "humidity_percent": humidity_rh,
+            "pressure_hpa": pressure_hpa,
+            "altitude_m": altitude_m,
+            "sensors": sensor_states,
+            "snapshot": snapshot,
+        }
+
+    # ============================================================
+    # PUBLISHERS
+    # ============================================================
+
+    def publish_enviro_state(
         self,
         sensor_states: Dict[str, Dict[str, Any]],
-        enviro_online: bool
-    ):
+        enviro_online: bool,
+    ) -> None:
 
         self.event_services.publish_enviro_state(
-            self._build_state_payload(
+            self.build_state_payload(
                 sensor_states=sensor_states,
-                enviro_online=enviro_online
+                enviro_online=enviro_online,
             )
         )
 
         self.last_state_publish = time.time()
 
-    def _publish_enviro_event(
+    def publish_enviro_event(
         self,
         snapshot: Dict[str, Any],
         sensor_states: Dict[str, Dict[str, Any]],
-        enviro_online: bool
-    ):
+        enviro_online: bool,
+    ) -> None:
 
         self.event_services.publish_enviro_event(
-            self._build_enviro_payload(
+            self.build_enviro_payload(
                 snapshot=snapshot,
                 sensor_states=sensor_states,
-                enviro_online=enviro_online
+                enviro_online=enviro_online,
             )
         )
 
         self.last_enviro_publish = time.time()
 
-    # --------------------------------------------------
-    # Main Loop
-    # --------------------------------------------------
+    # ============================================================
+    # MAIN LOOP
+    # ============================================================
 
-    def run(self):
+    def run(
+        self,
+    ) -> None:
 
         while self.running:
-
             try:
-
                 snapshot = self.driver_manager.get_snapshot()
-                sensor_states = self._build_sensor_states(snapshot)
-                enviro_online = self._is_enviro_online(sensor_states)
+                sensor_states = self.build_sensor_states(
+                    snapshot
+                )
+                enviro_online = self.is_enviro_online(
+                    sensor_states
+                )
 
                 now = time.time()
 
-                now = time.time()
-
-                state_changed = self._state_changed(
+                state_changed = self.state_changed(
                     sensor_states=sensor_states,
-                    enviro_online=enviro_online
+                    enviro_online=enviro_online,
                 )
 
                 if (
                     state_changed
-                    or self._state_heartbeat_due(now)
+                    or self.state_heartbeat_due(
+                        now
+                    )
                 ):
-                    self._publish_enviro_state(
+                    self.publish_enviro_state(
                         sensor_states=sensor_states,
-                        enviro_online=enviro_online
+                        enviro_online=enviro_online,
                     )
 
                 enviro_due = (
@@ -407,56 +776,62 @@ class EnvironmentalDispatcher:
                     >= self.enviro_interval_sec
                 )
 
-                has_reportable_reading = self._has_reportable_enviro_reading(
-                    snapshot=snapshot
+                has_reportable_reading = (
+                    self.has_reportable_enviro_reading(
+                        snapshot=snapshot
+                    )
                 )
 
                 if (
-                    has_reportable_reading
+                    self.enabled
+                    and has_reportable_reading
                     and (
                         enviro_due
                         or state_changed
                     )
                 ):
-                    self._publish_enviro_event(
+                    self.publish_enviro_event(
                         snapshot=snapshot,
                         sensor_states=sensor_states,
-                        enviro_online=enviro_online
+                        enviro_online=enviro_online,
                     )
 
-                self._store_state(
+                self.store_state(
                     sensor_states=sensor_states,
-                    enviro_online=enviro_online
+                    enviro_online=enviro_online,
                 )
 
-            except Exception as e:
+            except Exception as error:
+                self.log(
+                    f"Loop error: {error}"
+                )
 
-                self.log(f"Loop error: {e}")
-
-            time.sleep(self.loop_delay_sec)
+            time.sleep(
+                self.loop_delay_sec
+            )
 
 
 if __name__ == "__main__":
 
     class MockBus:
 
-        def publish(self, event):
-
+        def publish(
+            self,
+            event,
+        ):
             print()
             print("[BUS]")
             print(event)
 
     dispatcher = EnvironmentalDispatcher(
         event_bus=MockBus(),
-        node_id="node_01",
-        enviro_interval_sec=30,
-        debug=True
+        node_id="node_test",
+        node_name="EnviroPulse Test Node",
+        debug=True,
     )
 
     try:
-
         dispatcher.start()
 
     except KeyboardInterrupt:
-
         dispatcher.stop()

@@ -220,6 +220,7 @@ def get_config_paths(repo_root: Path) -> Dict[str, Path]:
         "communication_config": repo_root / "node" / "communication" / "communication_config.json",
         "microphone_config": repo_root / "node" / "microphone" / "microphone_config.json",
         "rtk_config": repo_root / "node" / "RTK" / "RTK_config.json",
+        "environmental_config": repo_root / "node" / "environmental" / "environmental_config.json",
     }
 
 
@@ -965,6 +966,63 @@ def build_rtk_config(
 
     return config
 
+def build_environmental_config(
+    answers: Dict[str, Any],
+) -> Dict[str, Any]:
+
+    environmental_enabled = answers.get(
+        "environmental_enabled",
+        True,
+    )
+
+    sht45_enabled = answers.get(
+        "sht45_enabled",
+        environmental_enabled,
+    )
+
+    dps310_enabled = answers.get(
+        "dps310_enabled",
+        environmental_enabled,
+    )
+
+    bmp390_enabled = answers.get(
+        "bmp390_enabled",
+        False,
+    )
+
+    required_sensors = []
+
+    if sht45_enabled:
+        required_sensors.append("sht45")
+
+    if dps310_enabled:
+        required_sensors.append("dps310")
+
+    if bmp390_enabled:
+        required_sensors.append("bmp390")
+
+    return {
+        "enabled": environmental_enabled,
+        "sample_hz": 1.0,
+        "enviro_interval_sec": 300,
+        "state_heartbeat_sec": 300,
+        "loop_delay_sec": 1.0,
+        "sea_level_pressure_hpa": 1013.25,
+        "required_sensors": required_sensors,
+        "sensors": {
+            "sht45": {
+                "enabled": sht45_enabled,
+            },
+            "dps310": {
+                "enabled": dps310_enabled,
+            },
+            "bmp390": {
+                "enabled": bmp390_enabled,
+            },
+        },
+        "debug": answers["debug"],
+    }
+
 
 def build_all_configs(
     paths: Dict[str, Path],
@@ -1000,6 +1058,9 @@ def build_all_configs(
         ),
         "rtk_config": build_rtk_config(
             existing_config=existing_rtk_config,
+            answers=answers,
+        ),
+        "environmental_config": build_environmental_config(
             answers=answers,
         ),
     }
