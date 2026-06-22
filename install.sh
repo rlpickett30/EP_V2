@@ -18,7 +18,8 @@
 #   - Verifies Linux package manager availability.
 #   - Installs required apt packages for node runtime.
 #   - Creates the Python virtual environment.
-#   - Installs Python requirements.
+#   - Installs Python requirements from the current known search paths.
+#   - Installs explicit current runtime packages not yet captured cleanly.
 #   - Calls the node install wizard when available.
 #
 # Does NOT:
@@ -47,7 +48,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$SCRIPT_DIR"
 VENV_DIR="$REPO_ROOT/.venv"
 
-NODE_REQUIREMENTS_FILE="$REPO_ROOT/requirements_node_beta_v2.txt"
+NODE_REQUIREMENTS_PRIMARY_FILE="$REPO_ROOT/requirements_node_beta_v2.txt"
+NODE_REQUIREMENTS_BETA_FILE="$REPO_ROOT/setup/beta_v2/requirements_node_beta_v2.txt"
+NODE_REQUIREMENTS_FREEZE_FILE="$REPO_ROOT/setup/beta_v2/requirements_node_01_freeze.txt"
+
 NODE_WIZARD="$REPO_ROOT/tools/install/install_node.py"
 
 # ------------------------------------------------------------
@@ -109,7 +113,8 @@ require_linux() {
 
 require_apt() {
     if ! command -v apt-get >/dev/null 2>&1; then
-        print_error "apt-get was not found. This installer currently supports Debian/Raspberry Pi OS style systems."
+        print_error "apt-get was not found."
+        print_error "This installer currently supports Debian/Raspberry Pi OS style systems."
         exit 1
     fi
 }
@@ -128,6 +133,36 @@ confirm_action() {
             return 1
             ;;
     esac
+}
+
+# ------------------------------------------------------------
+# Requirements Resolution
+# ------------------------------------------------------------
+
+print_node_requirements_search_order() {
+    echo "Requirements search order:"
+    echo "  1) $NODE_REQUIREMENTS_PRIMARY_FILE"
+    echo "  2) $NODE_REQUIREMENTS_BETA_FILE"
+    echo "  3) $NODE_REQUIREMENTS_FREEZE_FILE"
+}
+
+get_node_requirements_file() {
+    if [[ -f "$NODE_REQUIREMENTS_PRIMARY_FILE" ]]; then
+        echo "$NODE_REQUIREMENTS_PRIMARY_FILE"
+        return 0
+    fi
+
+    if [[ -f "$NODE_REQUIREMENTS_BETA_FILE" ]]; then
+        echo "$NODE_REQUIREMENTS_BETA_FILE"
+        return 0
+    fi
+
+    if [[ -f "$NODE_REQUIREMENTS_FREEZE_FILE" ]]; then
+        echo "$NODE_REQUIREMENTS_FREEZE_FILE"
+        return 0
+    fi
+
+    return 1
 }
 
 # ------------------------------------------------------------
@@ -193,13 +228,21 @@ upgrade_pip_tools() {
 install_node_requirements() {
     print_step "Installing node Python requirements"
 
-    if [[ ! -f "$NODE_REQUIREMENTS_FILE" ]]; then
-        print_warn "Requirements file not found:"
-        print_warn "$NODE_REQUIREMENTS_FILE"
+    local requirements_file=""
+
+    if requirements_file="$(get_node_requirements_file)"; then
+        echo "Using requirements file:"
+        echo "  $requirements_file"
+    else
+        print_warn "No node requirements file found."
+        print_warn "Checked:"
+        print_warn "$NODE_REQUIREMENTS_PRIMARY_FILE"
+        print_warn "$NODE_REQUIREMENTS_BETA_FILE"
+        print_warn "$NODE_REQUIREMENTS_FREEZE_FILE"
         return
     fi
 
-    "$VENV_DIR/bin/python" -m pip install -r "$NODE_REQUIREMENTS_FILE"
+    "$VENV_DIR/bin/python" -m pip install -r "$requirements_file"
 
     print_step "Installing explicit current node runtime packages"
 
@@ -220,7 +263,7 @@ run_node_wizard_if_available() {
     else
         print_warn "Node wizard does not exist yet:"
         print_warn "$NODE_WIZARD"
-        print_warn "This is expected for the first installer checkpoint."
+        print_warn "This is expected until tools/install/install_node.py is created."
     fi
 }
 
@@ -237,8 +280,10 @@ install_node() {
     echo "Virtual environment:"
     echo "  $VENV_DIR"
     echo
-    echo "Requirements:"
-    echo "  $NODE_REQUIREMENTS_FILE"
+    print_node_requirements_search_order
+    echo
+    echo "Node wizard:"
+    echo "  $NODE_WIZARD"
     echo
 
     pause_for_enter
