@@ -3,5 +3,10 @@
         "node_id": "node_01",
         "created_by": "node_repository",
         "created_at_utc": "2026-06-22T16:26:04.713821"
+    },
+    "node_04": {
+        "node_id": "node_04",
+        "created_by": "node_repository",
+        "created_at_utc": "2026-06-22T19:37:32.763490"
     }
 }
