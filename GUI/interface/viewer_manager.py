@@ -663,13 +663,13 @@ class ViewerManager(QMainWindow):
             "PPS": StatusIndicator("PPS", None),
             "GPS": StatusIndicator("GPS", None),
             "RTK": StatusIndicator("RTK", None),
-            "BirdNET": StatusIndicator("BirdNET", None),
-            "Microphones": StatusIndicator("Microphones", None),
-            "Sensors": StatusIndicator("Sensors", None),
+            "SHT45": StatusIndicator("SHT45", None),
+            "DPS310": StatusIndicator("DPS310", None),
+            "Mic": StatusIndicator("Mic", None),
             "Network": StatusIndicator("Network", None),
             "TDOA": StatusIndicator("TDOA", None),
         }
-
+        
         for indicator in self.status_indicators.values():
             footer_layout.addWidget(indicator)
 
@@ -825,8 +825,9 @@ class ViewerManager(QMainWindow):
         self.current_bird.setText(species)
         self._set_confidence(confidence)
         self._add_recent_species(species)
-        self.status_indicators["BirdNET"].set_status(True)
-
+                
+        if audio_path:
+            self.status_indicators["Mic"].set_status(True)
         if audio_path:
             self.spectrogram_placeholder.setText(f"Audio received\n{audio_path}")
 
@@ -863,7 +864,15 @@ class ViewerManager(QMainWindow):
             humidity_percent=humidity_percent,
             pressure_hpa=pressure_hpa,
         )
-        self.status_indicators["Sensors"].set_status(True)
+        
+        self.status_indicators["SHT45"].set_status(
+            temperature_c is not None
+            or humidity_percent is not None
+        )
+
+        self.status_indicators["DPS310"].set_status(
+            pressure_hpa is not None
+        )
 
         self._append_event_log(
             f"[Environmental] {node_id} | "
@@ -950,8 +959,7 @@ class ViewerManager(QMainWindow):
         self.tdoa_label.setText(f"TDOA Ready: {self._format_bool(tdoa_capable)}")
 
     def _update_status_indicators(self, state: dict, registry: dict):
-        capabilities = self._safe_dict(registry.get("capabilities", {}))
-
+        
         self.status_indicators["PPS"].set_status(
             self._first_bool(state, ["pps_locked", "pps_lock", "pps_available"])
         )
@@ -961,15 +969,22 @@ class ViewerManager(QMainWindow):
         self.status_indicators["RTK"].set_status(
             self._first_bool(state, ["rtk_online", "rtk_available", "rtk_ready"])
         )
-        self.status_indicators["Sensors"].set_status(
-            self._first_bool(state, ["enviro_online", "bmp390_online", "sht45_online"])
+        self.status_indicators["SHT45"].set_status(
+            self._first_bool(state, ["sht45_online"])
+        )
+        self.status_indicators["DPS310"].set_status(
+            self._first_bool(state, ["dps310_online"])
+        )
+        self.status_indicators["Mic"].set_status(
+            self._first_bool(state, ["microphone_online", "tdoa_recording"])
+        )
+        
+        self.status_indicators["Network"].set_status(
+            self._first_bool(state, ["network_online", "server_reachable", "network_connected"])
         )
         self.status_indicators["TDOA"].set_status(
             self._first_bool(state, ["tdoa_capable", "rtk_tdoa_capable"])
         )
-        self.status_indicators["BirdNET"].set_status(capabilities.get("avis_lite"))
-        self.status_indicators["Microphones"].set_status(capabilities.get("tdoa_recording"))
-        self.status_indicators["Network"].set_status(None)
 
     # ========================================================
     # NODE LIST METHODS USED BY DISPATCHER

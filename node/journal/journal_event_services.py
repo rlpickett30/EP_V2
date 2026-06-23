@@ -49,6 +49,7 @@ SEND_NODE_CHANGE_MODE = "SEND_NODE_CHANGE_MODE"
 TDOA_RECORDING = "TDOA_RECORDING"
 RECORDING_AVAILABLE = "RECORDING_AVAILABLE"
 TDOA_REQUEST = "TDOA_REQUEST"
+MICROPHONE_SYNCED = "MICROPHONE_SYNCED"
 
 # ------------------------------------------------------------
 # Communication state / event publications
@@ -80,6 +81,8 @@ ENVIRO_EVENT = "ENVIRO_EVENT"
 
 AVIS_LITE = "AVIS_LITE"
 NODE_REGISTER = "NODE_REGISTER"
+
+
 
 
 # ============================================================

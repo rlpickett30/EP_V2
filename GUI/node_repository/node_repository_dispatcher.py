@@ -351,7 +351,19 @@ class NodeRepositoryDispatcher:
         """
         Store event history and publish REPOSITORY_EVENT_UPDATE.
         """
+        
+        derived_state = self._derive_state_from_repository_event(
+            event_name=event_name,
+            event=event
+        )
 
+        if derived_state:
+
+            self.state.update_state(
+                node_id,
+                derived_state
+            )
+            
         snapshot = self._build_repository_snapshot(
             publication_event_type=REPOSITORY_EVENT_UPDATE,
             source_event_type=event_name,
@@ -744,6 +756,163 @@ class NodeRepositoryDispatcher:
         return self._strip_internal_fields(
             event
         )
+
+    def _derive_state_from_repository_event(
+        self,
+        event_name,
+        event
+    ) -> dict:
+
+        state_update = {
+
+            "network_online":
+                True,
+
+            "last_network_update":
+                self._utc_now()
+        }
+
+        if event_name == SERVER_ENVIRO_EVENT:
+
+            state_update.update(
+                self._derive_enviro_state(
+                    event
+                )
+            )
+
+        elif event_name == SERVER_AVIS_LITE:
+
+            state_update.update(
+                self._derive_avis_lite_state(
+                    event
+                )
+            )
+
+        elif event_name == SERVER_GPS_COORD:
+
+            state_update["gps_locked"] = True
+            state_update["gps_lock"] = True
+
+        return state_update
+
+    def _derive_enviro_state(
+        self,
+        event
+    ) -> dict:
+
+        temperature_c = self._find_nested_value(
+            event,
+            "temperature_c"
+        )
+
+        humidity_percent = self._find_nested_value(
+            event,
+            "humidity_percent"
+        )
+
+        pressure_hpa = self._find_nested_value(
+            event,
+            "pressure_hpa"
+        )
+
+        sht45_online = (
+            temperature_c is not None
+            or humidity_percent is not None
+        )
+
+        dps310_online = (
+            pressure_hpa is not None
+        )
+
+        return {
+
+            "enviro_online":
+                sht45_online or dps310_online,
+
+            "sht45_online":
+                sht45_online,
+
+            "dps310_online":
+                dps310_online,
+
+            "temperature_c":
+                temperature_c,
+
+            "humidity_percent":
+                humidity_percent,
+
+            "pressure_hpa":
+                pressure_hpa
+        }
+
+    def _derive_avis_lite_state(
+        self,
+        event
+    ) -> dict:
+
+        audio_path = (
+            self._find_nested_value(
+                event,
+                "audio_path"
+            )
+            or self._find_nested_value(
+                event,
+                "recording_path"
+            )
+        )
+
+        return {
+
+            "birdnet_online":
+                True,
+
+            "microphone_online":
+                audio_path is not None
+        }
+
+    def _find_nested_value(
+        self,
+        data,
+        key_name
+    ):
+
+        if isinstance(
+            data,
+            dict
+        ):
+
+            if key_name in data:
+
+                return data[key_name]
+
+            for value in data.values():
+
+                result = self._find_nested_value(
+                    value,
+                    key_name
+                )
+
+                if result is not None:
+
+                    return result
+
+        elif isinstance(
+            data,
+            list
+        ):
+
+            for item in data:
+
+                result = self._find_nested_value(
+                    item,
+                    key_name
+                )
+
+                if result is not None:
+
+                    return result
+
+        return None
 
     def _strip_internal_fields(
         self,

@@ -9,7 +9,7 @@ Responsibilities:
 
 Canonical microphone event contract:
 - Subscribes: PPS_STATE, TDOA_REQUEST
-- Publishes: RECORDING_AVAILABLE, TDOA_RECORDING
+- Publishes: RECORDING_AVAILABLE, TDOA_RECORDING, MICROPHONE_SYNCED
 
 This module intentionally contains no recording logic, timing logic,
 state tracking, request decisions, or hardware access.
@@ -17,6 +17,7 @@ state tracking, request decisions, or hardware access.
 
 from __future__ import annotations
 
+MICROPHONE_SYNCED = "MICROPHONE_SYNCED"
 
 class MicrophoneEventServices:
 
@@ -88,6 +89,10 @@ class MicrophoneEventServices:
         self.publish(event)
 
     def publish_tdoa_recording(self, event):
+
+        self.publish(event)
+        
+    def publish_microphone_synced(self, event):
 
         self.publish(event)
 

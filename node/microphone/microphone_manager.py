@@ -109,6 +109,64 @@ class MicrophoneManager:
         return payload
 
     # --------------------------------------------------
+    # MICROPHONE_SYNCED
+    # --------------------------------------------------
+
+    def build_microphone_synced_event(
+        self,
+        recording,
+        pps_state=None,
+        sync_source="local_clock",
+        scheduled_start_epoch=None,
+        scheduled_start_utc=None,
+        sync_error_ms=None,
+        sync_window_ms=None,
+        consecutive_synced_windows=1
+    ):
+
+        timestamp = self.get_utc_timestamp()
+        pps_state = pps_state or {}
+
+        payload = self.build_base_payload(
+            recording=recording,
+            pps_state=pps_state,
+            sync_source=sync_source
+        )
+
+        payload.update({
+            "microphone_synced": True,
+            "sync_source": sync_source,
+            "sync_state": "SYNCED",
+            "scheduled_start_epoch": scheduled_start_epoch,
+            "scheduled_start_utc": scheduled_start_utc,
+            "sync_error_ms": sync_error_ms,
+            "sync_window_ms": sync_window_ms,
+            "consecutive_synced_windows": consecutive_synced_windows
+        })
+
+        event = {
+            "event_type": "MICROPHONE_SYNCED",
+            "source": "microphone",
+            "target": "server",
+            "timestamp": timestamp,
+            "payload": payload,
+
+            # Flat compatibility fields for older local callbacks.
+            "event_id": payload["recording_id"],
+            "recording_id": payload["recording_id"],
+            "recording_utc": payload["recording_utc"],
+            "recording_epoch": payload["recording_epoch"],
+            "recording_path": payload["recording_path"],
+            "wav_path": payload["wav_path"],
+            "metadata_path": payload["metadata_path"],
+            "microphone_synced": True,
+            "sync_error_ms": sync_error_ms,
+            "sync_window_ms": sync_window_ms
+        }
+
+        return event
+
+    # --------------------------------------------------
     # RECORDING_AVAILABLE
     # --------------------------------------------------
 

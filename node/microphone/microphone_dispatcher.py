@@ -95,7 +95,7 @@ class MicrophoneDispatcher:
         self.last_recycler_time = 0
 
         self.recording_index = {}
-
+        self.consecutive_synced_windows = 0
     # --------------------------------------------------
     # Debug
     # --------------------------------------------------
@@ -352,6 +352,144 @@ class MicrophoneDispatcher:
 
         return "pps_soft_boundary", scheduled_start_utc
 
+    def wait_for_microphone_sync_window(
+        self
+    ):
+
+        if not self.pps_locked:
+            return "local_clock", None, None
+
+        if not self.config.get(
+            "align_recordings_to_pps_boundary",
+            True
+        ):
+            return "pps_locked_no_boundary_wait", None, None
+
+        lead_seconds = float(
+            self.config.get(
+                "microphone_pps_lead_seconds",
+                1.0
+            )
+        )
+
+        now = time.time()
+        target_epoch = math.ceil(now + lead_seconds)
+        wait_seconds = target_epoch - now
+
+        if wait_seconds > 0:
+            self.log(
+                f"Waiting {wait_seconds:.3f}s for microphone PPS sync window"
+            )
+            time.sleep(wait_seconds)
+
+        scheduled_start_utc = (
+            datetime.fromtimestamp(target_epoch, timezone.utc)
+            .isoformat()
+            .replace("+00:00", "Z")
+        )
+
+        return "pps_microphone_window", target_epoch, scheduled_start_utc
+
+    def calculate_microphone_sync_error_ms(
+        self,
+        recording,
+        scheduled_start_epoch
+    ):
+
+        if scheduled_start_epoch is None:
+            return None
+
+        recording_epoch = recording.get(
+            "recording_epoch"
+        )
+
+        if recording_epoch is None:
+            return None
+
+        try:
+            return abs(
+                float(recording_epoch) - float(scheduled_start_epoch)
+            ) * 1000.0
+
+        except Exception:
+            return None
+
+    def microphone_sync_passed(
+        self,
+        sync_source,
+        sync_error_ms
+    ):
+
+        if not self.pps_locked:
+            return False
+
+        if sync_source != "pps_microphone_window":
+            return False
+
+        if sync_error_ms is None:
+            return False
+
+        sync_window_ms = float(
+            self.config.get(
+                "microphone_sync_window_ms",
+                250.0
+            )
+        )
+
+        return sync_error_ms <= sync_window_ms
+
+    def maybe_publish_microphone_synced(
+        self,
+        recording,
+        pps_state,
+        sync_source,
+        scheduled_start_epoch=None,
+        scheduled_start_utc=None
+    ):
+
+        sync_error_ms = self.calculate_microphone_sync_error_ms(
+            recording=recording,
+            scheduled_start_epoch=scheduled_start_epoch
+        )
+
+        sync_window_ms = float(
+            self.config.get(
+                "microphone_sync_window_ms",
+                250.0
+            )
+        )
+
+        if not self.microphone_sync_passed(
+            sync_source=sync_source,
+            sync_error_ms=sync_error_ms
+        ):
+            self.consecutive_synced_windows = 0
+            return None
+
+        self.consecutive_synced_windows += 1
+
+        event = self.manager.build_microphone_synced_event(
+            recording=recording,
+            pps_state=pps_state,
+            sync_source=sync_source,
+            scheduled_start_epoch=scheduled_start_epoch,
+            scheduled_start_utc=scheduled_start_utc,
+            sync_error_ms=sync_error_ms,
+            sync_window_ms=sync_window_ms,
+            consecutive_synced_windows=self.consecutive_synced_windows
+        )
+
+        self.event_services.publish_microphone_synced(
+            event
+        )
+
+        self.log(
+            f"Published MICROPHONE_SYNCED: {event['recording_id']} "
+            f"sync_error_ms={sync_error_ms:.3f}"
+        )
+
+        return event
+
     # --------------------------------------------------
     # Normal Recording
     # --------------------------------------------------
@@ -365,7 +503,12 @@ class MicrophoneDispatcher:
             return None
 
         pps_state = self.get_pps_state_snapshot()
-        sync_source = "pps_locked" if self.pps_locked else "local_clock"
+
+        (
+            sync_source,
+            scheduled_start_epoch,
+            scheduled_start_utc
+        ) = self.wait_for_microphone_sync_window()
 
         recording = self.loop.record(
             duration_sec=self.config["recording_duration_sec"],
@@ -385,6 +528,14 @@ class MicrophoneDispatcher:
         self.write_initial_metadata(event)
 
         self.event_services.publish_recording_available(event)
+
+        self.maybe_publish_microphone_synced(
+            recording=recording,
+            pps_state=pps_state,
+            sync_source=sync_source,
+            scheduled_start_epoch=scheduled_start_epoch,
+            scheduled_start_utc=scheduled_start_utc
+        )
 
         self.log(
             f"Published RECORDING_AVAILABLE: {event['recording_id']}"
@@ -497,6 +648,27 @@ class MicrophoneDispatcher:
         self.write_initial_metadata(tdoa_event)
 
         self.event_services.publish_tdoa_recording(tdoa_event)
+
+        scheduled_start_epoch = None
+
+        if scheduled_start_utc:
+            try:
+                scheduled_start_epoch = datetime.fromisoformat(
+                    scheduled_start_utc.replace(
+                        "Z",
+                        "+00:00"
+                    )
+                ).timestamp()
+            except Exception:
+                scheduled_start_epoch = None
+
+        self.maybe_publish_microphone_synced(
+            recording=recording,
+            pps_state=pps_state,
+            sync_source=sync_source,
+            scheduled_start_epoch=scheduled_start_epoch,
+            scheduled_start_utc=scheduled_start_utc
+        )
 
         self.log(
             f"Published TDOA_RECORDING: {tdoa_event['recording_id']}"

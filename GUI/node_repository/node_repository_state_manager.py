@@ -109,17 +109,33 @@ class NodeRepositoryStateManager:
 
             state_data[node_id] = {
 
-                "bmp390_online": False,
-
                 "sht45_online": False,
+                
+                "dps310_online": False,
+
+                "enviro_online": False,
+
+                "microphone_online": False,
+
+                "birdnet_online": False,
+
+                "network_online": False,
 
                 "gps_lock": False,
 
+                "gps_locked": False,
+
                 "pps_lock": False,
+
+                "pps_locked": False,
 
                 "rtk_online": False,
 
+                "tdoa_capable": False,
+
                 "gps_coord": None,
+
+                "last_network_update": None,
 
                 "last_update": None
             }
