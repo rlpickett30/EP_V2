@@ -82,3 +82,4 @@ urllib3==2.7.0
 watchdog==2.1.9
 wheel==0.47.0
 wrapt==2.2.2
+pyubx2
