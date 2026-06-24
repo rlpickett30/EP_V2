@@ -58,3 +58,9 @@ GUI/node_repository/data/node_state.json
 
 # GUI diagnostic logs
 GUI/gui_crash_capture.txt
+GUI/node_repository/data/node_events.json
+GUI/node_repository/data/node_registry.json
+GUI/node_repository/data/node_state.json
+
+# GUI diagnostic logs
+GUI/gui_crash_capture.txt
