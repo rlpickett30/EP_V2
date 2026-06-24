@@ -130,7 +130,9 @@ class JournalEventServices:
         "TDOA_CHANGE_MODE",
         "TDOA_MODE_UPDATED",
         "TDOA_NODE_STATE_UPDATED",
-
+        "NODE_STATE_UPDATED",
+        "NODE_TDOA_STATE",
+        
         "COMMUNICATION_STATE",
         "SEND_NODE_CHANGE_MODE",
         "COMMUNICATION_CHANGE_MODE",

@@ -539,7 +539,119 @@ class CommunicationDispatcher:
             )
 
             self.publish_communication_state()
-            
+
+    # ========================================================
+    # HANDLE NODE TDOA STATE
+    # ========================================================
+
+    def handle_node_tdoa_state(
+        self,
+        event: dict
+    ):
+        """
+        Handle NODE_TDOA_STATE.
+
+        Purpose:
+            Forward accepted node TDOA readiness updates to GUI clients.
+
+        Source:
+            Platform Registry
+
+        Expected inbound event:
+            {
+                "event_type": "NODE_TDOA_STATE",
+                "source": "platform_registry",
+                "payload": {
+                    "node_id": "...",
+                    "tdoa_state": {...}
+                }
+            }
+        """
+
+        try:
+
+            payload = event.get(
+                "payload",
+                {}
+            )
+
+            if not isinstance(
+                payload,
+                dict
+            ):
+
+                self.state.tx_errors += 1
+
+                logging.warning(
+                    "[Communication] NODE_TDOA_STATE missing payload."
+                )
+
+                self.publish_communication_state()
+
+                return
+
+            node_id = (
+                payload.get("node_id")
+                or self._extract_node_id_from_node_state_payload(
+                    payload
+                )
+            )
+
+            if not node_id:
+
+                tdoa_state = payload.get(
+                    "tdoa_state",
+                    {}
+                )
+
+                if isinstance(
+                    tdoa_state,
+                    dict
+                ):
+
+                    node_id = tdoa_state.get(
+                        "node_id"
+                    )
+
+            if not node_id:
+
+                self.state.tx_errors += 1
+
+                logging.warning(
+                    "[Communication] NODE_TDOA_STATE missing node_id."
+                )
+
+                self.publish_communication_state()
+
+                return
+
+            outbound_event = {
+                "event_type": "NODE_TDOA_STATE",
+                "source": "communication",
+                "target": "gui",
+                "payload": payload
+            }
+
+            self.send_event(
+                outbound_event
+            )
+
+            self.publish_communication_state()
+
+            logging.info(
+                f"[Communication] NODE_TDOA_STATE sent or queued for GUI: {node_id}"
+            )
+
+        except Exception as error:
+
+            self.state.tx_errors += 1
+
+            logging.exception(
+                f"[Communication] NODE_TDOA_STATE failed: {error}"
+            )
+
+            self.publish_communication_state()            
+
     # ========================================================
     # APPLY COMMUNICATION MODE CHANGE
     # ========================================================

@@ -89,7 +89,8 @@ class PlatformRegistryStateManager:
             "RTK_STATE": "rtk_state",
             "GPS_STATE": "gps_state",
             "PPS_STATE": "pps_state",
-            "ENVIRO_STATE": "enviro_state"
+            "ENVIRO_STATE": "enviro_state",
+            "MICROPHONE_SYNCED": "microphone_sync_state"
         }
 
         default_state_event_map.update(
@@ -352,6 +353,12 @@ class PlatformRegistryStateManager:
                 state,
                 payload
             )
+            
+        elif event_name == "MICROPHONE_SYNCED":
+            self._apply_microphone_synced(
+                state,
+                payload
+            )
 
         else:
             result["success"] = False
@@ -571,6 +578,8 @@ class PlatformRegistryStateManager:
             {}
         ) or {}
 
+
+
         # --------------------------------------------------------
         # Nested simulator format
         # --------------------------------------------------------
@@ -711,6 +720,96 @@ class PlatformRegistryStateManager:
             or state.get("bmp390_online", False)
             or state.get("enviro_online", False)
         )    
+        
+    def _apply_microphone_synced(self, state, payload):
+        """
+        Store microphone PPS synchronization state and derive
+        microphone readiness flags for TDOA.
+        """
+
+        state["microphone_sync_state"] = self._clean_state_payload(
+            payload
+        )
+
+        microphone_synced = self._first_present(
+            payload,
+            [
+                "microphone_synced",
+                "mic_synced",
+                "synced",
+                "sync_locked",
+                "locked",
+                "ready",
+                "online",
+                "available"
+            ]
+        )
+
+        if microphone_synced is not None:
+            state["microphone_synced"] = self._coerce_bool(
+                microphone_synced,
+                default=state.get("microphone_synced", False)
+            )
+
+        sync_state = self._first_present(
+            payload,
+            [
+                "microphone_sync_state",
+                "sync_state",
+                "state",
+                "status"
+            ]
+        )
+
+        if sync_state is not None:
+            state["microphone_sync_status"] = sync_state
+
+            sync_text = str(
+                sync_state
+            ).strip().lower()
+
+            if sync_text in [
+                "synced",
+                "sync",
+                "locked",
+                "ready",
+                "online",
+                "ok"
+            ]:
+                state["microphone_synced"] = True
+
+            elif sync_text in [
+                "unsynced",
+                "unlocked",
+                "offline",
+                "lost",
+                "error",
+                "failed",
+                "not_ready"
+            ]:
+                state["microphone_synced"] = False
+
+        sync_error_ms = self._first_present(
+            payload,
+            [
+                "sync_error_ms",
+                "microphone_sync_error_ms"
+            ]
+        )
+
+        if sync_error_ms is not None:
+            state["sync_error_ms"] = sync_error_ms
+
+        sync_window_ms = self._first_present(
+            payload,
+            [
+                "sync_window_ms",
+                "microphone_sync_window_ms"
+            ]
+        )
+
+        if sync_window_ms is not None:
+            state["sync_window_ms"] = sync_window_ms
     
     def _calculate_tdoa_capable(self, state):
         """
@@ -835,6 +934,15 @@ class PlatformRegistryStateManager:
                 "pressure_hpa": state.get("pressure_hpa")
             }
 
+        if event_name == "MICROPHONE_SYNCED":
+            return {
+                "microphone_sync_state": state.get("microphone_sync_state"),
+                "microphone_synced": state.get("microphone_synced"),
+                "microphone_sync_status": state.get("microphone_sync_status"),
+                "sync_error_ms": state.get("sync_error_ms"),
+                "sync_window_ms": state.get("sync_window_ms")
+            }
+        
         return {}
 
     # ========================================================
@@ -950,6 +1058,28 @@ class PlatformRegistryStateManager:
             "rtk_tdoa_capable": self.state_defaults.get(
                 "rtk_tdoa_capable",
                 False
+            ),
+            "microphone_sync_state": deepcopy(
+                self.state_defaults.get(
+                    "microphone_sync_state",
+                    {}
+                )
+            ),
+            "microphone_synced": self.state_defaults.get(
+                "microphone_synced",
+                False
+            ),
+            "microphone_sync_status": self.state_defaults.get(
+                "microphone_sync_status",
+                None
+            ),
+            "sync_error_ms": self.state_defaults.get(
+                "sync_error_ms",
+                None
+            ),
+            "sync_window_ms": self.state_defaults.get(
+                "sync_window_ms",
+                None
             )
         }
 

@@ -741,7 +741,10 @@ class ViewerManager(QMainWindow):
         record["last_event"] = event
 
         node_name = registry.get("node_name") or registry.get("source") or node_id
-        self.node_location.setText(node_name)
+
+        if self._is_selected_node(node_id):
+            self.node_location.setText(node_name)
+
         self._render_node(node_id)
         self._append_event_log(f"[Node Registered] {node_id}")
 
@@ -822,14 +825,10 @@ class ViewerManager(QMainWindow):
         record["last_confidence"] = confidence
         record["last_audio_path"] = audio_path
 
-        self.current_bird.setText(species)
-        self._set_confidence(confidence)
         self._add_recent_species(species)
-                
-        if audio_path:
-            self.status_indicators["Mic"].set_status(True)
-        if audio_path:
-            self.spectrogram_placeholder.setText(f"Audio received\n{audio_path}")
+
+        if self._is_selected_node(node_id):
+            self._render_primary_panel(node_id)
 
         self._append_event_log(
             f"[Avis Lite] {node_id} | {species} | {self._format_confidence(confidence)}"
@@ -857,22 +856,22 @@ class ViewerManager(QMainWindow):
             "pressure_hpa": pressure_hpa,
         }
 
-        self._update_environment_labels(node_id)
         self._update_environment_history(
             node_id=node_id,
             temperature_c=temperature_c,
             humidity_percent=humidity_percent,
             pressure_hpa=pressure_hpa,
         )
-        
-        self.status_indicators["SHT45"].set_status(
-            temperature_c is not None
-            or humidity_percent is not None
-        )
 
-        self.status_indicators["DPS310"].set_status(
-            pressure_hpa is not None
-        )
+        if self._is_selected_node(node_id):
+            self._update_environment_labels(node_id)
+            self.status_indicators["SHT45"].set_status(
+                temperature_c is not None
+                or humidity_percent is not None
+            )
+            self.status_indicators["DPS310"].set_status(
+                pressure_hpa is not None
+            )
 
         self._append_event_log(
             f"[Environmental] {node_id} | "
@@ -888,11 +887,10 @@ class ViewerManager(QMainWindow):
         record["last_gps_coord"] = gps_coord
         record["state"]["gps_coord"] = gps_coord
 
-        self._update_environment_labels(node_id)
-        self.status_indicators["GPS"].set_status(True)
-        self.node_map_placeholder.setText(
-            self._format_node_map_text(node_id=node_id, gps_coord=gps_coord)
-        )
+        if self._is_selected_node(node_id):
+            self._update_environment_labels(node_id)
+            self._render_primary_panel(node_id)
+
         self._append_event_log(f"[GPS Coord] {node_id} | {self._format_gps(gps_coord)}")
 
     def _apply_tdoa_calc_event(self, node_id: str, event: dict):
@@ -903,10 +901,12 @@ class ViewerManager(QMainWindow):
             or {}
         )
 
-        self.status_indicators["TDOA"].set_status(True)
-        self.node_map_placeholder.setText(
-            self._format_tdoa_text(node_id=node_id, estimate=estimate)
-        )
+        record = self._get_or_create_node_record(node_id)
+        record["last_tdoa_estimate"] = estimate
+
+        if self._is_selected_node(node_id):
+            self._render_primary_panel(node_id)
+
         self._append_event_log(f"[TDOA Calc] {node_id} | {estimate}")
 
     # ========================================================
@@ -930,6 +930,66 @@ class ViewerManager(QMainWindow):
 
         self._update_environment_labels(node_id)
         self._update_status_indicators(state=state, registry=registry)
+        self._render_primary_panel(node_id)
+
+    # ========================================================
+    # SELECTED NODE HELPER
+    # ========================================================
+
+    def _is_selected_node(self, node_id: str) -> bool:
+        return self.node_selector.currentText() == node_id
+
+    # ========================================================
+    # RENDER PRIMARY PANEL
+    # ========================================================
+
+    def _render_primary_panel(self, node_id: str):
+        if not node_id:
+            return
+
+        record = self._get_or_create_node_record(node_id)
+        state = record.get("state", {})
+
+        species = record.get("last_species")
+        confidence = record.get("last_confidence")
+        audio_path = record.get("last_audio_path")
+        gps_coord = record.get("last_gps_coord") or state.get("gps_coord") or {}
+        tdoa_estimate = record.get("last_tdoa_estimate") or {}
+
+        if species:
+            self.current_bird.setText(species)
+        else:
+            self.current_bird.setText("Waiting For Detection")
+
+        self._set_confidence(confidence)
+
+        if audio_path:
+            self.spectrogram_placeholder.setText(
+                f"Audio received\n{audio_path}"
+            )
+        else:
+            self.spectrogram_placeholder.setText(
+                "Spectrogram visualization\nwill appear here"
+            )
+
+        if tdoa_estimate:
+            self.node_map_placeholder.setText(
+                self._format_tdoa_text(
+                    node_id=node_id,
+                    estimate=tdoa_estimate,
+                )
+            )
+        elif gps_coord:
+            self.node_map_placeholder.setText(
+                self._format_node_map_text(
+                    node_id=node_id,
+                    gps_coord=gps_coord,
+                )
+            )
+        else:
+            self.node_map_placeholder.setText(
+                "Node visualization\nwill appear here"
+            )
 
     def _update_environment_labels(self, node_id: str):
         record = self._get_or_create_node_record(node_id)
@@ -949,7 +1009,14 @@ class ViewerManager(QMainWindow):
             pressure_hpa = state.get("pressure_hpa")
 
         gps_coord = record.get("last_gps_coord") or state.get("gps_coord") or {}
-        tdoa_capable = state.get("tdoa_capable")
+        tdoa_capable = self._first_bool(
+            state,
+            [
+                "tdoa_ready",
+                "tdoa_capable",
+                "rtk_tdoa_capable"
+            ]
+        )
 
         self.temp_label.setText(f"Temperature: {self._format_temperature(temperature_c)}")
         self.humidity_label.setText(f"Humidity: {self._format_humidity(humidity_percent)}")
@@ -983,7 +1050,14 @@ class ViewerManager(QMainWindow):
             self._first_bool(state, ["network_online", "server_reachable", "network_connected"])
         )
         self.status_indicators["TDOA"].set_status(
-            self._first_bool(state, ["tdoa_capable", "rtk_tdoa_capable"])
+            self._first_bool(
+                state,
+                [
+                    "tdoa_ready",
+                    "tdoa_capable",
+                    "rtk_tdoa_capable"
+                ]
+            )
         )
 
     # ========================================================
@@ -1098,6 +1172,7 @@ class ViewerManager(QMainWindow):
                 "last_species": None,
                 "last_confidence": None,
                 "last_audio_path": None,
+                "last_tdoa_estimate": {},
                 "last_event": None,
                 "last_state_event": None,
             }
@@ -1249,7 +1324,14 @@ class ViewerManager(QMainWindow):
             self._first_bool(state, ["rtk_online", "rtk_available", "rtk_ready"])
         )
         tdoa = self._format_bool(
-            self._first_bool(state, ["tdoa_capable", "rtk_tdoa_capable"])
+            self._first_bool(
+                state,
+                [
+                    "tdoa_ready",
+                    "tdoa_capable",
+                    "rtk_tdoa_capable"
+                ]
+            )
         )
 
         return f"[State] {node_id} | PPS: {pps} | GPS: {gps} | RTK: {rtk} | TDOA: {tdoa}"

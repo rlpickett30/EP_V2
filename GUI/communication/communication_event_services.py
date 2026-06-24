@@ -82,7 +82,7 @@ FEATURE_MODE_CHANGE = "FEATURE_MODE_CHANGE"
 # ----------------------------
 
 NODE_STATE_UPDATED = "NODE_STATE_UPDATED"
-
+NODE_TDOA_STATE = "NODE_TDOA_STATE"
 # ----------------------------
 # Listener Event Publications
 # ----------------------------
@@ -112,6 +112,7 @@ COMMUNICATION_PUBLICATIONS = (
     NETWORK_DISCONNECTED,
     EVENT_SENT,
     NODE_STATE_UPDATED,
+    NODE_TDOA_STATE,
     SERVER_NODE_REGISTER,
     SERVER_ENVIRO_EVENT,
     SERVER_TDOA_CALC,
@@ -319,6 +320,15 @@ class CommunicationEventServices:
     ):
         self.publish(
             event_name=SERVER_AVIS_LITE,
+            payload=payload
+        )
+        
+    def publish_node_tdoa_state(
+        self,
+        payload=None
+    ):
+        self.publish(
+            event_name=NODE_TDOA_STATE,
             payload=payload
         )
 

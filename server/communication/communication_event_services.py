@@ -177,6 +177,7 @@ class CommunicationEventServices:
         "GPS_STATE",
         "PPS_STATE",
         "ENVIRO_STATE",
+        "MICROPHONE_SYNCED",
         
         "AVIS_LITE",
         "ENVIRO_EVENT",
@@ -224,6 +225,7 @@ class CommunicationEventServices:
 
         "SERVER_NODE_REGISTER",
         "NODE_STATE_UPDATED",
+        "NODE_TDOA_STATE",
         
         "SERVER_AVIS_LITE",
         "SERVER_ENVIRO_EVENT",
@@ -296,6 +298,13 @@ class CommunicationEventServices:
                 self.event_bus.subscribe(
                     event_name,
                     dispatcher.handle_node_state_updated
+                )
+                
+            elif event_name == "NODE_TDOA_STATE":
+
+                self.event_bus.subscribe(
+                    event_name,
+                    dispatcher.handle_node_tdoa_state
                 )
             
             elif event_name in [

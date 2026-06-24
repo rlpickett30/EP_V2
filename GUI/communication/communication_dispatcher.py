@@ -64,6 +64,7 @@ from communication.communication_event_services import (
     DETECTION_MODE_CHANGE,
     FEATURE_MODE_CHANGE,
     NODE_STATE_UPDATED,
+    NODE_TDOA_STATE,
     SERVER_NODE_REGISTER,
     SERVER_ENVIRO_EVENT,
     SERVER_TDOA_CALC,
@@ -171,6 +172,9 @@ class CommunicationDispatcher:
         self.inbound_publish_map = {
             NODE_STATE_UPDATED:
                 self.event_services.publish_node_state_updated,
+
+            NODE_TDOA_STATE:
+                self.event_services.publish_node_tdoa_state,
 
             SERVER_NODE_REGISTER:
                 self.event_services.publish_server_node_register,

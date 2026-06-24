@@ -59,9 +59,45 @@ from interface.interface_event_services import (
 # IMPORT SUPPORT LIBRARIES
 # ============================================================
 
+import copy
 import logging
 
+from PyQt6.QtCore import (
+    QObject,
+    Qt,
+    pyqtSignal,
+    pyqtSlot,
+)
+# ============================================================
+# QT THREAD BRIDGE
+# ============================================================
 
+class InterfaceQtBridge(QObject):
+
+    gui_event_received = pyqtSignal(dict)
+
+    def __init__(self, dispatcher):
+        super().__init__()
+
+        self.dispatcher = dispatcher
+
+        self.gui_event_received.connect(
+            self._deliver_gui_event,
+            Qt.ConnectionType.QueuedConnection
+        )
+
+    @pyqtSlot(dict)
+    def _deliver_gui_event(self, event: dict):
+        try:
+            self.dispatcher._handle_bus_event_on_qt_thread(
+                event
+            )
+
+        except Exception as error:
+            logging.exception(
+                "[Interface] Qt bridge delivery failed: %s",
+                error
+            )
 # ============================================================
 # CLASS DEFINITIONS
 # ============================================================
@@ -83,6 +119,9 @@ class InterfaceDispatcher:
 
         self.viewer = ViewerManager()
 
+        self.qt_bridge = InterfaceQtBridge(
+            dispatcher=self
+        )
         self.commands = CommandManager()
 
         self.event_services = InterfaceEventServices(
@@ -172,6 +211,59 @@ class InterfaceDispatcher:
             payload=payload
         )
 
+        if event_name in (
+            NEW_NODE_REGISTERED,
+            REPOSITORY_STATE_UPDATE,
+            REPOSITORY_EVENT_UPDATE,
+        ):
+
+            self._queue_gui_event(
+                event
+            )
+
+            return
+
+        logging.warning(
+            "[Interface] Unhandled event: %s",
+            event_name
+        )
+
+    # ========================================================
+    # QUEUE GUI EVENT
+    # ========================================================
+
+    def _queue_gui_event(
+        self,
+        event: dict
+    ):
+
+        try:
+            safe_event = copy.deepcopy(
+                event
+            )
+
+        except Exception:
+            safe_event = dict(
+                event
+            )
+
+        self.qt_bridge.gui_event_received.emit(
+            safe_event
+        )
+
+    # ========================================================
+    # HANDLE BUS EVENT ON QT THREAD
+    # ========================================================
+
+    def _handle_bus_event_on_qt_thread(
+        self,
+        event: dict
+    ):
+
+        event_name = event.get(
+            "event_type"
+        )
+
         if event_name == NEW_NODE_REGISTERED:
 
             self.handle_new_node_registered(
@@ -197,7 +289,7 @@ class InterfaceDispatcher:
             return
 
         logging.warning(
-            "[Interface] Unhandled event: %s",
+            "[Interface] Unhandled Qt-thread event: %s",
             event_name
         )
 
@@ -264,7 +356,7 @@ class InterfaceDispatcher:
         event: dict
     ):
 
-        self.viewer.display_event(
+        self._queue_gui_event(
             event
         )
 

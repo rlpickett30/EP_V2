@@ -55,6 +55,7 @@ import logging
 # ----------------------------
 
 NODE_STATE_UPDATED = "NODE_STATE_UPDATED"
+NODE_TDOA_STATE = "NODE_TDOA_STATE"
 
 # ----------------------------
 # Repository Event Subscriptions
@@ -86,6 +87,7 @@ NEW_NODE_REGISTERED = "NEW_NODE_REGISTERED"
 
 NODE_REPOSITORY_SUBSCRIPTIONS = (
     NODE_STATE_UPDATED,
+    NODE_TDOA_STATE,
     SERVER_NODE_REGISTER,
     SERVER_ENVIRO_EVENT,
     SERVER_TDOA_CALC,

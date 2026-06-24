@@ -35,6 +35,7 @@ NODE_REGISTER = "NODE_REGISTER"
 REGISTRY_UPDATED = "REGISTRY_UPDATED"
 SERVER_NODE_REGISTER = "SERVER_NODE_REGISTER"
 
+
 RTK_STATE = "RTK_STATE"
 GPS_STATE = "GPS_STATE"
 PPS_STATE = "PPS_STATE"
@@ -48,6 +49,9 @@ ENVIRO_EVENT = "ENVIRO_EVENT"
 SERVER_ENVIRO_EVENT = "SERVER_ENVIRO_EVENT"
 GPS_COORD = "GPS_COORD"
 SERVER_GPS_COORD = "SERVER_GPS_COORD"
+
+MICROPHONE_SYNCED = "MICROPHONE_SYNCED"
+SERVER_MICROPHONE_SYNCED = "SERVER_MICROPHONE_SYNCED"
 
 FEATURE_MODE_CHANGE = "FEATURE_MODE_CHANGE"
 TDOA_CHANGE_MODE = "TDOA_CHANGE_MODE"
@@ -156,6 +160,11 @@ class PlatformRegistryEventServices:
             GPS_COORD,
             dispatcher.handle_node_event
         )
+        
+        self.event_bus.subscribe(
+            MICROPHONE_SYNCED,
+            dispatcher.handle_node_state
+        )
 
         self._debug_print(
             "Subscribed to GUI_REGISTER"
@@ -204,6 +213,10 @@ class PlatformRegistryEventServices:
         self._debug_print(
             "Subscribed to GPS_COORD"
         )
+        
+        self._debug_print(
+            "Subscribed to MICROPHONE_SYNCED"
+        )        
     # ========================================================
     # PUBLICATIONS
     # ========================================================
@@ -403,6 +416,37 @@ class PlatformRegistryEventServices:
         self._debug_print(
             "Published NODE_TDOA_STATE"
         )
+        
+    def publish_server_microphone_synced(self, state_result):
+        """
+        Publish SERVER_MICROPHONE_SYNCED after Platform Registry accepts
+        and stores a node microphone PPS synchronization state update.
+        """
+
+        server_payload = state_result.get(
+            "server_payload",
+            {}
+        ) or {}
+
+        event_package = {
+            "event_type": SERVER_MICROPHONE_SYNCED,
+            "source": "platform_registry",
+            "payload": {
+                "reason": MICROPHONE_SYNCED,
+                "node_id": state_result.get("node_id"),
+                "state_snapshot": state_result.get("state_snapshot", {}),
+                "server_payload": server_payload
+            }
+        }
+
+        self.event_bus.publish(
+            SERVER_MICROPHONE_SYNCED,
+            event_package
+        )
+
+        self._debug_print(
+            "Published SERVER_MICROPHONE_SYNCED"
+        )        
         
     # ========================================================
     # PUBLISH SERVER PLATFORM EVENT

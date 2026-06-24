@@ -73,6 +73,7 @@ FEATURE_MODE_CHANGE = "FEATURE_MODE_CHANGE"
 # ----------------------------
 
 NODE_STATE_UPDATED = "NODE_STATE_UPDATED"
+NODE_TDOA_STATE = "NODE_TDOA_STATE"
 
 # ----------------------------
 # Listener Event Events

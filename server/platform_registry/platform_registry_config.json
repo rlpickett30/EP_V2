@@ -171,7 +171,7 @@
             "minimum_requirements": {
                 "pps_locked": true,
                 "gps_locked": true,
-                "gps_coord_required": true,
+                "gps_coord_required": false,
                 "rtk_online_required": true,
                 "enviro_online_required": true
             }

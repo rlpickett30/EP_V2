@@ -62,6 +62,7 @@ from node_repository.node_repository_event_manager import (
 from node_repository.node_repository_event_services import (
     NodeRepositoryEventServices,
     NODE_STATE_UPDATED,
+    NODE_TDOA_STATE,
     SERVER_NODE_REGISTER,
     SERVER_ENVIRO_EVENT,
     SERVER_TDOA_CALC,
@@ -130,7 +131,8 @@ class NodeRepositoryDispatcher:
         self.running = False
 
         self.state_update_events = {
-            NODE_STATE_UPDATED
+            NODE_STATE_UPDATED,
+            NODE_TDOA_STATE
         }
 
         self.repository_event_updates = {
@@ -671,7 +673,83 @@ class NodeRepositoryDispatcher:
         event_name,
         event
     ) -> dict:
+        if event_name == NODE_TDOA_STATE:
 
+            tdoa_state = (
+                event.get("tdoa_state")
+                or event.get("state")
+            )
+
+            payload = event.get(
+                "payload",
+                {}
+            )
+
+            if not isinstance(
+                tdoa_state,
+                dict
+            ) and isinstance(
+                payload,
+                dict
+            ):
+
+                tdoa_state = (
+                    payload.get("tdoa_state")
+                    or payload.get("state")
+                )
+
+            if isinstance(
+                tdoa_state,
+                dict
+            ):
+
+                tdoa_ready = bool(
+                    tdoa_state.get(
+                        "tdoa_ready",
+                        False
+                    )
+                )
+
+                checks = tdoa_state.get(
+                    "checks",
+                    {}
+                )
+
+                update = dict(
+                    tdoa_state
+                )
+
+                update["tdoa_ready"] = tdoa_ready
+                update["tdoa_capable"] = tdoa_ready
+                update["rtk_tdoa_capable"] = tdoa_ready
+                update["tdoa_missing"] = tdoa_state.get(
+                    "missing",
+                    []
+                )
+                update["tdoa_checks"] = checks
+
+                if isinstance(
+                    checks,
+                    dict
+                ):
+
+                    for key, value in checks.items():
+
+                        if isinstance(
+                            value,
+                            bool
+                        ):
+
+                            update[key] = value
+
+                if tdoa_state.get(
+                    "microphone_synced"
+                ) is True:
+
+                    update["microphone_online"] = True
+
+                return update
+            
         if event_name == SERVER_GPS_COORD:
 
             gps_coord = (

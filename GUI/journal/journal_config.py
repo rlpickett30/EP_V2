@@ -20,5 +20,5 @@ JOURNAL_CONFIG = {
 
     "include_event_type": True,
 
-    "include_payload": True,
+    "include_payload": False,
 }

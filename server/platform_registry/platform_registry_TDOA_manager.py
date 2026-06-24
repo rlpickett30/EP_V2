@@ -72,6 +72,11 @@ class PlatformRegistryTDOAManager:
             "require_enviro",
             True
         )
+        
+        self.require_microphone_sync = self.tdoa_config.get(
+            "require_microphone_sync",
+            True
+        )
 
         self.node_tdoa_states = {}
 
@@ -241,7 +246,21 @@ class PlatformRegistryTDOAManager:
             "rtk_online": node_state_snapshot.get(
                 "rtk_online",
                 False
+            ),            
+            "tdoa_capable": ready,
+            "microphone_synced": node_state_snapshot.get(
+                "microphone_synced",
+                False
             ),
+            "microphone_sync_state": node_state_snapshot.get(
+                "microphone_sync_state"
+            ),
+            "sync_error_ms": node_state_snapshot.get(
+                "sync_error_ms"
+            ),
+            "sync_window_ms": node_state_snapshot.get(
+                "sync_window_ms"
+            ),            
             "enviro_online": node_state_snapshot.get(
                 "enviro_online",
                 False
@@ -277,10 +296,7 @@ class PlatformRegistryTDOAManager:
                     "gps_locked",
                     False
                 )
-            ),
-            "gps_coord": node_state_snapshot.get(
-                "gps_coord"
-            ) is not None
+            )
         }
 
         if self.require_rtk:
@@ -295,6 +311,14 @@ class PlatformRegistryTDOAManager:
             checks["enviro_online"] = bool(
                 node_state_snapshot.get(
                     "enviro_online",
+                    False
+                )
+            )
+
+        if self.require_microphone_sync:
+            checks["microphone_synced"] = bool(
+                node_state_snapshot.get(
+                    "microphone_synced",
                     False
                 )
             )

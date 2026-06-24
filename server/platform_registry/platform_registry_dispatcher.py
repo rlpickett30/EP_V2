@@ -491,20 +491,6 @@ class PlatformRegistryDispatcher:
             )
             return
 
-        if not result.get("publish"):
-            self._debug_log(
-                f"{event_name} accepted but not published: {result.get('reason')}"
-            )
-            return
-
-        self.event_services.publish_node_state_updated(
-            result
-        )
-
-        self._debug_log(
-            f"{event_name} handled. NODE_STATE_UPDATED published."
-        )
-
         tdoa_result = self.tdoa_manager.handle_node_state_snapshot(
             node_id=result.get(
                 "node_id"
@@ -515,6 +501,38 @@ class PlatformRegistryDispatcher:
             ),
             source_event=event_name
         )
+
+#        print(
+#            "[TDOA READINESS TRACE]",
+#            event_name,
+#            tdoa_result
+#        )
+
+        if result.get("publish"):
+
+            self.event_services.publish_node_state_updated(
+                result
+            )
+
+            if str(event_name).strip().upper() == "MICROPHONE_SYNCED":
+
+                self.event_services.publish_server_microphone_synced(
+                    result
+                )
+
+                self._debug_log(
+                    "MICROPHONE_SYNCED handled. SERVER_MICROPHONE_SYNCED published."
+                )
+
+            self._debug_log(
+                f"{event_name} handled. NODE_STATE_UPDATED published."
+            )
+
+        else:
+
+            self._debug_log(
+                f"{event_name} accepted but NODE_STATE_UPDATED not published: {result.get('reason')}"
+            )
 
         if not tdoa_result.get(
             "success"
@@ -788,7 +806,8 @@ class PlatformRegistryDispatcher:
             "RTK_STATE",
             "GPS_STATE",
             "PPS_STATE",
-            "ENVIRO_STATE"
+            "ENVIRO_STATE",
+            "MICROPHONE_SYNCED"
         ]
     
     def _event_is_node_event(self, event_name):
@@ -890,7 +909,38 @@ class PlatformRegistryDispatcher:
             "event_type",
             event_name
         )
+        
+        if str(event_name).strip().upper() == "MICROPHONE_SYNCED":
 
+            normalized["microphone_synced"] = bool(
+                normalized.get(
+                    "microphone_synced",
+                    True
+                )
+            )
+
+            normalized.setdefault(
+                "microphone_sync_state",
+                normalized.get(
+                    "sync_state",
+                    "SYNCED"
+                )
+            )
+
+            normalized.setdefault(
+                "sync_error_ms",
+                normalized.get(
+                    "microphone_sync_error_ms"
+                )
+            )
+
+            normalized.setdefault(
+                "sync_window_ms",
+                normalized.get(
+                    "microphone_sync_window_ms"
+                )
+            )
+            
         return normalized
     
     def _normalize_node_event_payload(self, event_name, payload):
