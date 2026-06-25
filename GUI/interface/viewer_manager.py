@@ -44,10 +44,14 @@
 from datetime import datetime
 from typing import Any, Optional
 
+import base64
+import binascii
+
 import numpy as np
 import pyqtgraph as pg
 
 from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -474,6 +478,8 @@ class ViewerManager(QMainWindow):
             "Spectrogram visualization\nwill appear here"
         )
         self.spectrogram_placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.spectrogram_placeholder.setMinimumHeight(260)
+        self.spectrogram_placeholder.setScaledContents(False)
         self.spectrogram_placeholder.setStyleSheet(self._placeholder_style())
 
         spectrogram_layout.addWidget(spectrogram_title, 1)
@@ -820,18 +826,27 @@ class ViewerManager(QMainWindow):
             or self._find_nested_value(event, "recording_path")
         )
 
+        spectrogram = self._extract_spectrogram(event)
+
         record = self._get_or_create_node_record(node_id)
         record["last_species"] = species
         record["last_confidence"] = confidence
         record["last_audio_path"] = audio_path
+
+        if spectrogram:
+            record["latest_spectrogram"] = spectrogram
+            record["state"]["latest_spectrogram"] = spectrogram
+            record["state"]["spectrogram_available"] = True
 
         self._add_recent_species(species)
 
         if self._is_selected_node(node_id):
             self._render_primary_panel(node_id)
 
+        spectrogram_note = " | Spectrogram: YES" if spectrogram else ""
+
         self._append_event_log(
-            f"[Avis Lite] {node_id} | {species} | {self._format_confidence(confidence)}"
+            f"[Avis Lite] {node_id} | {species} | {self._format_confidence(confidence)}{spectrogram_note}"
         )
 
     def _apply_enviro_event(self, node_id: str, event: dict):
@@ -953,6 +968,11 @@ class ViewerManager(QMainWindow):
         species = record.get("last_species")
         confidence = record.get("last_confidence")
         audio_path = record.get("last_audio_path")
+        spectrogram = (
+            record.get("latest_spectrogram")
+            or state.get("latest_spectrogram")
+            or {}
+        )
         gps_coord = record.get("last_gps_coord") or state.get("gps_coord") or {}
         tdoa_estimate = record.get("last_tdoa_estimate") or {}
 
@@ -962,15 +982,10 @@ class ViewerManager(QMainWindow):
             self.current_bird.setText("Waiting For Detection")
 
         self._set_confidence(confidence)
-
-        if audio_path:
-            self.spectrogram_placeholder.setText(
-                f"Audio received\n{audio_path}"
-            )
-        else:
-            self.spectrogram_placeholder.setText(
-                "Spectrogram visualization\nwill appear here"
-            )
+        self._render_spectrogram_panel(
+            spectrogram=spectrogram,
+            audio_path=audio_path
+        )
 
         if tdoa_estimate:
             self.node_map_placeholder.setText(
@@ -1159,6 +1174,136 @@ class ViewerManager(QMainWindow):
             values.pop(0)
 
     # ========================================================
+    # SPECTROGRAM HELPERS
+    # ========================================================
+
+    def _extract_spectrogram(self, event: dict) -> dict:
+        spectrogram = self._find_nested_dict(
+            event,
+            "spectrogram"
+        )
+
+        if not spectrogram:
+            image_png_b64 = (
+                self._find_nested_value(
+                    event,
+                    "image_png_b64"
+                )
+                or self._find_nested_value(
+                    event,
+                    "spectrogram_png_b64"
+                )
+            )
+
+            if image_png_b64:
+                spectrogram = {
+                    "image_png_b64": image_png_b64,
+                    "encoding": "base64",
+                    "image_format": "png",
+                }
+
+        if not isinstance(
+            spectrogram,
+            dict
+        ):
+            return {}
+
+        image_png_b64 = (
+            spectrogram.get("image_png_b64")
+            or spectrogram.get("spectrogram_png_b64")
+        )
+
+        if not image_png_b64:
+            return {}
+
+        normalized = dict(
+            spectrogram
+        )
+        normalized["image_png_b64"] = image_png_b64
+
+        return normalized
+
+    def _render_spectrogram_panel(
+        self,
+        spectrogram: dict,
+        audio_path=None
+    ):
+        if spectrogram:
+            image_png_b64 = (
+                spectrogram.get("image_png_b64")
+                or spectrogram.get("spectrogram_png_b64")
+            )
+
+            if self._set_spectrogram_pixmap(
+                image_png_b64=image_png_b64
+            ):
+                return
+
+        self.spectrogram_placeholder.clear()
+        self.spectrogram_placeholder.setPixmap(QPixmap())
+        self.spectrogram_placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.spectrogram_placeholder.setStyleSheet(self._placeholder_style())
+
+        if audio_path:
+            self.spectrogram_placeholder.setText(
+                f"Audio received\n{audio_path}\n\nSpectrogram image missing"
+            )
+        else:
+            self.spectrogram_placeholder.setText(
+                "Spectrogram visualization\nwill appear here"
+            )
+
+    def _set_spectrogram_pixmap(self, image_png_b64) -> bool:
+        if not image_png_b64:
+            return False
+
+        try:
+            image_bytes = base64.b64decode(
+                image_png_b64,
+                validate=True
+            )
+
+        except (
+            binascii.Error,
+            TypeError,
+            ValueError
+        ):
+            return False
+
+        pixmap = QPixmap()
+
+        if not pixmap.loadFromData(
+            image_bytes,
+            "PNG"
+        ):
+            return False
+
+        target_size = self.spectrogram_placeholder.size()
+
+        if target_size.width() > 0 and target_size.height() > 0:
+            pixmap = pixmap.scaled(
+                target_size,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation
+            )
+
+        self.spectrogram_placeholder.clear()
+        self.spectrogram_placeholder.setText("")
+        self.spectrogram_placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.spectrogram_placeholder.setStyleSheet(
+            """
+            background-color: #000000;
+            border: 1px solid #444;
+            padding: 8px;
+            """
+        )
+        self.spectrogram_placeholder.setPixmap(
+            pixmap
+        )
+
+        return True
+
+    # ========================================================
     # CACHE HELPERS
     # ========================================================
 
@@ -1172,6 +1317,7 @@ class ViewerManager(QMainWindow):
                 "last_species": None,
                 "last_confidence": None,
                 "last_audio_path": None,
+                "latest_spectrogram": {},
                 "last_tdoa_estimate": {},
                 "last_event": None,
                 "last_state_event": None,

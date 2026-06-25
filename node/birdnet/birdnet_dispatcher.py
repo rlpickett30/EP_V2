@@ -29,10 +29,12 @@
 #   - Handle RECORDING_AVAILABLE events
 #   - Coordinate BirdNetManager
 #   - Build canonical AVIS_LITE events
+#   - Attach payload-safe spectrogram packages when available
 #   - Publish AVIS_LITE events through BirdNetEventServices
 #
 # Does NOT:
 #   - Analyze WAV files directly
+#   - Generate spectrograms directly
 #   - Subscribe directly to the event bus
 #   - Publish directly to the event bus
 #   - Rewrite runtime GPS values back into config
@@ -121,7 +123,8 @@ class BirdNetDispatcher:
         self.started = False
 
         self.manager = BirdNetManager(
-            debug=self.debug
+            debug=self.debug,
+            spectrogram_config=self.get_spectrogram_config()
         )
 
         self.event_services = BirdNetEventServices(
@@ -160,6 +163,24 @@ class BirdNetDispatcher:
             return json.load(
                 file
             )
+
+    def get_spectrogram_config(
+        self
+    ):
+
+        spectrogram_config = self.config.get(
+            "spectrogram",
+            {}
+        )
+
+        if isinstance(
+            spectrogram_config,
+            dict
+        ):
+
+            return spectrogram_config
+
+        return {}
 
     # ========================================================
     # STARTUP
@@ -525,6 +546,11 @@ class BirdNetDispatcher:
             )
         }
 
+        self.attach_spectrogram_payload(
+            payload=payload,
+            detection_package=detection_package
+        )
+
         return {
             "event_type": "AVIS_LITE",
             "source": "birdnet",
@@ -532,6 +558,40 @@ class BirdNetDispatcher:
             "timestamp": detection_time_utc,
             "payload": payload
         }
+
+    def attach_spectrogram_payload(
+        self,
+        payload,
+        detection_package
+    ):
+        """
+        Attach the serialized spectrogram package to AVIS_LITE.
+
+        The large base64 image string is stored only once inside the nested
+        payload["spectrogram"] dictionary.
+        """
+
+        spectrogram_package = detection_package.get(
+            "spectrogram"
+        )
+
+        if not isinstance(
+            spectrogram_package,
+            dict
+        ):
+
+            payload["spectrogram_available"] = False
+
+            return
+
+        payload["spectrogram_available"] = bool(
+            spectrogram_package.get(
+                "available",
+                False
+            )
+        )
+
+        payload["spectrogram"] = spectrogram_package
 
     # ========================================================
     # WEEK SELECTION

@@ -119,6 +119,10 @@ class NodeRepositoryStateManager:
 
                 "birdnet_online": False,
 
+                "spectrogram_available": False,
+
+                "latest_spectrogram": {},
+
                 "network_online": False,
 
                 "gps_lock": False,

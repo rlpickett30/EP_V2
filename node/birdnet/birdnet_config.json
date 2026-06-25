@@ -1,6 +1,6 @@
 {
     "recordings_path": "recordings",
-    
+
     "location_mode": "auto",
 
     "default_latitude": 37.2753,
@@ -17,6 +17,23 @@
     "min_confidence": 0.25,
 
     "use_gps_updates": true,
+
+    "spectrogram": {
+        "enabled": true,
+        "max_width": 320,
+        "height": 128,
+        "fft_size": 1024,
+        "hop_length": 256,
+        "max_duration_sec": 12.0,
+        "min_frequency_hz": 0.0,
+        "max_frequency_hz": 12000.0,
+        "db_floor": 85.0,
+        "gamma": 0.65,
+        "black_level": 0.08,
+        "color_mode": "classic",
+        "max_payload_chars": 65000,
+        "debug": true
+    },
 
     "debug": true
 }

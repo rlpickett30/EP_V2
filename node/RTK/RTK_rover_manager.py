@@ -65,9 +65,20 @@ class RTKRoverManager:
         self.started = False
 
         self.last_report_time = time.time()
+
+        # Report-window counters. These are reset by maybe_report().
         self.packets_received = 0
         self.bytes_received = 0
         self.bytes_written = 0
+
+        # Lifetime counters. These are never reset while the manager runs.
+        self.total_packets_received = 0
+        self.total_bytes_received = 0
+        self.total_bytes_written = 0
+
+        # Activity timestamps.
+        self.started_epoch = None
+        self.last_packet_received_epoch = None
 
     # --------------------------------------------------
     # Debug
@@ -123,6 +134,7 @@ class RTKRoverManager:
         )
 
         self.started = True
+        self.started_epoch = time.time()
 
         self.log(
             f"Listening for RTCM on {self.bind_host}:{self.udp_port}"
@@ -188,6 +200,13 @@ class RTKRoverManager:
             )
             self.bytes_written += written
 
+            self.total_packets_received += 1
+            self.total_bytes_received += len(
+                data
+            )
+            self.total_bytes_written += written
+            self.last_packet_received_epoch = time.time()
+
         self.maybe_report()
 
     def maybe_report(
@@ -207,3 +226,70 @@ class RTKRoverManager:
         self.bytes_received = 0
         self.bytes_written = 0
         self.last_report_time = now
+
+
+    # --------------------------------------------------
+    # Status Snapshot
+    # --------------------------------------------------
+
+    def get_status_snapshot(
+        self
+    ) -> Dict[str, Any]:
+        """
+        Return rover RTCM receive status for dispatcher payload enrichment.
+        """
+
+        now = time.time()
+
+        rtcm_rx_age_sec = self.seconds_since(
+            now=now,
+            epoch=self.last_packet_received_epoch
+        )
+
+        recent_window_sec = max(
+            self.report_interval_sec * 3.0,
+            10.0
+        )
+
+        rtcm_rx_online = bool(
+            self.enabled
+            and self.started
+            and self.last_packet_received_epoch is not None
+            and rtcm_rx_age_sec is not None
+            and rtcm_rx_age_sec <= recent_window_sec
+        )
+
+        return {
+            "rtk_role": "rover",
+            "rover_enabled": self.enabled,
+            "rover_started": self.started,
+            "rtcm_rx_online": rtcm_rx_online,
+            "bind_host": self.bind_host,
+            "udp_port": self.udp_port,
+            "packets_received_window": self.packets_received,
+            "bytes_received_window": self.bytes_received,
+            "bytes_written_window": self.bytes_written,
+            "packets_received_total": self.total_packets_received,
+            "bytes_received_total": self.total_bytes_received,
+            "bytes_written_total": self.total_bytes_written,
+            "last_packet_received_epoch": self.last_packet_received_epoch,
+            "rtcm_rx_age_sec": rtcm_rx_age_sec,
+            "recent_window_sec": recent_window_sec,
+        }
+
+    def seconds_since(
+        self,
+        now: float,
+        epoch
+    ):
+        if epoch is None:
+            return None
+
+        try:
+            return max(
+                0.0,
+                float(now) - float(epoch)
+            )
+
+        except Exception:
+            return None

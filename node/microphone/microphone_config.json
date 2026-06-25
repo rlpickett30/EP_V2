@@ -8,7 +8,7 @@
     "channels": 1,
 
     "recording_duration_sec": 15,
-    "recording_interval_sec": 300,
+    "recording_interval_sec": 30,
 
     "tdoa_recording_duration_sec": 10,
     "tdoa_pps_lead_seconds": 1.0,

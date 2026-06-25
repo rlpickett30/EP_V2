@@ -33,7 +33,7 @@
 #   - Solve TDOA directly
 #   - Publish directly to Event Bus
 #   - Perform candidate filtering internally
-#   - Maintain node capability truth directly
+#   - Maintain node-state truth directly
 #   - Own Platform Registry state
 #
 # Owner:
@@ -75,7 +75,7 @@ import json
 import logging
 
 from pathlib import Path
-from typing import Optional, List, Any
+from typing import Optional, List
 
 
 # ============================================================
@@ -250,9 +250,9 @@ class TDOADispatcher:
         # Registry / state events
         # ----------------------------------------------------
 
-        if event_type == TDOAEventServices.EVENT_NODE_TDOA_CAPABLE:
+        if event_type == TDOAEventServices.EVENT_NODE_TDOA_STATE:
 
-            self._handle_node_tdoa_capable(
+            self._handle_node_tdoa_state(
                 event
             )
             return
@@ -412,19 +412,25 @@ class TDOADispatcher:
             }
 
         return None
+
     # ========================================================
     # STATE EVENT HANDLERS
     # ========================================================
 
-    def _handle_node_tdoa_capable(
+    def _handle_node_tdoa_state(
         self,
         event: dict
     ) -> None:
         """
-        Handle registry report that a node became TDOA-capable.
+        Handle registry-owned NODE_TDOA_STATE updates.
+
+        NODE_TDOA_STATE is a per-node readiness report. The state manager
+        stores the full node state, keeps the capable-node set current, and
+        returns a system-level capability update only when the TDOA subsystem
+        crosses the candidate-ready threshold.
         """
 
-        capability_update = self.state_manager.handle_node_tdoa_capable(
+        capability_update = self.state_manager.handle_node_tdoa_state(
             event
         )
 
@@ -436,6 +442,18 @@ class TDOADispatcher:
             )
 
         self._run_candidate_filter_if_allowed()
+
+    def _handle_node_tdoa_capable(
+        self,
+        event: dict
+    ) -> None:
+        """
+        Backward-compatible alias for older dispatcher wording.
+        """
+
+        self._handle_node_tdoa_state(
+            event
+        )
 
     def _handle_node_tdoa_capable_lost(
         self,

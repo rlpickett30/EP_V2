@@ -97,8 +97,24 @@ class RTKBaseManager:
 
         self.started = False
         self.last_report_time = time.time()
+
+        # Report-window counters. These are reset by maybe_report().
         self.packets_sent = 0
         self.bytes_sent = 0
+        self.packets_consumed = 0
+        self.bytes_consumed = 0
+
+        # Lifetime counters. These are never reset while the manager runs.
+        self.total_packets_sent = 0
+        self.total_bytes_sent = 0
+        self.total_packets_consumed = 0
+        self.total_bytes_consumed = 0
+
+        # Activity timestamps.
+        self.started_epoch = None
+        self.last_process_epoch = None
+        self.last_rtcm_packet_epoch = None
+        self.last_packet_sent_epoch = None
 
     # --------------------------------------------------
     # Debug
@@ -183,6 +199,7 @@ class RTKBaseManager:
             )
 
         self.started = True
+        self.started_epoch = time.time()
 
     def close(
         self
@@ -276,9 +293,22 @@ class RTKBaseManager:
         if not self.started:
             self.start()
 
+        self.last_process_epoch = time.time()
+
         packets = self.driver.consume_rtcm_packets()
 
         for packet in packets:
+
+            self.packets_consumed += 1
+            self.bytes_consumed += len(
+                packet
+            )
+            self.total_packets_consumed += 1
+            self.total_bytes_consumed += len(
+                packet
+            )
+            self.last_rtcm_packet_epoch = time.time()
+
             self.send_packet(
                 packet
             )
@@ -308,10 +338,16 @@ class RTKBaseManager:
                     packet,
                     address,
                 )
+
                 self.packets_sent += 1
                 self.bytes_sent += len(
                     packet
                 )
+                self.total_packets_sent += 1
+                self.total_bytes_sent += len(
+                    packet
+                )
+                self.last_packet_sent_epoch = time.time()
 
             except Exception as error:
                 self.log(
@@ -328,9 +364,129 @@ class RTKBaseManager:
             return
 
         self.log(
-            f"RTCM sent: packets={self.packets_sent} bytes={self.bytes_sent} targets={self.targets} broadcast={self.broadcast_enabled}"
+            (
+                f"RTCM consumed: packets={self.packets_consumed} "
+                f"bytes={self.bytes_consumed} | "
+                f"RTCM sent: packets={self.packets_sent} "
+                f"bytes={self.bytes_sent} "
+                f"targets={self.targets} broadcast={self.broadcast_enabled}"
+            )
         )
 
         self.packets_sent = 0
         self.bytes_sent = 0
+        self.packets_consumed = 0
+        self.bytes_consumed = 0
         self.last_report_time = now
+
+
+    # --------------------------------------------------
+    # Status Snapshot
+    # --------------------------------------------------
+
+    def get_status_snapshot(
+        self
+    ) -> Dict[str, Any]:
+        """
+        Return role-aware RTK base transport status.
+
+        This gives RTKDispatcher enough information to publish an RTK_STATE
+        event that reflects base behavior instead of rover fix behavior.
+        """
+
+        now = time.time()
+
+        rtcm_output_age_sec = self.seconds_since(
+            now=now,
+            epoch=self.last_rtcm_packet_epoch
+        )
+
+        rtcm_tx_age_sec = self.seconds_since(
+            now=now,
+            epoch=self.last_packet_sent_epoch
+        )
+
+        recent_window_sec = max(
+            self.report_interval_sec * 3.0,
+            10.0
+        )
+
+        target_count = len(
+            self.targets
+        )
+
+        has_send_path = bool(
+            target_count > 0
+            or self.broadcast_enabled
+        )
+
+        rtcm_output_online = bool(
+            self.enabled
+            and self.started
+            and self.last_rtcm_packet_epoch is not None
+            and rtcm_output_age_sec is not None
+            and rtcm_output_age_sec <= recent_window_sec
+        )
+
+        rtcm_tx_online = bool(
+            self.enabled
+            and self.started
+            and has_send_path
+            and self.last_packet_sent_epoch is not None
+            and rtcm_tx_age_sec is not None
+            and rtcm_tx_age_sec <= recent_window_sec
+        )
+
+        base_online = bool(
+            self.enabled
+            and self.started
+            and (
+                rtcm_tx_online
+                or rtcm_output_online
+            )
+        )
+
+        return {
+            "rtk_role": "base",
+            "base_enabled": self.enabled,
+            "base_started": self.started,
+            "base_online": base_online,
+            "rtcm_output_online": rtcm_output_online,
+            "rtcm_tx_online": rtcm_tx_online,
+            "rtcm_has_send_path": has_send_path,
+            "target_count": target_count,
+            "targets": list(self.targets),
+            "broadcast_enabled": self.broadcast_enabled,
+            "broadcast_address": self.broadcast_address,
+            "udp_port": self.udp_port,
+            "packets_consumed_window": self.packets_consumed,
+            "bytes_consumed_window": self.bytes_consumed,
+            "packets_sent_window": self.packets_sent,
+            "bytes_sent_window": self.bytes_sent,
+            "packets_consumed_total": self.total_packets_consumed,
+            "bytes_consumed_total": self.total_bytes_consumed,
+            "packets_sent_total": self.total_packets_sent,
+            "bytes_sent_total": self.total_bytes_sent,
+            "last_rtcm_packet_epoch": self.last_rtcm_packet_epoch,
+            "last_packet_sent_epoch": self.last_packet_sent_epoch,
+            "rtcm_output_age_sec": rtcm_output_age_sec,
+            "rtcm_tx_age_sec": rtcm_tx_age_sec,
+            "recent_window_sec": recent_window_sec,
+        }
+
+    def seconds_since(
+        self,
+        now: float,
+        epoch
+    ):
+        if epoch is None:
+            return None
+
+        try:
+            return max(
+                0.0,
+                float(now) - float(epoch)
+            )
+
+        except Exception:
+            return None

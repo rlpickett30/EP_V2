@@ -174,6 +174,7 @@ class RTKDispatcher:
         self.rtk_online: Optional[bool] = None
         self.rtk_fixed: Optional[bool] = None
         self.rtk_float: Optional[bool] = None
+        self.rtk_transport_marker = None
 
         self.last_coord_publish = 0.0
         self.last_state_publish = 0.0
@@ -698,8 +699,11 @@ class RTKDispatcher:
         force_publish: bool = False,
     ):
 
+        transport_snapshot = self.get_rtk_transport_snapshot()
+
         current_online = self.extract_rtk_online(
-            gps_snapshot
+            gps_snapshot=gps_snapshot,
+            transport_snapshot=transport_snapshot,
         )
         current_fixed = self.extract_rtk_fixed(
             gps_snapshot
@@ -708,11 +712,16 @@ class RTKDispatcher:
             gps_snapshot
         )
 
+        transport_marker = self.build_rtk_transport_marker(
+            transport_snapshot
+        )
+
         state_changed = (
             self.rtk_online is None
             or current_online != self.rtk_online
             or current_fixed != self.rtk_fixed
             or current_float != self.rtk_float
+            or transport_marker != self.rtk_transport_marker
         )
 
         if not state_changed and not force_publish:
@@ -721,9 +730,11 @@ class RTKDispatcher:
         self.rtk_online = current_online
         self.rtk_fixed = current_fixed
         self.rtk_float = current_float
+        self.rtk_transport_marker = transport_marker
 
         event = self.build_rtk_state_event(
             gps_snapshot=gps_snapshot,
+            transport_snapshot=transport_snapshot,
             rtk_online=current_online,
             rtk_fixed=current_fixed,
             rtk_float=current_float,
@@ -740,7 +751,23 @@ class RTKDispatcher:
     def extract_rtk_online(
         self,
         gps_snapshot: Dict[str, Any],
+        transport_snapshot: Optional[Dict[str, Any]] = None,
     ) -> bool:
+
+        if self.rtk_mode == "base":
+
+            if transport_snapshot is None:
+                transport_snapshot = self.get_rtk_transport_snapshot()
+
+            return bool(
+                transport_snapshot.get(
+                    "rtcm_tx_online",
+                    transport_snapshot.get(
+                        "base_online",
+                        False,
+                    ),
+                )
+            )
 
         if "rtk_online" in gps_snapshot:
             return bool(
@@ -856,6 +883,7 @@ class RTKDispatcher:
     def build_rtk_state_event(
         self,
         gps_snapshot: Dict[str, Any],
+        transport_snapshot: Dict[str, Any],
         rtk_online: bool,
         rtk_fixed: bool,
         rtk_float: bool,
@@ -872,7 +900,24 @@ class RTKDispatcher:
             default="UNKNOWN",
         )
 
-        if rtk_fixed:
+        if self.rtk_mode == "base":
+
+            if rtk_online:
+                state = "ONLINE"
+                fix_type = "BASE"
+                status = "BASE_RTCM_TX"
+
+            elif transport_snapshot.get("base_started"):
+                state = "STARTING"
+                fix_type = "BASE"
+                status = "BASE_WAITING_FOR_RTCM_TX"
+
+            else:
+                state = "OFFLINE"
+                fix_type = "BASE"
+                status = "BASE_OFFLINE"
+
+        elif rtk_fixed:
             state = "ONLINE"
             fix_type = "FIXED"
 
@@ -888,6 +933,10 @@ class RTKDispatcher:
             "node_id": self.node_id,
             "node_name": self.node_name,
             "subsystem": "rtk",
+            "rtk_mode": self.rtk_mode,
+            "rtk_role": self.rtk_mode,
+            "is_rtk_base": self.rtk_mode == "base",
+            "is_rtk_rover": self.rtk_mode == "rover",
             "rtk_online": rtk_online,
             "rtk_fixed": rtk_fixed,
             "rtk_float": rtk_float,
@@ -899,12 +948,97 @@ class RTKDispatcher:
             ),
             "state": state,
             "mode": self.rtk_mode,
+            "rtk_base_online": transport_snapshot.get(
+                "base_online"
+            ),
+            "rtcm_output_online": transport_snapshot.get(
+                "rtcm_output_online"
+            ),
+            "rtcm_tx_online": transport_snapshot.get(
+                "rtcm_tx_online"
+            ),
+            "rtcm_rx_online": transport_snapshot.get(
+                "rtcm_rx_online"
+            ),
+            "rtcm_packets_sent_total": transport_snapshot.get(
+                "packets_sent_total"
+            ),
+            "rtcm_packets_received_total": transport_snapshot.get(
+                "packets_received_total"
+            ),
+            "transport_snapshot": transport_snapshot,
             "snapshot": gps_snapshot,
         }
 
         return self.build_event(
             event_type="RTK_STATE",
             payload=payload,
+        )
+
+    # --------------------------------------------------
+    # RTK Transport Status
+    # --------------------------------------------------
+
+    def get_rtk_transport_snapshot(
+        self
+    ) -> Dict[str, Any]:
+
+        if self.base_manager is not None:
+            try:
+                return self.base_manager.get_status_snapshot()
+            except Exception as error:
+                self.log(
+                    f"Base status snapshot error: {error}"
+                )
+                return {
+                    "rtk_role": "base",
+                    "base_online": False,
+                    "rtcm_tx_online": False,
+                    "status_error": str(error),
+                }
+
+        if self.rover_manager is not None:
+            try:
+                return self.rover_manager.get_status_snapshot()
+            except Exception as error:
+                self.log(
+                    f"Rover status snapshot error: {error}"
+                )
+                return {
+                    "rtk_role": "rover",
+                    "rtcm_rx_online": False,
+                    "status_error": str(error),
+                }
+
+        return {
+            "rtk_role": self.rtk_mode,
+            "transport_enabled": False,
+        }
+
+    def build_rtk_transport_marker(
+        self,
+        transport_snapshot: Dict[str, Any],
+    ):
+
+        if self.rtk_mode == "base":
+            return (
+                transport_snapshot.get("base_online"),
+                transport_snapshot.get("rtcm_output_online"),
+                transport_snapshot.get("rtcm_tx_online"),
+                transport_snapshot.get("packets_consumed_total"),
+                transport_snapshot.get("packets_sent_total"),
+            )
+
+        if self.rtk_mode == "rover":
+            return (
+                transport_snapshot.get("rtcm_rx_online"),
+                transport_snapshot.get("packets_received_total"),
+                transport_snapshot.get("bytes_written_total"),
+            )
+
+        return (
+            self.rtk_mode,
+            transport_snapshot.get("transport_enabled"),
         )
 
     # --------------------------------------------------
@@ -975,6 +1109,8 @@ class RTKDispatcher:
         longitude,
     ) -> Dict[str, Any]:
 
+        transport_snapshot = self.get_rtk_transport_snapshot()
+
         altitude_m = self.get_first_available(
             gps_snapshot,
             [
@@ -1010,7 +1146,8 @@ class RTKDispatcher:
                 0,
             ),
             "rtk_online": self.extract_rtk_online(
-                gps_snapshot
+                gps_snapshot=gps_snapshot,
+                transport_snapshot=transport_snapshot,
             ),
             "rtk_fixed": self.extract_rtk_fixed(
                 gps_snapshot

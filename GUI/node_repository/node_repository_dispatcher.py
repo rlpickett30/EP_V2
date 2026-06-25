@@ -937,16 +937,106 @@ class NodeRepositoryDispatcher:
                 event,
                 "recording_path"
             )
+            or self._find_nested_value(
+                event,
+                "wav_path"
+            )
         )
 
-        return {
+        spectrogram = self._extract_spectrogram(
+            event
+        )
+
+        state_update = {
 
             "birdnet_online":
                 True,
 
             "microphone_online":
-                audio_path is not None
+                True,
+
+            "spectrogram_available":
+                bool(
+                    spectrogram
+                )
         }
+
+        if audio_path is not None:
+
+            state_update["last_audio_path"] = audio_path
+
+        if spectrogram:
+
+            state_update["latest_spectrogram"] = spectrogram
+
+        return state_update
+
+    def _extract_spectrogram(
+        self,
+        event
+    ) -> dict:
+
+        spectrogram = self._find_nested_value(
+            event,
+            "spectrogram"
+        )
+
+        if not isinstance(
+            spectrogram,
+            dict
+        ):
+
+            image_png_b64 = (
+                self._find_nested_value(
+                    event,
+                    "image_png_b64"
+                )
+                or self._find_nested_value(
+                    event,
+                    "spectrogram_png_b64"
+                )
+            )
+
+            if image_png_b64:
+
+                spectrogram = {
+                    "image_png_b64":
+                        image_png_b64,
+
+                    "encoding":
+                        "base64",
+
+                    "image_format":
+                        "png"
+                }
+
+        if not isinstance(
+            spectrogram,
+            dict
+        ):
+
+            return {}
+
+        image_png_b64 = (
+            spectrogram.get(
+                "image_png_b64"
+            )
+            or spectrogram.get(
+                "spectrogram_png_b64"
+            )
+        )
+
+        if not image_png_b64:
+
+            return {}
+
+        normalized = dict(
+            spectrogram
+        )
+
+        normalized["image_png_b64"] = image_png_b64
+
+        return normalized
 
     def _find_nested_value(
         self,

@@ -10,19 +10,22 @@
 #   Manager
 #
 # Purpose:
-#   Run BirdNET analysis on a supplied WAV recording path and return
+#   Run BirdNET analysis on a supplied WAV recording path, generate one
+#   compact spectrogram package for the same recording, and return
 #   normalized BirdNET detection packages to the BirdNET dispatcher.
 #
 # Expected config source:
-#   None
+#   birdnet_config.json
 #
 # Expected config section:
-#   None
+#   spectrogram
 #
 # Does:
 #   - Validate the supplied WAV path
 #   - Call birdnet_analyzer.py
+#   - Coordinate spectrogram_manager.py
 #   - Convert BirdNET detections into normalized detection packages
+#   - Attach one serialized spectrogram package to each detection package
 #   - Preserve recording lineage
 #
 # Does NOT:
@@ -45,6 +48,7 @@ from __future__ import annotations
 # ============================================================
 
 from birdnet.birdnet_analyzer import analyze_wav
+from birdnet.spectrogram_manager import SpectrogramManager
 
 # ============================================================
 # IMPORT SUPPORT LIBRARIES
@@ -67,10 +71,16 @@ class BirdNetManager:
 
     def __init__(
         self,
-        debug=True
+        debug=True,
+        spectrogram_config=None
     ):
 
         self.debug = debug
+
+        self.spectrogram_manager = SpectrogramManager(
+            config=spectrogram_config,
+            debug=self.debug
+        )
 
     # ========================================================
     # DEBUG
@@ -94,7 +104,8 @@ class BirdNetManager:
     def build_detection_package(
         self,
         recording_id,
-        detection
+        detection,
+        spectrogram_package=None
     ):
 
         birdnet_event_utc = int(
@@ -105,7 +116,7 @@ class BirdNetManager:
             f"AVIS_{birdnet_event_utc}"
         )
 
-        return {
+        detection_package = {
             "birdnet_event_id": birdnet_event_id,
             "birdnet_event_utc": birdnet_event_utc,
             "recording_id": recording_id,
@@ -115,6 +126,10 @@ class BirdNetManager:
             ),
             "common_name": detection.get(
                 "common_name",
+                "unknown"
+            ),
+            "scientific_name": detection.get(
+                "scientific_name",
                 "unknown"
             ),
             "confidence": detection.get(
@@ -130,6 +145,15 @@ class BirdNetManager:
                 0.0
             )
         }
+
+        if isinstance(
+            spectrogram_package,
+            dict
+        ):
+
+            detection_package["spectrogram"] = spectrogram_package
+
+        return detection_package
 
     # ========================================================
     # MAIN PROCESSING
@@ -177,13 +201,26 @@ class BirdNetManager:
             min_conf=min_confidence
         )
 
+        if not detections:
+
+            self.log(
+                "No BirdNET detections returned; spectrogram was not attached"
+            )
+
+            return []
+
+        spectrogram_package = self.spectrogram_manager.build_spectrogram_package(
+            wav_path=wav_path
+        )
+
         detection_packages = []
 
         for detection in detections:
 
             detection_package = self.build_detection_package(
                 recording_id=recording_id,
-                detection=detection
+                detection=detection,
+                spectrogram_package=spectrogram_package
             )
 
             detection_packages.append(
