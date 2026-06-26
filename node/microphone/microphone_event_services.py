@@ -8,7 +8,7 @@ Responsibilities:
 - Register microphone subscriptions
 
 Canonical microphone event contract:
-- Subscribes: PPS_STATE, TDOA_REQUEST
+- Subscribes: PPS_STATE, GPS_STATE, TDOA_REQUEST
 - Publishes: RECORDING_AVAILABLE, TDOA_RECORDING, MICROPHONE_SYNCED
 
 This module intentionally contains no recording logic, timing logic,
@@ -17,7 +17,15 @@ state tracking, request decisions, or hardware access.
 
 from __future__ import annotations
 
+
+RECORDING_AVAILABLE = "RECORDING_AVAILABLE"
+TDOA_RECORDING = "TDOA_RECORDING"
 MICROPHONE_SYNCED = "MICROPHONE_SYNCED"
+
+PPS_STATE = "PPS_STATE"
+GPS_STATE = "GPS_STATE"
+TDOA_REQUEST = "TDOA_REQUEST"
+
 
 class MicrophoneEventServices:
 
@@ -91,7 +99,7 @@ class MicrophoneEventServices:
     def publish_tdoa_recording(self, event):
 
         self.publish(event)
-        
+
     def publish_microphone_synced(self, event):
 
         self.publish(event)
@@ -103,13 +111,20 @@ class MicrophoneEventServices:
     def subscribe_pps_state(self, callback):
 
         self.subscribe(
-            "PPS_STATE",
+            PPS_STATE,
+            callback
+        )
+
+    def subscribe_gps_state(self, callback):
+
+        self.subscribe(
+            GPS_STATE,
             callback
         )
 
     def subscribe_tdoa_request(self, callback):
 
         self.subscribe(
-            "TDOA_REQUEST",
+            TDOA_REQUEST,
             callback
         )

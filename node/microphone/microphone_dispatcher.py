@@ -8,13 +8,14 @@ Responsibilities:
 - Own recycler
 - Own microphone event services
 - Track PPS_STATE
+- Track GPS_STATE
 - Control normal recording timing
 - Control TDOA request recording
 - Control recycler timing
 
 Canonical microphone event contract:
-- Subscribes: PPS_STATE, TDOA_REQUEST
-- Publishes: RECORDING_AVAILABLE, TDOA_RECORDING
+- Subscribes: PPS_STATE, GPS_STATE, TDOA_REQUEST
+- Publishes: RECORDING_AVAILABLE, TDOA_RECORDING, MICROPHONE_SYNCED
 
 This module intentionally knows nothing about:
 - Audio hardware internals
@@ -89,13 +90,16 @@ class MicrophoneDispatcher:
         self.last_pps_state = {}
         self.last_pps_event_monotonic = None
 
-        self.running = False
+        self.gps_locked = False
+        self.last_gps_state = {}
 
-        self.last_recording_time = 0
+        self.running = False
         self.last_recycler_time = 0
 
         self.recording_index = {}
+        self.last_recorded_window_epoch = None
         self.consecutive_synced_windows = 0
+
     # --------------------------------------------------
     # Debug
     # --------------------------------------------------
@@ -121,9 +125,7 @@ class MicrophoneDispatcher:
     def start(self):
 
         self.log("Starting microphone subsystem")
-
         self.register_subscriptions()
-
         self.running = True
         self.run()
 
@@ -140,6 +142,10 @@ class MicrophoneDispatcher:
 
         self.event_services.subscribe_pps_state(
             self.handle_pps_state
+        )
+
+        self.event_services.subscribe_gps_state(
+            self.handle_gps_state
         )
 
         self.event_services.subscribe_tdoa_request(
@@ -184,6 +190,18 @@ class MicrophoneDispatcher:
             .replace("+00:00", "Z")
         )
 
+    def epoch_to_utc_timestamp(self, epoch):
+
+        return (
+            datetime.fromtimestamp(
+                float(epoch),
+                timezone.utc
+            )
+            .replace(microsecond=0)
+            .isoformat()
+            .replace("+00:00", "Z")
+        )
+
     # --------------------------------------------------
     # PPS State
     # --------------------------------------------------
@@ -197,6 +215,7 @@ class MicrophoneDispatcher:
             [
                 "pps_locked",
                 "pps_valid",
+                "pps_online",
                 "locked",
                 "online",
                 "enabled"
@@ -218,6 +237,10 @@ class MicrophoneDispatcher:
 
         self.pps_locked = bool(pps_locked)
 
+        snapshot = payload.get("snapshot", {})
+        if not isinstance(snapshot, dict):
+            snapshot = {}
+
         self.last_pps_state = {
             "event_type": "PPS_STATE",
             "timestamp": self.get_first_available(
@@ -237,7 +260,8 @@ class MicrophoneDispatcher:
             ),
             "pps_locked": self.pps_locked,
             "pps_valid": self.pps_locked,
-            "state": "LOCKED" if self.pps_locked else "UNLOCKED",
+            "pps_online": self.pps_locked,
+            "state": "LOCKED" if self.pps_locked else "LOST",
             "last_pps_utc": self.get_first_available(
                 payload,
                 [
@@ -247,16 +271,90 @@ class MicrophoneDispatcher:
                     "time_utc"
                 ]
             ),
-            "sequence": self.get_first_available(
+            "pps_seq": self.get_first_available(
                 payload,
-                ["sequence", "pps_sequence", "pulse_count"]
-            )
+                ["pps_seq", "sequence", "pps_sequence", "pulse_count"],
+                default=snapshot.get("pps_seq")
+            ),
+            "last_pps_kernel_time": self.get_first_available(
+                payload,
+                ["last_pps_kernel_time"],
+                default=snapshot.get("last_pps_kernel_time")
+            ),
+            "snapshot": snapshot
         }
 
         self.last_pps_event_monotonic = time.monotonic()
 
         self.log(
             f"PPS state updated: {self.last_pps_state['state']}"
+        )
+
+    # --------------------------------------------------
+    # GPS State
+    # --------------------------------------------------
+
+    def handle_gps_state(self, event):
+
+        payload = self.get_payload(event)
+
+        gps_locked = self.get_first_available(
+            payload,
+            [
+                "gps_locked",
+                "gps_online",
+                "fix_valid",
+                "locked",
+                "online",
+                "enabled"
+            ],
+            default=False
+        )
+
+        state_label = str(
+            payload.get("state", "")
+        ).upper()
+
+        if state_label in [
+            "LOCKED",
+            "ONLINE",
+            "READY",
+            "ENABLED"
+        ]:
+            gps_locked = True
+
+        self.gps_locked = bool(gps_locked)
+
+        snapshot = payload.get("snapshot", {})
+        if not isinstance(snapshot, dict):
+            snapshot = {}
+
+        self.last_gps_state = {
+            "event_type": "GPS_STATE",
+            "timestamp": self.get_first_available(
+                payload,
+                ["timestamp"],
+                default=self.get_utc_timestamp()
+            ),
+            "node_id": self.get_first_available(
+                payload,
+                ["node_id"],
+                default=self.node_id
+            ),
+            "node_name": self.get_first_available(
+                payload,
+                ["node_name"],
+                default=self.node_name
+            ),
+            "gps_locked": self.gps_locked,
+            "gps_online": self.gps_locked,
+            "fix_valid": self.gps_locked,
+            "state": "LOCKED" if self.gps_locked else "LOST",
+            "snapshot": snapshot
+        }
+
+        self.log(
+            f"GPS state updated: {self.last_gps_state['state']}"
         )
 
     def get_pps_state_snapshot(self):
@@ -270,7 +368,8 @@ class MicrophoneDispatcher:
             "node_name": self.node_name,
             "pps_locked": self.pps_locked,
             "pps_valid": self.pps_locked,
-            "state": "LOCKED" if self.pps_locked else "UNLOCKED"
+            "pps_online": self.pps_locked,
+            "state": "LOCKED" if self.pps_locked else "LOST"
         }
 
     # --------------------------------------------------
@@ -289,6 +388,16 @@ class MicrophoneDispatcher:
         if require_pps and not self.pps_locked:
             return False
 
+        require_gps = self.config.get(
+            "require_gps_lock_for_tdoa"
+            if for_tdoa
+            else "require_gps_lock",
+            require_pps
+        )
+
+        if require_gps and not self.gps_locked:
+            return False
+
         if self.config.get(
             "check_microphone_available_before_recording",
             False
@@ -298,19 +407,152 @@ class MicrophoneDispatcher:
         return True
 
     # --------------------------------------------------
-    # PPS Alignment
+    # Window Scheduling
+    # --------------------------------------------------
+
+    def get_recording_window_seconds(self):
+
+        configured = self.config.get(
+            "recording_window_seconds",
+            [0, 15, 30, 45]
+        )
+
+        seconds = []
+
+        for value in configured:
+            try:
+                second = int(value)
+            except Exception:
+                continue
+
+            if 0 <= second <= 59:
+                seconds.append(second)
+
+        if not seconds:
+            seconds = [0, 15, 30, 45]
+
+        return sorted(set(seconds))
+
+    def get_next_window_epoch(self, now_epoch=None):
+
+        if now_epoch is None:
+            now_epoch = time.time()
+
+        lead_seconds = float(
+            self.config.get(
+                "microphone_pps_lead_seconds",
+                0.05
+            )
+        )
+
+        search_epoch = now_epoch + lead_seconds
+        base_epoch = int(math.floor(search_epoch))
+        window_seconds = self.get_recording_window_seconds()
+
+        for offset in range(0, 125):
+            candidate_epoch = base_epoch + offset
+            candidate_dt = datetime.fromtimestamp(
+                candidate_epoch,
+                timezone.utc
+            )
+
+            if candidate_dt.second not in window_seconds:
+                continue
+
+            if candidate_epoch <= search_epoch:
+                continue
+
+            if candidate_epoch == self.last_recorded_window_epoch:
+                continue
+
+            return candidate_epoch
+
+        return None
+
+    def wait_for_microphone_sync_window(self):
+
+        if not self.recording_allowed(for_tdoa=False):
+            return "not_locked", None, None, None
+
+        if not self.config.get(
+            "align_recordings_to_pps_boundary",
+            True
+        ):
+            now_epoch = time.time()
+            now_dt = datetime.fromtimestamp(
+                now_epoch,
+                timezone.utc
+            )
+
+            return (
+                "local_clock",
+                now_epoch,
+                self.epoch_to_utc_timestamp(now_epoch),
+                now_dt.second
+            )
+
+        target_epoch = self.get_next_window_epoch()
+
+        if target_epoch is None:
+            return "no_window", None, None, None
+
+        while self.running:
+            if not self.recording_allowed(for_tdoa=False):
+                return "lost_lock", None, None, None
+
+            wait_seconds = target_epoch - time.time()
+
+            if wait_seconds <= 0:
+                break
+
+            time.sleep(
+                min(wait_seconds, 0.05)
+            )
+
+        if not self.running:
+            return "stopped", None, None, None
+
+        window_dt = datetime.fromtimestamp(
+            target_epoch,
+            timezone.utc
+        )
+
+        scheduled_start_utc = self.epoch_to_utc_timestamp(
+            target_epoch
+        )
+
+        return (
+            "pps_quarter_minute_window",
+            target_epoch,
+            scheduled_start_utc,
+            window_dt.second
+        )
+
+    # --------------------------------------------------
+    # TDOA Alignment
     # --------------------------------------------------
 
     def wait_for_pps_boundary_if_available(self, request_payload):
 
-        if not self.pps_locked:
-            return "local_clock", None
+        if not self.recording_allowed(for_tdoa=True):
+            return "not_locked", None, None, None
 
         if not self.config.get(
             "align_tdoa_to_pps_boundary",
             True
         ):
-            return "pps_locked_no_boundary_wait", None
+            now_epoch = time.time()
+            now_dt = datetime.fromtimestamp(
+                now_epoch,
+                timezone.utc
+            )
+
+            return (
+                "local_clock",
+                now_epoch,
+                self.epoch_to_utc_timestamp(now_epoch),
+                now_dt.second
+            )
 
         requested_epoch = self.get_first_available(
             request_payload,
@@ -336,59 +578,41 @@ class MicrophoneDispatcher:
         else:
             target_epoch = math.ceil(now + lead_seconds)
 
-        wait_seconds = target_epoch - now
+        while self.running:
+            if not self.recording_allowed(for_tdoa=True):
+                return "lost_lock", None, None, None
 
-        if wait_seconds > 0:
-            self.log(
-                f"Waiting {wait_seconds:.3f}s for PPS-aligned TDOA start"
+            wait_seconds = target_epoch - time.time()
+
+            if wait_seconds <= 0:
+                break
+
+            time.sleep(
+                min(wait_seconds, 0.05)
             )
-            time.sleep(wait_seconds)
 
-        scheduled_start_utc = (
-            datetime.fromtimestamp(target_epoch, timezone.utc)
-            .isoformat()
-            .replace("+00:00", "Z")
+        if not self.running:
+            return "stopped", None, None, None
+
+        scheduled_start_utc = self.epoch_to_utc_timestamp(
+            target_epoch
         )
 
-        return "pps_soft_boundary", scheduled_start_utc
+        window_second = datetime.fromtimestamp(
+            target_epoch,
+            timezone.utc
+        ).second
 
-    def wait_for_microphone_sync_window(
-        self
-    ):
-
-        if not self.pps_locked:
-            return "local_clock", None, None
-
-        if not self.config.get(
-            "align_recordings_to_pps_boundary",
-            True
-        ):
-            return "pps_locked_no_boundary_wait", None, None
-
-        lead_seconds = float(
-            self.config.get(
-                "microphone_pps_lead_seconds",
-                1.0
-            )
+        return (
+            "pps_tdoa_boundary",
+            target_epoch,
+            scheduled_start_utc,
+            window_second
         )
 
-        now = time.time()
-        target_epoch = math.ceil(now + lead_seconds)
-        wait_seconds = target_epoch - now
-
-        if wait_seconds > 0:
-            self.log(
-                f"Waiting {wait_seconds:.3f}s for microphone PPS sync window"
-            )
-            time.sleep(wait_seconds)
-
-        scheduled_start_utc = (
-            datetime.fromtimestamp(target_epoch, timezone.utc)
-            .isoformat()
-            .replace("+00:00", "Z")
-        )
-
-        return "pps_microphone_window", target_epoch, scheduled_start_utc
+    # --------------------------------------------------
+    # Sync Scoring
+    # --------------------------------------------------
 
     def calculate_microphone_sync_error_ms(
         self,
@@ -399,9 +623,7 @@ class MicrophoneDispatcher:
         if scheduled_start_epoch is None:
             return None
 
-        recording_epoch = recording.get(
-            "recording_epoch"
-        )
+        recording_epoch = recording.get("recording_epoch")
 
         if recording_epoch is None:
             return None
@@ -423,7 +645,13 @@ class MicrophoneDispatcher:
         if not self.pps_locked:
             return False
 
-        if sync_source != "pps_microphone_window":
+        if not self.gps_locked:
+            return False
+
+        if sync_source not in {
+            "pps_quarter_minute_window",
+            "pps_tdoa_boundary"
+        }:
             return False
 
         if sync_error_ms is None:
@@ -479,9 +707,7 @@ class MicrophoneDispatcher:
             consecutive_synced_windows=self.consecutive_synced_windows
         )
 
-        self.event_services.publish_microphone_synced(
-            event
-        )
+        self.event_services.publish_microphone_synced(event)
 
         self.log(
             f"Published MICROPHONE_SYNCED: {event['recording_id']} "
@@ -498,7 +724,7 @@ class MicrophoneDispatcher:
 
         if not self.recording_allowed(for_tdoa=False):
             self.log(
-                "Recording skipped because recording is not allowed"
+                "Recording skipped because PPS/GPS lock is not available"
             )
             return None
 
@@ -507,15 +733,33 @@ class MicrophoneDispatcher:
         (
             sync_source,
             scheduled_start_epoch,
-            scheduled_start_utc
+            scheduled_start_utc,
+            window_second
         ) = self.wait_for_microphone_sync_window()
+
+        if scheduled_start_epoch is None:
+            self.log(
+                "Recording skipped because no synchronized window was available"
+            )
+            return None
 
         recording = self.loop.record(
             duration_sec=self.config["recording_duration_sec"],
             recording_type="recording",
             pps_state=pps_state,
-            sync_source=sync_source
+            sync_source=sync_source,
+            scheduled_start_epoch=scheduled_start_epoch,
+            scheduled_start_utc=scheduled_start_utc,
+            window_second=window_second
         )
+
+        if recording is None:
+            self.log(
+                "Recording skipped because microphone loop returned None"
+            )
+            return None
+
+        self.last_recorded_window_epoch = scheduled_start_epoch
 
         event = self.manager.build_recording_available_event(
             recording=recording,
@@ -524,9 +768,7 @@ class MicrophoneDispatcher:
         )
 
         self.recording_index[event["recording_id"]] = event
-
         self.write_initial_metadata(event)
-
         self.event_services.publish_recording_available(event)
 
         self.maybe_publish_microphone_synced(
@@ -608,7 +850,7 @@ class MicrophoneDispatcher:
 
         if not self.recording_allowed(for_tdoa=True):
             self.log(
-                "TDOA_REQUEST received but TDOA recording is not allowed"
+                "TDOA_REQUEST received but PPS/GPS lock is not available"
             )
             return
 
@@ -618,11 +860,20 @@ class MicrophoneDispatcher:
             default=self.config["tdoa_recording_duration_sec"]
         )
 
-        sync_source, scheduled_start_utc = (
-            self.wait_for_pps_boundary_if_available(
-                request_payload
-            )
+        (
+            sync_source,
+            scheduled_start_epoch,
+            scheduled_start_utc,
+            window_second
+        ) = self.wait_for_pps_boundary_if_available(
+            request_payload
         )
+
+        if scheduled_start_epoch is None:
+            self.log(
+                "TDOA_REQUEST skipped because no synchronized start was available"
+            )
+            return
 
         recording = self.loop.record(
             duration_sec=duration_sec,
@@ -633,8 +884,14 @@ class MicrophoneDispatcher:
             ),
             pps_state=pps_state,
             sync_source=sync_source,
-            scheduled_start_utc=scheduled_start_utc
+            scheduled_start_epoch=scheduled_start_epoch,
+            scheduled_start_utc=scheduled_start_utc,
+            window_second=window_second
         )
+
+        if recording is None:
+            self.log("TDOA recording failed")
+            return
 
         tdoa_event = self.manager.build_tdoa_recording_event(
             recording=recording,
@@ -644,23 +901,8 @@ class MicrophoneDispatcher:
         )
 
         self.recording_index[tdoa_event["recording_id"]] = tdoa_event
-
         self.write_initial_metadata(tdoa_event)
-
         self.event_services.publish_tdoa_recording(tdoa_event)
-
-        scheduled_start_epoch = None
-
-        if scheduled_start_utc:
-            try:
-                scheduled_start_epoch = datetime.fromisoformat(
-                    scheduled_start_utc.replace(
-                        "Z",
-                        "+00:00"
-                    )
-                ).timestamp()
-            except Exception:
-                scheduled_start_epoch = None
 
         self.maybe_publish_microphone_synced(
             recording=recording,
@@ -687,6 +929,11 @@ class MicrophoneDispatcher:
             "recording_id": payload["recording_id"],
             "recording_utc": payload.get("recording_utc"),
             "recording_epoch": payload.get("recording_epoch"),
+            "scheduled_start_utc": payload.get("scheduled_start_utc"),
+            "scheduled_start_epoch": payload.get("scheduled_start_epoch"),
+            "window_utc": payload.get("window_utc"),
+            "window_epoch": payload.get("window_epoch"),
+            "window_second": payload.get("window_second"),
             "recording_path": payload.get("recording_path"),
             "wav_path": payload.get("wav_path"),
             "sample_rate": payload.get("sample_rate"),
@@ -720,18 +967,10 @@ class MicrophoneDispatcher:
     def save_metadata(self, metadata_path, metadata):
 
         metadata_path = Path(metadata_path)
-
-        metadata_path.parent.mkdir(
-            parents=True,
-            exist_ok=True
-        )
+        metadata_path.parent.mkdir(parents=True, exist_ok=True)
 
         with open(metadata_path, "w") as file:
-            json.dump(
-                metadata,
-                file,
-                indent=4
-            )
+            json.dump(metadata, file, indent=4)
 
     # --------------------------------------------------
     # Recycler
@@ -748,26 +987,25 @@ class MicrophoneDispatcher:
 
     def run(self):
 
-        self.last_recording_time = time.time()
         self.last_recycler_time = time.time()
 
         while self.running:
             now = time.time()
 
-            recording_interval = self.config[
-                "recording_interval_sec"
-            ]
-
             recycler_interval = self.config[
                 "recycler_interval_sec"
             ]
 
-            if now - self.last_recording_time >= recording_interval:
+            if self.recording_allowed(for_tdoa=False):
                 self.make_recording()
-                self.last_recording_time = now
+            else:
+                self.log(
+                    "Waiting for PPS/GPS lock before recording"
+                )
+                time.sleep(1)
+
+            now = time.time()
 
             if now - self.last_recycler_time >= recycler_interval:
                 self.run_recycler()
                 self.last_recycler_time = now
-
-            time.sleep(1)

@@ -118,6 +118,15 @@ class TDOADispatcher:
 
         self.recent_avis_lite_events: List[dict] = []
 
+        self.processed_candidate_keys = set()
+
+        self.processed_candidate_key_order: List[str] = []
+
+        self.max_processed_candidate_keys = dispatcher_config.get(
+            "max_processed_candidate_keys",
+            500
+        )
+
         self.event_services = TDOAEventServices(
             event_bus=event_bus
         )
@@ -689,8 +698,9 @@ class TDOADispatcher:
         """
         Ask candidate_filter.py whether a valid TDOA candidate exists.
 
-        Dispatcher only calls TDOA_manager.py after candidate_filter.py
-        returns a valid candidate.
+        Dispatcher only advances a candidate once. Duplicate candidate
+        detections are ignored so the same AVIS group does not repeatedly
+        trigger downstream workflow.
         """
 
         if not self.enable_candidate_filter:
@@ -722,64 +732,176 @@ class TDOADispatcher:
             )
             return
 
+        candidate_key = self._build_candidate_key(
+            candidate
+        )
+
+        if candidate_key in self.processed_candidate_keys:
+            logging.info(
+                "[TDOA] Duplicate candidate ignored: "
+                f"candidate_key={candidate_key}"
+            )
+            return
+
+        self._mark_candidate_processed(
+            candidate_key
+        )
+
         logging.info(
             "[TDOA] Candidate filter found candidate: "
             f"avis_lite_id={candidate.get('avis_lite_id')} "
             f"node_count={candidate.get('node_count')} "
             f"node_ids={candidate.get('node_ids')} "
-            f"time_spread={candidate.get('time_spread_seconds')}"
+            f"time_spread={candidate.get('time_spread_seconds')} "
+            f"candidate_key={candidate_key}"
         )
 
         self._handle_candidate_ready(
             candidate
         )
 
+    def _build_candidate_key(
+        self,
+        candidate: dict
+    ) -> str:
+        """
+        Build a stable duplicate-detection key for one candidate.
+        """
+
+        avis_lite_id = candidate.get(
+            "avis_lite_id",
+            "unknown_avis"
+        )
+
+        candidate_events = candidate.get(
+            "events",
+            []
+        )
+
+        event_key_parts = []
+
+        if isinstance(candidate_events, list):
+
+            for candidate_event in candidate_events:
+
+                if not isinstance(candidate_event, dict):
+                    continue
+
+                payload = candidate_event.get(
+                    "payload",
+                    {}
+                )
+
+                if not isinstance(payload, dict):
+                    payload = {}
+
+                node_id = candidate_event.get(
+                    "node_id",
+                    payload.get("node_id")
+                )
+
+                recording_id = candidate_event.get(
+                    "recording_id",
+                    payload.get("recording_id")
+                )
+
+                node_time = candidate_event.get(
+                    "node_time",
+                    payload.get("node_time")
+                )
+
+                try:
+                    node_time_key = round(
+                        float(node_time),
+                        3
+                    )
+
+                except (TypeError, ValueError):
+                    node_time_key = node_time
+
+                event_key_parts.append(
+                    f"{node_id}:{recording_id}:{node_time_key}"
+                )
+
+        if event_key_parts:
+            return (
+                f"{avis_lite_id}|"
+                +
+                "|".join(
+                    sorted(event_key_parts)
+                )
+            )
+
+        node_ids = candidate.get(
+            "node_ids",
+            []
+        )
+
+        if isinstance(node_ids, list):
+            node_id_key = ",".join(
+                sorted(node_ids)
+            )
+        else:
+            node_id_key = str(node_ids)
+
+        return (
+            f"{avis_lite_id}|"
+            f"{node_id_key}|"
+            f"{candidate.get('time_spread_seconds')}"
+        )
+
+    def _mark_candidate_processed(
+        self,
+        candidate_key: str
+    ) -> None:
+        """
+        Store candidate key and keep duplicate tracking bounded.
+        """
+
+        self.processed_candidate_keys.add(
+            candidate_key
+        )
+
+        self.processed_candidate_key_order.append(
+            candidate_key
+        )
+
+        while (
+            len(self.processed_candidate_key_order)
+            >
+            self.max_processed_candidate_keys
+        ):
+
+            oldest_key = self.processed_candidate_key_order.pop(
+                0
+            )
+
+            self.processed_candidate_keys.discard(
+                oldest_key
+            )
+
     def _handle_candidate_ready(
         self,
         candidate: dict
     ) -> None:
         """
-        Publish candidate and request TDOA estimate from manager.
+        Publish candidate readiness.
+
+        Do not call TDOA_manager.tdoa_estimate() here yet. The manager
+        cannot solve until TDOA_RECORDING events have been requested,
+        received, and stored.
         """
 
         self.event_services.publish_tdoa_candidate_ready(
             candidate
         )
 
-        self.event_services.publish_tdoa_calc_requested(
-            {
-                "avis_lite_id": candidate.get("avis_lite_id"),
-                "node_count": candidate.get("node_count"),
-                "node_ids": candidate.get("node_ids"),
-                "time_spread_seconds": candidate.get(
-                    "time_spread_seconds"
-                )
-            }
+        logging.info(
+            "[TDOA] Candidate ready. "
+            "Immediate solve skipped because TDOA_RECORDING request path "
+            "is not implemented yet. Next step is TDOA_REQUEST."
         )
-
-        try:
-
-            result = self.manager.tdoa_estimate(
-                candidate
-            )
-
-            self.event_services.publish_tdoa_calc_complete(
-                result
-            )
-
-        except Exception as error:
-
-            logging.exception(
-                "TDOA estimate failed."
-            )
-
-            self.event_services.publish_tdoa_calc_failed(
-                {
-                    "error": str(error),
-                    "candidate": candidate
-                }
-            )
-
+        
     # ========================================================
     # RECORDING / WEATHER HANDLING
     # ========================================================

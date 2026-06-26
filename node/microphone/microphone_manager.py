@@ -4,6 +4,7 @@ microphone_manager.py
 Responsibilities:
 - Build RECORDING_AVAILABLE events
 - Build TDOA_RECORDING events
+- Build MICROPHONE_SYNCED events
 - Normalize microphone recording objects into EnviroPulse event form
 
 This module intentionally knows nothing about:
@@ -103,7 +104,12 @@ class MicrophoneManager:
             "recording_type": recording.get("recording_type"),
             "sync_source": sync_source,
             "pps_locked": bool(pps_state.get("pps_locked", False)),
-            "pps_state": pps_state
+            "pps_state": pps_state,
+            "scheduled_start_utc": recording.get("scheduled_start_utc"),
+            "scheduled_start_epoch": recording.get("scheduled_start_epoch"),
+            "window_utc": recording.get("window_utc"),
+            "window_epoch": recording.get("window_epoch"),
+            "window_second": recording.get("window_second"),
         }
 
         return payload
@@ -139,6 +145,9 @@ class MicrophoneManager:
             "sync_state": "SYNCED",
             "scheduled_start_epoch": scheduled_start_epoch,
             "scheduled_start_utc": scheduled_start_utc,
+            "window_epoch": recording.get("window_epoch"),
+            "window_utc": recording.get("window_utc"),
+            "window_second": recording.get("window_second"),
             "sync_error_ms": sync_error_ms,
             "sync_window_ms": sync_window_ms,
             "consecutive_synced_windows": consecutive_synced_windows
@@ -150,8 +159,6 @@ class MicrophoneManager:
             "target": "server",
             "timestamp": timestamp,
             "payload": payload,
-
-            # Flat compatibility fields for older local callbacks.
             "event_id": payload["recording_id"],
             "recording_id": payload["recording_id"],
             "recording_utc": payload["recording_utc"],
@@ -161,7 +168,10 @@ class MicrophoneManager:
             "metadata_path": payload["metadata_path"],
             "microphone_synced": True,
             "sync_error_ms": sync_error_ms,
-            "sync_window_ms": sync_window_ms
+            "sync_window_ms": sync_window_ms,
+            "window_utc": payload.get("window_utc"),
+            "window_epoch": payload.get("window_epoch"),
+            "window_second": payload.get("window_second")
         }
 
         return event
@@ -191,14 +201,15 @@ class MicrophoneManager:
             "target": "birdnet",
             "timestamp": timestamp,
             "payload": payload,
-
-            # Flat compatibility fields for older local callbacks.
             "event_id": payload["recording_id"],
             "recording_id": payload["recording_id"],
             "recording_utc": payload["recording_utc"],
             "recording_path": payload["recording_path"],
             "wav_path": payload["wav_path"],
-            "metadata_path": payload["metadata_path"]
+            "metadata_path": payload["metadata_path"],
+            "window_utc": payload.get("window_utc"),
+            "window_epoch": payload.get("window_epoch"),
+            "window_second": payload.get("window_second")
         }
 
         return event
@@ -258,8 +269,6 @@ class MicrophoneManager:
             "target": "sender",
             "timestamp": timestamp,
             "payload": payload,
-
-            # Flat compatibility fields for older local callbacks.
             "event_id": payload["recording_id"],
             "tdoa_request_id": request_id,
             "request_id": request_id,
@@ -267,7 +276,10 @@ class MicrophoneManager:
             "recording_utc": payload["recording_utc"],
             "recording_path": payload["recording_path"],
             "wav_path": payload["wav_path"],
-            "metadata_path": payload["metadata_path"]
+            "metadata_path": payload["metadata_path"],
+            "window_utc": payload.get("window_utc"),
+            "window_epoch": payload.get("window_epoch"),
+            "window_second": payload.get("window_second")
         }
 
         return event

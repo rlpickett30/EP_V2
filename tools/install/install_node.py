@@ -133,18 +133,21 @@ DEFAULT_MICROPHONE_CONFIG = {
     "sample_rate": DEFAULT_MIC_SAMPLE_RATE,
     "channels": DEFAULT_MIC_CHANNELS,
     "recording_duration_sec": 15,
-    "recording_interval_sec": 300,
-    "tdoa_recording_duration_sec": 10,
+    "recording_interval_sec": 15,
+    "recording_window_seconds": [0, 15, 30, 45],
+    "tdoa_recording_duration_sec": 15,
     "tdoa_pps_lead_seconds": 1.0,
     "align_tdoa_to_pps_boundary": True,
     "align_recordings_to_pps_boundary": True,
-    "microphone_pps_lead_seconds": 1.0,
+    "microphone_pps_lead_seconds": 0.05,
     "microphone_sync_window_ms": 250.0,
     "storage_retention_days": 7,
     "bird_recording_retention_days": 30,
     "recycler_interval_sec": 3600,
-    "require_pps_lock": False,
-    "require_pps_lock_for_tdoa": False,
+    "require_pps_lock": True,
+    "require_gps_lock": True,
+    "require_pps_lock_for_tdoa": True,
+    "require_gps_lock_for_tdoa": True,
     "check_microphone_available_before_recording": False,
     "debug": True,
 }
@@ -881,16 +884,27 @@ def build_microphone_config(
     config["debug"] = answers["debug"]
 
     config.setdefault("recordings_root", "recordings")
-    config.setdefault("recording_duration_sec", 15)
-    config.setdefault("recording_interval_sec", 30)
-    config.setdefault("tdoa_recording_duration_sec", 10)
+
+    config["recording_duration_sec"] = 15
+    config["recording_interval_sec"] = 15
+    config["recording_window_seconds"] = [0, 15, 30, 45]
+
+    config["tdoa_recording_duration_sec"] = 15
     config.setdefault("tdoa_pps_lead_seconds", 1.0)
     config.setdefault("align_tdoa_to_pps_boundary", True)
+
+    config["align_recordings_to_pps_boundary"] = True
+    config["microphone_pps_lead_seconds"] = 0.05
+    config.setdefault("microphone_sync_window_ms", 250.0)
+
     config.setdefault("storage_retention_days", 7)
     config.setdefault("bird_recording_retention_days", 30)
     config.setdefault("recycler_interval_sec", 3600)
-    config.setdefault("require_pps_lock", False)
-    config.setdefault("require_pps_lock_for_tdoa", False)
+
+    config["require_pps_lock"] = True
+    config["require_gps_lock"] = True
+    config["require_pps_lock_for_tdoa"] = True
+    config["require_gps_lock_for_tdoa"] = True
     config.setdefault("check_microphone_available_before_recording", False)
 
     return config

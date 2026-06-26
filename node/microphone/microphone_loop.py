@@ -36,7 +36,7 @@ class MicrophoneLoop:
     def __init__(
         self,
         recordings_root="recordings",
-        sample_rate=96000,
+        sample_rate=48000,
         channels=1,
         debug=True
     ):
@@ -96,6 +96,27 @@ class MicrophoneLoop:
             .replace("+00:00", "Z")
         )
 
+    def epoch_to_utc_timestamp(self, epoch):
+
+        return (
+            datetime.fromtimestamp(
+                float(epoch),
+                timezone.utc
+            )
+            .replace(microsecond=0)
+            .isoformat()
+            .replace("+00:00", "Z")
+        )
+
+    def utc_timestamp_to_safe_name(self, timestamp):
+
+        return (
+            str(timestamp)
+            .replace(":", "-")
+            .replace("+00-00", "")
+            .replace("Z", "")
+        )
+
     # --------------------------------------------------
     # Directory Builder
     # --------------------------------------------------
@@ -103,22 +124,41 @@ class MicrophoneLoop:
     def build_recording_path(
         self,
         recording_type="recording",
-        recording_id=None
+        recording_id=None,
+        scheduled_start_epoch=None,
+        scheduled_start_utc=None
     ):
 
-        now = datetime.now(timezone.utc)
-        epoch = int(now.timestamp())
+        if scheduled_start_epoch is not None:
+            window_time = datetime.fromtimestamp(
+                float(scheduled_start_epoch),
+                timezone.utc
+            )
+        else:
+            window_time = datetime.now(timezone.utc)
+
+        epoch = int(window_time.timestamp())
 
         if recording_id is None:
-            recording_id = (
-                f"{recording_type}_{epoch}_{uuid.uuid4().hex[:8]}"
-            )
+            if scheduled_start_utc:
+                safe_window = self.utc_timestamp_to_safe_name(
+                    scheduled_start_utc
+                )
+
+                recording_id = (
+                    f"{recording_type}_{safe_window}"
+                )
+
+            else:
+                recording_id = (
+                    f"{recording_type}_{epoch}_{uuid.uuid4().hex[:8]}"
+                )
 
         recording_dir = (
             self.recordings_root
-            / now.strftime("%Y")
-            / now.strftime("%m")
-            / now.strftime("%d")
+            / window_time.strftime("%Y")
+            / window_time.strftime("%m")
+            / window_time.strftime("%d")
         )
 
         recording_dir.mkdir(
@@ -164,14 +204,23 @@ class MicrophoneLoop:
         request_id=None,
         pps_state=None,
         sync_source="local_clock",
-        scheduled_start_utc=None
+        scheduled_start_epoch=None,
+        scheduled_start_utc=None,
+        window_second=None
     ):
 
         duration_sec = float(duration_sec)
         frame_count = int(duration_sec * self.sample_rate)
 
+        if scheduled_start_epoch is not None and scheduled_start_utc is None:
+            scheduled_start_utc = self.epoch_to_utc_timestamp(
+                scheduled_start_epoch
+            )
+
         paths = self.build_recording_path(
-            recording_type=recording_type
+            recording_type=recording_type,
+            scheduled_start_epoch=scheduled_start_epoch,
+            scheduled_start_utc=scheduled_start_utc
         )
 
         recording_started_monotonic = time.monotonic()
@@ -202,6 +251,11 @@ class MicrophoneLoop:
             "recording_id": paths["recording_id"],
             "recording_utc": recording_utc,
             "recording_epoch": recording_epoch,
+            "scheduled_start_utc": scheduled_start_utc,
+            "scheduled_start_epoch": scheduled_start_epoch,
+            "window_utc": scheduled_start_utc,
+            "window_epoch": scheduled_start_epoch,
+            "window_second": window_second,
             "wav_path": paths["wav_path"],
             "metadata_path": paths["metadata_path"],
             "sample_rate": self.sample_rate,
@@ -211,7 +265,6 @@ class MicrophoneLoop:
             "recording_type": recording_type,
             "request_id": request_id,
             "sync_source": sync_source,
-            "scheduled_start_utc": scheduled_start_utc,
             "pps_state": pps_state or {},
             "started_monotonic": recording_started_monotonic,
             "finished_monotonic": recording_finished_monotonic

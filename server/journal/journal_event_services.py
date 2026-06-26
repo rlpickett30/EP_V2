@@ -143,7 +143,6 @@ class JournalEventServices:
 #        "PPS_STATE",
         "ENVIRO_STATE",
         "NODE_TDOA_STATE",
-#        "NODE_STATE_UPDATED",
         
         "AVIS_LITE",
         "EVENT_QUEUED",
