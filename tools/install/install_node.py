@@ -882,7 +882,7 @@ def build_microphone_config(
 
     config.setdefault("recordings_root", "recordings")
     config.setdefault("recording_duration_sec", 15)
-    config.setdefault("recording_interval_sec", 300)
+    config.setdefault("recording_interval_sec", 30)
     config.setdefault("tdoa_recording_duration_sec", 10)
     config.setdefault("tdoa_pps_lead_seconds", 1.0)
     config.setdefault("align_tdoa_to_pps_boundary", True)

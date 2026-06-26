@@ -74,6 +74,7 @@ from TDOA.TDOA_manager import TDOAManager
 import json
 import logging
 
+from datetime import datetime
 from pathlib import Path
 from typing import Optional, List
 
@@ -517,24 +518,167 @@ class TDOADispatcher:
         event: dict
     ) -> None:
         """
-        Maintain bounded recent avis_lite history.
+        Normalize and store bounded recent avis_lite history.
+
+        CandidateFilter expects top-level:
+            node_id
+            avis_lite_id
+            node_time
+
+        Current AVIS_LITE payload provides:
+            node_id
+            species_code
+            recording_utc
+            birdnet_start_time
+            birdnet_event_id
         """
 
-        self.recent_avis_lite_events.append(
+        payload = event.get(
+            "payload",
             event
+        )
+
+        if not isinstance(payload, dict):
+            logging.warning(
+                "[TDOA] Rejected AVIS_LITE event with non-dict payload."
+            )
+            return
+
+        node_id = payload.get(
+            "node_id",
+            event.get("node_id")
+        )
+
+        species_code = payload.get(
+            "species_code"
+        )
+
+        species_common = payload.get(
+            "species_common"
+        )
+
+        birdnet_event_id = payload.get(
+            "birdnet_event_id"
+        )
+
+        recording_id = payload.get(
+            "recording_id"
+        )
+
+        recording_utc = payload.get(
+            "recording_utc"
+        )
+
+        birdnet_start_time = payload.get(
+            "birdnet_start_time",
+            0.0
+        )
+
+        birdnet_event_utc = payload.get(
+            "birdnet_event_utc"
+        )
+
+        recording_epoch = self._parse_utc_epoch(
+            recording_utc
+        )
+
+        try:
+            birdnet_start_time = float(
+                birdnet_start_time
+            )
+        except (TypeError, ValueError):
+            birdnet_start_time = 0.0
+
+        if recording_epoch is not None:
+            node_time = (
+                recording_epoch
+                +
+                birdnet_start_time
+            )
+        else:
+            node_time = birdnet_event_utc
+
+        avis_lite_id = species_code
+
+        if avis_lite_id is None:
+            avis_lite_id = species_common
+
+        if avis_lite_id is None:
+            avis_lite_id = birdnet_event_id
+
+        normalized_event = {
+            "event_type": event.get("event_type"),
+            "source": event.get("source"),
+            "node_id": node_id,
+            "avis_lite_id": avis_lite_id,
+            "node_time": node_time,
+            "species_code": species_code,
+            "species_common": species_common,
+            "birdnet_event_id": birdnet_event_id,
+            "recording_id": recording_id,
+            "recording_utc": recording_utc,
+            "birdnet_start_time": birdnet_start_time,
+            "birdnet_event_utc": birdnet_event_utc,
+            "payload": payload,
+            "raw_event": event
+        }
+
+        self.recent_avis_lite_events.append(
+            normalized_event
+        )
+
+        logging.info(
+            "[TDOA] Stored AVIS_LITE for candidate filter: "
+            f"node_id={normalized_event.get('node_id')} "
+            f"avis_lite_id={normalized_event.get('avis_lite_id')} "
+            f"node_time={normalized_event.get('node_time')} "
+            f"species={normalized_event.get('species_common')} "
+            f"birdnet_start={normalized_event.get('birdnet_start_time')} "
+            f"recording_id={normalized_event.get('recording_id')} "
+            f"recent_count={len(self.recent_avis_lite_events)}"
         )
 
         if len(self.recent_avis_lite_events) > self.max_recent_avis_lite_events:
 
             overflow = (
                 len(self.recent_avis_lite_events)
-                - self.max_recent_avis_lite_events
+                -
+                self.max_recent_avis_lite_events
             )
 
             self.recent_avis_lite_events = self.recent_avis_lite_events[
                 overflow:
             ]
 
+    def _parse_utc_epoch(
+        self,
+        utc_value
+    ):
+        """
+        Convert an ISO UTC string into epoch seconds.
+
+        Expected example:
+            2026-06-26T18:59:28.001058Z
+        """
+
+        if not isinstance(utc_value, str):
+            return None
+
+        try:
+            normalized_utc = utc_value.replace(
+                "Z",
+                "+00:00"
+            )
+
+            return datetime.fromisoformat(
+                normalized_utc
+            ).timestamp()
+
+        except (TypeError, ValueError):
+            logging.warning(
+                f"[TDOA] Could not parse UTC timestamp: {utc_value}"
+            )
+            return None
     # ========================================================
     # CANDIDATE FILTER FLOW
     # ========================================================
@@ -550,9 +694,19 @@ class TDOADispatcher:
         """
 
         if not self.enable_candidate_filter:
+            logging.info(
+                "[TDOA] Candidate filter skipped: enable_candidate_filter=False"
+            )
             return
 
         state_snapshot = self.state_manager.get_state_snapshot()
+
+        logging.info(
+            "[TDOA] Candidate filter check: "
+            f"allowed={state_snapshot.get('candidate_filter_allowed')} "
+            f"recent_avis={len(self.recent_avis_lite_events)} "
+            f"capable_nodes={state_snapshot.get('tdoa_capable_node_ids')}"
+        )
 
         if not state_snapshot.get("candidate_filter_allowed", False):
             return
@@ -563,7 +717,18 @@ class TDOADispatcher:
         )
 
         if candidate is None:
+            logging.info(
+                "[TDOA] Candidate filter found no candidate."
+            )
             return
+
+        logging.info(
+            "[TDOA] Candidate filter found candidate: "
+            f"avis_lite_id={candidate.get('avis_lite_id')} "
+            f"node_count={candidate.get('node_count')} "
+            f"node_ids={candidate.get('node_ids')} "
+            f"time_spread={candidate.get('time_spread_seconds')}"
+        )
 
         self._handle_candidate_ready(
             candidate

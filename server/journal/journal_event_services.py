@@ -116,10 +116,10 @@ class JournalEventServices:
 
     SUBSCRIPTIONS = [
 
-        "REGISTRY_UPDATED",
+#        "REGISTRY_UPDATED",
         "SERVER_NODE_REGISTER",
         
-        "DATABASE_UPDATED",
+#        "DATABASE_UPDATED",
 
         "GUI_REGISTER",
         "NODE_REGISTER",
@@ -130,20 +130,20 @@ class JournalEventServices:
         "TDOA_CHANGE_MODE",
         "TDOA_MODE_UPDATED",
         "TDOA_NODE_STATE_UPDATED",
-        "NODE_STATE_UPDATED",
+#        "NODE_STATE_UPDATED",
         "NODE_TDOA_STATE",
         
-        "COMMUNICATION_STATE",
+#        "COMMUNICATION_STATE",
         "SEND_NODE_CHANGE_MODE",
         "COMMUNICATION_CHANGE_MODE",
-        "EVENT_SENT",
+#        "EVENT_SENT",
         
-        "RTK_STATE",
-        "GPS_STATE",
-        "PPS_STATE",
+#        "RTK_STATE",
+#        "GPS_STATE",
+#        "PPS_STATE",
         "ENVIRO_STATE",
         "NODE_TDOA_STATE",
-        "NODE_STATE_UPDATED",
+#        "NODE_STATE_UPDATED",
         
         "AVIS_LITE",
         "EVENT_QUEUED",

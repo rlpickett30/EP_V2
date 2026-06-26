@@ -28,7 +28,7 @@
     },
 
     "candidate_filter": {
-        "avis_lite_match_window_seconds": 0.050,
+        "avis_lite_match_window_seconds": 15.0,
         "min_matching_nodes": 4,
         "max_candidate_age_seconds": 2.0,
         "prefer_largest_group": true,

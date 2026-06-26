@@ -165,7 +165,37 @@ class TDOAEventServices:
         logging.info(
             "[TDOA_EVENT_SERVICES] Subscribed to NODE_TDOA_STATE"
         )
-
+        
+        self.event_bus.subscribe(
+            AVIS_LITE,
+            lambda payload: dispatcher.handle_event(
+                self._build_inbound_event(
+                    event_name=AVIS_LITE,
+                    payload=payload
+                )
+            )
+        )
+        
+        self.event_bus.subscribe(
+            TDOA_RECORDING,
+            lambda payload: dispatcher.handle_event(
+                self._build_inbound_event(
+                    event_name=TDOA_RECORDING,
+                    payload=payload
+                )
+            )
+        )
+        
+        self.event_bus.subscribe(
+            WEATHER_UPDATE,
+            lambda payload: dispatcher.handle_event(
+                self._build_inbound_event(
+                    event_name=WEATHER_UPDATE,
+                    payload=payload
+                )
+            )
+        )
+        
     # ========================================================
     # PUBLICATIONS
     # ========================================================
