@@ -66,21 +66,31 @@ import numpy as np
 # MODULE DEFAULTS
 # ============================================================
 
+# Server -> GUI still uses UDP datagrams.
+# The image is nested inside a larger SERVER_AVIS_LITE JSON envelope, so the
+# base64 PNG must stay well below the theoretical UDP ceiling.
+HARD_MAX_WIDTH = 160
+HARD_MAX_HEIGHT = 64
+HARD_MAX_DURATION_SEC = 12.0
+HARD_MAX_FREQUENCY_HZ = 6000.0
+HARD_IMAGE_PAYLOAD_CHARS = 18000
+
+
 DEFAULT_CONFIG = {
     "enabled": True,
-    "max_width": 240,
-    "height": 96,
+    "max_width": HARD_MAX_WIDTH,
+    "height": HARD_MAX_HEIGHT,
     "fft_size": 1024,
     "hop_length": 256,
-    "max_duration_sec": 14.5,
+    "max_duration_sec": HARD_MAX_DURATION_SEC,
     "min_frequency_hz": 0.0,
-    "max_frequency_hz": 6000.0,
+    "max_frequency_hz": HARD_MAX_FREQUENCY_HZ,
     "db_floor": 85.0,
     "gamma": 0.65,
     "black_level": 0.08,
     "color_mode": "classic",
-    "max_payload_chars": 45000,
-    "transport_max_payload_chars": 45000,
+    "max_payload_chars": HARD_IMAGE_PAYLOAD_CHARS,
+    "transport_max_payload_chars": HARD_IMAGE_PAYLOAD_CHARS,
     "adaptive_payload_resize": True,
     "debug": True
 }
@@ -288,10 +298,7 @@ class SpectrogramManager:
             sample_width = wav_file.getsampwidth()
             frame_count = wav_file.getnframes()
 
-            max_duration_sec = self.get_float(
-                "max_duration_sec",
-                DEFAULT_CONFIG["max_duration_sec"]
-            )
+            max_duration_sec = self.get_effective_max_duration_sec()
 
             if max_duration_sec > 0:
 
@@ -521,15 +528,9 @@ class SpectrogramManager:
             DEFAULT_CONFIG["hop_length"]
         )
 
-        max_width = self.get_int(
-            "max_width",
-            DEFAULT_CONFIG["max_width"]
-        )
+        max_width = self.get_effective_max_width()
 
-        height = self.get_int(
-            "height",
-            DEFAULT_CONFIG["height"]
-        )
+        height = self.get_effective_height()
 
         if fft_size < 64:
             fft_size = 64
@@ -664,6 +665,10 @@ class SpectrogramManager:
     ) -> np.ndarray:
         """
         Select the frequency band shown in the spectrogram.
+
+        The user config may request a wider display, but AVIS_LITE thumbnails
+        are UDP-envelope constrained. Hard-capping to the bird-call band keeps
+        the image smaller and more useful for the GUI panel.
         """
 
         min_frequency_hz = self.get_float(
@@ -671,19 +676,8 @@ class SpectrogramManager:
             DEFAULT_CONFIG["min_frequency_hz"]
         )
 
-        max_frequency_hz = self.get_float(
-            "max_frequency_hz",
-            DEFAULT_CONFIG["max_frequency_hz"]
-        )
-
-        nyquist = sample_rate / 2.0
-
-        if max_frequency_hz <= 0:
-            max_frequency_hz = nyquist
-
-        max_frequency_hz = min(
-            max_frequency_hz,
-            nyquist
+        max_frequency_hz = self.get_effective_max_frequency_hz(
+            sample_rate=sample_rate
         )
 
         return (
@@ -941,9 +935,11 @@ class SpectrogramManager:
         """
         Encode a spectrogram image as base64 and shrink it when needed.
 
-        UDP has to carry the entire AVIS_LITE JSON envelope, not just the
-        image. This keeps the GUI spectrogram contract intact while reducing
-        the chance of oversize UDP packets.
+        The server wraps AVIS_LITE into SERVER_AVIS_LITE before sending it to
+        the GUI. That wrapper adds enough JSON overhead that a 40k image can
+        still fail on Windows UDP with WinError 10040. This method therefore
+        uses a hard image budget and keeps shrinking until the base64 PNG is
+        comfortably transport-safe.
         """
 
         max_payload_chars = self.get_effective_payload_limit()
@@ -961,7 +957,17 @@ class SpectrogramManager:
 
         if adaptive_resize:
 
-            for scale in (0.85, 0.70, 0.55, 0.45, 0.35):
+            for scale in (
+                0.90,
+                0.80,
+                0.70,
+                0.60,
+                0.50,
+                0.42,
+                0.35,
+                0.28,
+                0.22
+            ):
 
                 candidates.append(
                     self.resize_image_nearest(
@@ -990,13 +996,17 @@ class SpectrogramManager:
 
             if max_payload_chars <= 0 or len(image_b64) <= max_payload_chars:
 
-                if candidate is not image_array:
+                if (
+                    candidate.shape[0] != image_array.shape[0]
+                    or candidate.shape[1] != image_array.shape[1]
+                ):
 
                     self.log(
                         (
-                            "Spectrogram resized for payload safety: "
+                            "Spectrogram resized for server-GUI UDP safety: "
                             f"{candidate.shape[1]}x{candidate.shape[0]}, "
-                            f"{len(image_b64)} base64 chars."
+                            f"{len(image_b64)} base64 chars; "
+                            f"target={max_payload_chars}."
                         )
                     )
 
@@ -1296,11 +1306,8 @@ class SpectrogramManager:
         """
         Return the payload limit used for the base64 PNG string.
 
-        The GUI receives the spectrogram inside a larger AVIS_LITE JSON
-        envelope over UDP, so the image string must stay well below the
-        theoretical UDP packet ceiling.  If an older config still says
-        65000, this safety cap keeps the image transport-sized without
-        requiring an immediate config migration.
+        Config values are treated as requests, not guarantees. The hard cap is
+        what protects the server -> GUI UDP hop from WinError 10040.
         """
 
         configured_limit = self.get_int(
@@ -1313,15 +1320,110 @@ class SpectrogramManager:
             DEFAULT_CONFIG["transport_max_payload_chars"]
         )
 
-        if configured_limit <= 0:
-            return transport_limit
+        positive_limits = [
+            value
+            for value in (
+                configured_limit,
+                transport_limit,
+                HARD_IMAGE_PAYLOAD_CHARS
+            )
+            if value > 0
+        ]
 
-        if transport_limit <= 0:
-            return configured_limit
+        if not positive_limits:
+
+            return HARD_IMAGE_PAYLOAD_CHARS
 
         return min(
-            configured_limit,
-            transport_limit
+            positive_limits
+        )
+
+    def get_effective_max_width(self) -> int:
+        """
+        Return UDP-safe maximum image width.
+        """
+
+        configured_width = self.get_int(
+            "max_width",
+            DEFAULT_CONFIG["max_width"]
+        )
+
+        if configured_width <= 0:
+
+            configured_width = HARD_MAX_WIDTH
+
+        return max(
+            1,
+            min(
+                configured_width,
+                HARD_MAX_WIDTH
+            )
+        )
+
+    def get_effective_height(self) -> int:
+        """
+        Return UDP-safe maximum image height.
+        """
+
+        configured_height = self.get_int(
+            "height",
+            DEFAULT_CONFIG["height"]
+        )
+
+        if configured_height <= 0:
+
+            configured_height = HARD_MAX_HEIGHT
+
+        return max(
+            1,
+            min(
+                configured_height,
+                HARD_MAX_HEIGHT
+            )
+        )
+
+    def get_effective_max_duration_sec(self) -> float:
+        """
+        Return UDP-safe maximum audio duration shown in the thumbnail.
+        """
+
+        configured_duration = self.get_float(
+            "max_duration_sec",
+            DEFAULT_CONFIG["max_duration_sec"]
+        )
+
+        if configured_duration <= 0:
+
+            return HARD_MAX_DURATION_SEC
+
+        return min(
+            configured_duration,
+            HARD_MAX_DURATION_SEC
+        )
+
+    def get_effective_max_frequency_hz(
+        self,
+        sample_rate: int
+    ) -> float:
+        """
+        Return UDP-safe maximum displayed frequency.
+        """
+
+        configured_max_frequency = self.get_float(
+            "max_frequency_hz",
+            DEFAULT_CONFIG["max_frequency_hz"]
+        )
+
+        nyquist = float(sample_rate) / 2.0
+
+        if configured_max_frequency <= 0:
+
+            configured_max_frequency = nyquist
+
+        return min(
+            configured_max_frequency,
+            HARD_MAX_FREQUENCY_HZ,
+            nyquist
         )
 
     def get_int(
