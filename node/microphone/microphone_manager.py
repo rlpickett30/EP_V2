@@ -97,6 +97,11 @@ class MicrophoneManager:
             "recording_path": str(recording.get("wav_path")),
             "wav_path": str(recording.get("wav_path")),
             "metadata_path": str(recording.get("metadata_path")),
+            "spectrogram_path": (
+                str(recording.get("spectrogram_path"))
+                if recording.get("spectrogram_path")
+                else None
+            ),
             "sample_rate": recording.get("sample_rate"),
             "channels": recording.get("channels"),
             "duration_sec": recording.get("duration_sec"),
@@ -110,6 +115,10 @@ class MicrophoneManager:
             "window_utc": recording.get("window_utc"),
             "window_epoch": recording.get("window_epoch"),
             "window_second": recording.get("window_second"),
+            "start_error_ms": recording.get("start_error_ms"),
+            "actual_duration_sec": recording.get("actual_duration_sec"),
+            "device": recording.get("device"),
+            "microphone_type": recording.get("microphone_type"),
         }
 
         return payload
@@ -166,6 +175,7 @@ class MicrophoneManager:
             "recording_path": payload["recording_path"],
             "wav_path": payload["wav_path"],
             "metadata_path": payload["metadata_path"],
+            "spectrogram_path": payload.get("spectrogram_path"),
             "microphone_synced": True,
             "sync_error_ms": sync_error_ms,
             "sync_window_ms": sync_window_ms,
@@ -207,6 +217,7 @@ class MicrophoneManager:
             "recording_path": payload["recording_path"],
             "wav_path": payload["wav_path"],
             "metadata_path": payload["metadata_path"],
+            "spectrogram_path": payload.get("spectrogram_path"),
             "window_utc": payload.get("window_utc"),
             "window_epoch": payload.get("window_epoch"),
             "window_second": payload.get("window_second")
@@ -277,6 +288,7 @@ class MicrophoneManager:
             "recording_path": payload["recording_path"],
             "wav_path": payload["wav_path"],
             "metadata_path": payload["metadata_path"],
+            "spectrogram_path": payload.get("spectrogram_path"),
             "window_utc": payload.get("window_utc"),
             "window_epoch": payload.get("window_epoch"),
             "window_second": payload.get("window_second")

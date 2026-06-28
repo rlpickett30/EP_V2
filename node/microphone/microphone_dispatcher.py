@@ -64,6 +64,7 @@ class MicrophoneDispatcher:
             recordings_root=self.config["recordings_root"],
             sample_rate=self.config["sample_rate"],
             channels=self.config["channels"],
+            device=self.config.get("device"),
             debug=self.debug
         )
 

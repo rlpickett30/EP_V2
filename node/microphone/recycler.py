@@ -201,6 +201,17 @@ class Recycler:
                 )
 
             try:
+                spectrogram_path = wav_path.with_suffix(".png")
+
+                if spectrogram_path.exists():
+                    spectrogram_path.unlink()
+
+            except Exception as error:
+                self.log(
+                    f"Spectrogram delete failed: {error}"
+                )
+
+            try:
                 if metadata_path.exists():
                     metadata_path.unlink()
 

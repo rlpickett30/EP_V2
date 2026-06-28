@@ -1,22 +1,7 @@
 {
-    "node_01": {
-        "node_id": "node_01",
-        "created_by": "node_repository",
-        "created_at_utc": "2026-06-28T17:13:11.950275"
-    },
-    "node_02": {
-        "node_id": "node_02",
-        "created_by": "node_repository",
-        "created_at_utc": "2026-06-28T17:13:23.508925"
-    },
-    "node_03": {
-        "node_id": "node_03",
-        "created_by": "node_repository",
-        "created_at_utc": "2026-06-28T17:13:32.453000"
-    },
     "node_04": {
         "node_id": "node_04",
         "created_by": "node_repository",
-        "created_at_utc": "2026-06-28T17:13:43.716236"
+        "created_at_utc": "2026-06-28T18:09:17.174448"
     }
 }

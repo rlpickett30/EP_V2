@@ -74,11 +74,15 @@ DEFAULT_SEND_PORT = 5005
 DEFAULT_MICROPHONE_TYPE = "USB"
 DEFAULT_MIC_SAMPLE_RATE = 48000
 DEFAULT_MIC_CHANNELS = 1
+DEFAULT_MIC_DEVICE = 2
+DEFAULT_RECORDING_DURATION_SEC = 14.5
+DEFAULT_RECORDING_INTERVAL_SEC = 15
 
 DEFAULT_PPS_GPIO_BCM = 4
 DEFAULT_PPS_PHYSICAL_PIN = 7
 
 DEFAULT_REGISTER_HEARTBEAT_SEC = 300
+DEFAULT_RTK_LOOP_DELAY_SEC = 5.0
 
 PPS_GPIO_TO_PHYSICAL_PIN = {
     4: 7,
@@ -130,11 +134,42 @@ DEFAULT_MICROPHONE_CONFIG = {
     "node_name": "auto",
     "microphone_type": DEFAULT_MICROPHONE_TYPE,
     "recordings_root": "recordings",
+    "device": DEFAULT_MIC_DEVICE,
     "sample_rate": DEFAULT_MIC_SAMPLE_RATE,
     "channels": DEFAULT_MIC_CHANNELS,
-    "recording_duration_sec": 15,
-    "recording_interval_sec": 15,
+    "microphones": {
+        "USB": {
+            "enabled": True,
+            "device": DEFAULT_MIC_DEVICE,
+            "sample_rate": DEFAULT_MIC_SAMPLE_RATE,
+            "channels": DEFAULT_MIC_CHANNELS,
+        },
+        "SPH0645": {
+            "enabled": False,
+            "device": None,
+            "sample_rate": DEFAULT_MIC_SAMPLE_RATE,
+            "channels": DEFAULT_MIC_CHANNELS,
+        },
+        "none": {
+            "enabled": False,
+            "device": None,
+            "sample_rate": DEFAULT_MIC_SAMPLE_RATE,
+            "channels": DEFAULT_MIC_CHANNELS,
+        },
+    },
+    "recording_duration_sec": DEFAULT_RECORDING_DURATION_SEC,
+    "recording_interval_sec": DEFAULT_RECORDING_INTERVAL_SEC,
     "recording_window_seconds": [0, 15, 30, 45],
+    "generate_spectrogram": True,
+    "spectrogram": {
+        "enabled": True,
+        "style": "purple_pink_yellow",
+        "cmap": "magma",
+        "max_frequency_hz": 6000,
+        "nfft": 2048,
+        "noverlap": 1536,
+        "dpi": 140,
+    },
     "tdoa_recording_duration_sec": 15,
     "tdoa_pps_lead_seconds": 1.0,
     "align_tdoa_to_pps_boundary": True,
@@ -156,7 +191,7 @@ DEFAULT_MICROPHONE_CONFIG = {
 DEFAULT_RTK_CONFIG = {
     "node_id": "auto",
     "node_name": "auto",
-    "loop_delay_sec": 1.0,
+    "loop_delay_sec": DEFAULT_RTK_LOOP_DELAY_SEC,
     "state_publish_interval_sec": 30,
     "gps": {
         "port": "/dev/ttyACM0",
@@ -420,6 +455,50 @@ def prompt_choice(
         print(f"Choose one of: {', '.join(choices)}")
 
 
+def prompt_microphone_type(default: str) -> str:
+
+    default = normalized_microphone_type(
+        default or DEFAULT_MICROPHONE_TYPE
+    )
+
+    menu = {
+        "1": "USB",
+        "2": "SPH0645",
+        "3": "none",
+        "usb": "USB",
+        "sph0645": "SPH0645",
+        "sph": "SPH0645",
+        "none": "none",
+        "off": "none",
+    }
+
+    reverse_default = {
+        "USB": "1",
+        "SPH0645": "2",
+        "none": "3",
+    }.get(default, "1")
+
+    while True:
+        print()
+        print("Microphone type:")
+        print("  1 = USB")
+        print("  2 = SPH0645")
+        print("  3 = none")
+
+        raw_value = prompt_text(
+            label="Selection",
+            default=reverse_default,
+            required=True,
+        )
+
+        value = menu.get(raw_value.strip().lower())
+
+        if value is not None:
+            return value
+
+        print("Choose 1, 2, or 3.")
+
+
 def prompt_csv_list(
     label: str,
     default_values: Optional[List[str]] = None,
@@ -507,6 +586,42 @@ def safe_existing_server_host(communication_config: Dict[str, Any]) -> str:
         return ""
 
     return value
+
+
+def get_microphone_section(
+    microphone_config: Dict[str, Any],
+    microphone_type: str,
+) -> Dict[str, Any]:
+
+    microphone_sections = microphone_config.get("microphones", {})
+
+    if not isinstance(microphone_sections, dict):
+        return {}
+
+    section = microphone_sections.get(microphone_type)
+
+    if isinstance(section, dict):
+        return section
+
+    section = microphone_sections.get(str(microphone_type).upper())
+
+    if isinstance(section, dict):
+        return section
+
+    return {}
+
+
+def normalized_microphone_type(value: str) -> str:
+
+    value = str(value or DEFAULT_MICROPHONE_TYPE).strip().upper()
+
+    if value in {"USB", "SPH0645"}:
+        return value
+
+    if value in {"NONE", "OFF", "DISABLED"}:
+        return "none"
+
+    return DEFAULT_MICROPHONE_TYPE
 
 
 # ------------------------------------------------------------
@@ -607,25 +722,26 @@ def collect_existing_defaults(
                 ),
             )
         ),
-        "microphone_type": str(
+        "microphone_type": normalized_microphone_type(
             microphone_config.get(
                 "microphone_type",
                 DEFAULT_MICROPHONE_TYPE,
             )
-        ).strip()
-        or DEFAULT_MICROPHONE_TYPE,
-        "sample_rate": int(
-            microphone_config.get(
-                "sample_rate",
-                DEFAULT_MIC_SAMPLE_RATE,
-            )
         ),
-        "channels": int(
-            microphone_config.get(
-                "channels",
-                DEFAULT_MIC_CHANNELS,
+        "device": int(
+            get_microphone_section(
+                microphone_config,
+                normalized_microphone_type(
+                    microphone_config.get("microphone_type", DEFAULT_MICROPHONE_TYPE)
+                ),
+            ).get(
+                "device",
+                microphone_config.get("device", DEFAULT_MIC_DEVICE),
             )
+            or DEFAULT_MIC_DEVICE
         ),
+        "sample_rate": DEFAULT_MIC_SAMPLE_RATE,
+        "channels": DEFAULT_MIC_CHANNELS,
         "base_node_ids": list(
             rtk_section.get(
                 "base_node_ids",
@@ -690,66 +806,18 @@ def run_wizard(
         required=True,
     )
 
-    listen_port = prompt_int(
-        label="Node UDP listen port",
-        default=defaults.get("listen_port", DEFAULT_LISTEN_PORT),
-        minimum=1,
-        maximum=65535,
-    )
+    listen_port = DEFAULT_LISTEN_PORT
+    send_port = DEFAULT_SEND_PORT
 
-    send_port = prompt_int(
-        label="Server UDP receive port",
-        default=defaults.get("send_port", DEFAULT_SEND_PORT),
-        minimum=1,
-        maximum=65535,
-    )
-
-    microphone_type = prompt_choice(
-        label="Microphone type",
-        choices=["USB", "SPH0645", "none"],
+    microphone_type = prompt_microphone_type(
         default=defaults.get("microphone_type", DEFAULT_MICROPHONE_TYPE),
     )
 
-    sample_rate_default = defaults.get("sample_rate", DEFAULT_MIC_SAMPLE_RATE)
-
-    if microphone_type == "sph0645":
-        sample_rate_default = DEFAULT_MIC_SAMPLE_RATE
-
-    sample_rate = prompt_int(
-        label="Microphone sample rate",
-        default=sample_rate_default,
-        minimum=8000,
-        maximum=192000,
-    )
-
-    channels = prompt_int(
-        label="Microphone channels",
-        default=defaults.get("channels", DEFAULT_MIC_CHANNELS),
-        minimum=1,
-        maximum=8,
-    )
-
-    pps_gpio_default = defaults.get("pps_gpio_bcm", DEFAULT_PPS_GPIO_BCM)
-
-    if microphone_type == "sph0645" and pps_gpio_default == 18:
-        print()
-        print("SPH0645 uses GPIO18 for I2S BCLK.")
-        print("Defaulting PPS GPIO to GPIO4 to avoid the I2S/PPS conflict.")
-        pps_gpio_default = DEFAULT_PPS_GPIO_BCM
-
-    pps_gpio_bcm = prompt_int(
-        label="PPS GPIO BCM pin",
-        default=pps_gpio_default,
-        minimum=0,
-        maximum=27,
-    )
-
-    pps_physical_pin = prompt_int(
-        label="PPS physical pin",
-        default=infer_pps_physical_pin(pps_gpio_bcm),
-        minimum=1,
-        maximum=40,
-    )
+    device = defaults.get("device", DEFAULT_MIC_DEVICE)
+    sample_rate = DEFAULT_MIC_SAMPLE_RATE
+    channels = DEFAULT_MIC_CHANNELS
+    pps_gpio_bcm = DEFAULT_PPS_GPIO_BCM
+    pps_physical_pin = DEFAULT_PPS_PHYSICAL_PIN
 
     base_node_ids = defaults.get("base_node_ids", [])
 
@@ -790,7 +858,8 @@ def run_wizard(
         "server_host": server_host,
         "listen_port": listen_port,
         "send_port": send_port,
-        "microphone_type": microphone_type.upper(),
+        "microphone_type": microphone_type,
+        "device": device,
         "sample_rate": sample_rate,
         "channels": channels,
         "pps_gpio_bcm": pps_gpio_bcm,
@@ -824,6 +893,7 @@ def build_node_config(
             "pps_pin_numbering": "BCM",
             "pps_active_edge": "rising",
             "microphone_type": answers["microphone_type"],
+            "microphone_device": answers["device"],
         },
         "subsystems": deepcopy(DEFAULT_SUBSYSTEMS),
         "register": {
@@ -874,28 +944,50 @@ def build_microphone_config(
     answers: Dict[str, Any],
 ) -> Dict[str, Any]:
 
-    config = deepcopy(existing_config)
+    config = deepcopy(DEFAULT_MICROPHONE_CONFIG)
+
+    if isinstance(existing_config, dict):
+        # Preserve non-installer tuning keys where possible, but force
+        # deployment constants below so every node is born consistent.
+        preserved = deepcopy(existing_config)
+        preserved.update(config)
+        config = preserved
+
+    microphone_type = normalized_microphone_type(
+        answers["microphone_type"]
+    )
 
     config["node_id"] = answers["node_id"]
     config["node_name"] = answers["node_name"]
-    config["microphone_type"] = answers["microphone_type"]
-    config["sample_rate"] = answers["sample_rate"]
-    config["channels"] = answers["channels"]
+    config["microphone_type"] = microphone_type
+    config["recordings_root"] = "recordings"
+    config["device"] = answers["device"]
+    config["sample_rate"] = DEFAULT_MIC_SAMPLE_RATE
+    config["channels"] = DEFAULT_MIC_CHANNELS
     config["debug"] = answers["debug"]
 
-    config.setdefault("recordings_root", "recordings")
-
-    config["recording_duration_sec"] = 15
-    config["recording_interval_sec"] = 15
+    config["recording_duration_sec"] = DEFAULT_RECORDING_DURATION_SEC
+    config["recording_interval_sec"] = DEFAULT_RECORDING_INTERVAL_SEC
     config["recording_window_seconds"] = [0, 15, 30, 45]
 
+    config["generate_spectrogram"] = True
+    config["spectrogram"] = {
+        "enabled": True,
+        "style": "purple_pink_yellow",
+        "cmap": "magma",
+        "max_frequency_hz": 6000,
+        "nfft": 2048,
+        "noverlap": 1536,
+        "dpi": 140,
+    }
+
     config["tdoa_recording_duration_sec"] = 15
-    config.setdefault("tdoa_pps_lead_seconds", 1.0)
-    config.setdefault("align_tdoa_to_pps_boundary", True)
+    config["tdoa_pps_lead_seconds"] = 1.0
+    config["align_tdoa_to_pps_boundary"] = True
 
     config["align_recordings_to_pps_boundary"] = True
     config["microphone_pps_lead_seconds"] = 0.05
-    config.setdefault("microphone_sync_window_ms", 250.0)
+    config["microphone_sync_window_ms"] = 250.0
 
     config.setdefault("storage_retention_days", 7)
     config.setdefault("bird_recording_retention_days", 30)
@@ -905,10 +997,41 @@ def build_microphone_config(
     config["require_gps_lock"] = True
     config["require_pps_lock_for_tdoa"] = True
     config["require_gps_lock_for_tdoa"] = True
-    config.setdefault("check_microphone_available_before_recording", False)
+    config["check_microphone_available_before_recording"] = False
+
+    config["microphones"] = {
+        "USB": {
+            "enabled": microphone_type == "USB",
+            "device": answers["device"],
+            "sample_rate": DEFAULT_MIC_SAMPLE_RATE,
+            "channels": DEFAULT_MIC_CHANNELS,
+        },
+        "SPH0645": {
+            "enabled": microphone_type == "SPH0645",
+            "device": None,
+            "sample_rate": DEFAULT_MIC_SAMPLE_RATE,
+            "channels": DEFAULT_MIC_CHANNELS,
+        },
+        "none": {
+            "enabled": microphone_type == "none",
+            "device": None,
+            "sample_rate": DEFAULT_MIC_SAMPLE_RATE,
+            "channels": DEFAULT_MIC_CHANNELS,
+        },
+    }
+
+    active_section = config["microphones"].get(microphone_type, {})
+    config["device"] = active_section.get("device")
+    config["sample_rate"] = active_section.get(
+        "sample_rate",
+        DEFAULT_MIC_SAMPLE_RATE,
+    )
+    config["channels"] = active_section.get(
+        "channels",
+        DEFAULT_MIC_CHANNELS,
+    )
 
     return config
-
 
 def build_rtk_config(
     existing_config: Dict[str, Any],
@@ -920,6 +1043,7 @@ def build_rtk_config(
     config["node_id"] = "auto"
     config["node_name"] = "auto"
     config["debug"] = answers["debug"]
+    config["loop_delay_sec"] = DEFAULT_RTK_LOOP_DELAY_SEC
 
     config.setdefault("pps", {})
     config["pps"]["gpio_bcm"] = answers["pps_gpio_bcm"]
@@ -1101,6 +1225,7 @@ def print_summary(
     print(f"Node listen port:     {answers['listen_port']}")
     print(f"Server receive port:  {answers['send_port']}")
     print(f"Microphone type:      {answers['microphone_type']}")
+    print(f"Microphone device:    {answers['device']}")
     print(f"Sample rate:          {answers['sample_rate']}")
     print(f"Channels:             {answers['channels']}")
     print(f"PPS GPIO BCM:         {answers['pps_gpio_bcm']}")
