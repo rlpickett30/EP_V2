@@ -71,7 +71,7 @@ DEFAULT_NODE_ROLE = "rover"
 DEFAULT_LISTEN_PORT = 5006
 DEFAULT_SEND_PORT = 5005
 
-DEFAULT_MICROPHONE_TYPE = "SPH0645"
+DEFAULT_MICROPHONE_TYPE = "USB"
 DEFAULT_MIC_SAMPLE_RATE = 48000
 DEFAULT_MIC_CHANNELS = 1
 
@@ -706,7 +706,7 @@ def run_wizard(
 
     microphone_type = prompt_choice(
         label="Microphone type",
-        choices=["SPH0645", "none"],
+        choices=["USB", "SPH0645", "none"],
         default=defaults.get("microphone_type", DEFAULT_MICROPHONE_TYPE),
     )
 
@@ -1023,7 +1023,7 @@ def build_environmental_config(
         "sample_hz": 1.0,
         "enviro_interval_sec": 300,
         "state_heartbeat_sec": 300,
-        "loop_delay_sec": 1.0,
+        "loop_delay_sec": 5.0,
         "sea_level_pressure_hpa": 1013.25,
         "required_sensors": required_sensors,
         "sensors": {

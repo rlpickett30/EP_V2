@@ -38,12 +38,14 @@ class MicrophoneLoop:
         recordings_root="recordings",
         sample_rate=48000,
         channels=1,
+        device=None,
         debug=True
     ):
 
         self.recordings_root = Path(recordings_root)
         self.sample_rate = int(sample_rate)
         self.channels = int(channels)
+        self.device = device
         self.debug = debug
 
     # --------------------------------------------------
@@ -231,12 +233,15 @@ class MicrophoneLoop:
             f"Recording {duration_sec:.3f}s to {paths['wav_path']}"
         )
 
+
         audio = sd.rec(
             frame_count,
             samplerate=self.sample_rate,
             channels=self.channels,
-            dtype="int16"
+            dtype="int16",
+            device=self.device
         )
+    
 
         sd.wait()
 
