@@ -272,6 +272,7 @@ class MicrophoneLoop:
                 ax.set_ylim(0, float(max_frequency_hz))
 
             ticks = ax.get_yticks()
+            ax.set_yticks(ticks)
             ax.set_yticklabels([
                 f"{tick / 1000.0:g}"
                 for tick in ticks

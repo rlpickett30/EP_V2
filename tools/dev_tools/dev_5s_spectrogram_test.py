@@ -5,18 +5,13 @@ dev_5s_spectrogram_test.py
 EnviroPulse V2
 
 Purpose:
-    Controlled 5-second USB microphone recording and spectrogram test.
+    Record one controlled short USB microphone sample and generate local
+    spectrogram images for visual tuning before runtime integration.
 
 Does:
-    - Records one short WAV from a selected microphone device.
-    - Saves several spectrogram image styles for comparison.
+    - Records one WAV from a selected microphone device.
+    - Saves several matplotlib spectrogram image styles for comparison.
     - Avoids EventBus, BirdNET, scheduler, PPS, GUI, and server paths.
-
-Default:
-    device = 2
-    sample_rate = 48000
-    channels = 1
-    duration = 5.0 seconds
 """
 
 from __future__ import annotations
@@ -60,14 +55,14 @@ def make_custom_ep_cmap():
     from matplotlib.colors import LinearSegmentedColormap
 
     colors = [
-        "#000000",  # black
-        "#090018",  # near-black purple
-        "#24004e",  # deep purple
-        "#5c008c",  # purple
-        "#aa18b0",  # magenta
-        "#ee5cb0",  # hot pink
-        "#ffaa5a",  # orange
-        "#fff2d2",  # pale yellow
+        "#000000",
+        "#090018",
+        "#24004e",
+        "#5c008c",
+        "#aa18b0",
+        "#ee5cb0",
+        "#ffaa5a",
+        "#fff2d2",
     ]
 
     return LinearSegmentedColormap.from_list(
@@ -105,7 +100,6 @@ def generate_spectrogram(
         raise ValueError("Cannot generate spectrogram from empty audio.")
 
     samples = samples - float(np.mean(samples))
-
     peak = float(np.max(np.abs(samples)))
 
     if peak > 0:
@@ -140,7 +134,7 @@ def generate_spectrogram(
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Record one controlled 5-second USB microphone sample and generate spectrograms."
+        description="Record one controlled USB microphone sample and generate spectrograms."
     )
 
     parser.add_argument("--device", type=int, default=2)
@@ -153,12 +147,11 @@ def main() -> int:
 
     output_root = Path(args.out)
     timestamp = utc_safe_timestamp()
-
-    wav_path = output_root / f"dev_5s_{timestamp}_device_{args.device}.wav"
+    wav_path = output_root / f"dev_{args.duration:g}s_{timestamp}_device_{args.device}.wav"
 
     print()
-    print("EnviroPulse 5-second spectrogram test")
-    print("-------------------------------------")
+    print("EnviroPulse controlled spectrogram test")
+    print("---------------------------------------")
     print(f"Device:      {args.device}")
     print(f"Duration:    {args.duration:.3f} seconds")
     print(f"Sample rate: {args.sample_rate}")
@@ -198,7 +191,7 @@ def main() -> int:
     }
 
     for style_name, cmap in styles.items():
-        png_path = output_root / f"dev_5s_{timestamp}_{style_name}.png"
+        png_path = output_root / f"dev_{args.duration:g}s_{timestamp}_{style_name}.png"
 
         generate_spectrogram(
             audio=audio,
@@ -214,3 +207,6 @@ def main() -> int:
     print("Done.")
     return 0
 
+
+if __name__ == "__main__":
+    raise SystemExit(main())

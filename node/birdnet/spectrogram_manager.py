@@ -68,18 +68,20 @@ import numpy as np
 
 DEFAULT_CONFIG = {
     "enabled": True,
-    "max_width": 320,
-    "height": 128,
+    "max_width": 240,
+    "height": 96,
     "fft_size": 1024,
     "hop_length": 256,
-    "max_duration_sec": 12.0,
+    "max_duration_sec": 14.5,
     "min_frequency_hz": 0.0,
-    "max_frequency_hz": 12000.0,
+    "max_frequency_hz": 6000.0,
     "db_floor": 85.0,
     "gamma": 0.65,
     "black_level": 0.08,
     "color_mode": "classic",
-    "max_payload_chars": 65000,
+    "max_payload_chars": 45000,
+    "transport_max_payload_chars": 45000,
+    "adaptive_payload_resize": True,
     "debug": True
 }
 
@@ -190,38 +192,9 @@ class SpectrogramManager:
                 sample_rate=sample_rate
             )
 
-            png_bytes = self.encode_png(
+            image_array, image_b64 = self.encode_payload_safe_image(
                 image_array=image_array
             )
-
-            image_b64 = base64.b64encode(
-                png_bytes
-            ).decode(
-                "ascii"
-            )
-
-            max_payload_chars = self.get_int(
-                "max_payload_chars",
-                DEFAULT_CONFIG["max_payload_chars"]
-            )
-
-            if (
-                max_payload_chars > 0
-                and len(image_b64) > max_payload_chars
-            ):
-
-                self.log(
-                    (
-                        "Spectrogram skipped because base64 payload was "
-                        f"{len(image_b64)} characters; limit is "
-                        f"{max_payload_chars}."
-                    )
-                )
-
-                return self.build_unavailable_package(
-                    reason="spectrogram_payload_too_large",
-                    payload_chars=len(image_b64)
-                )
 
             height, width = image_array.shape[:2]
 
@@ -960,6 +933,146 @@ class SpectrogramManager:
             np.uint8
         )
 
+
+    def encode_payload_safe_image(
+        self,
+        image_array: np.ndarray
+    ) -> tuple[np.ndarray, str]:
+        """
+        Encode a spectrogram image as base64 and shrink it when needed.
+
+        UDP has to carry the entire AVIS_LITE JSON envelope, not just the
+        image. This keeps the GUI spectrogram contract intact while reducing
+        the chance of oversize UDP packets.
+        """
+
+        max_payload_chars = self.get_effective_payload_limit()
+
+        adaptive_resize = bool(
+            self.config.get(
+                "adaptive_payload_resize",
+                DEFAULT_CONFIG["adaptive_payload_resize"]
+            )
+        )
+
+        candidates = [
+            image_array
+        ]
+
+        if adaptive_resize:
+
+            for scale in (0.85, 0.70, 0.55, 0.45, 0.35):
+
+                candidates.append(
+                    self.resize_image_nearest(
+                        image_array=image_array,
+                        scale=scale
+                    )
+                )
+
+        last_image = candidates[-1]
+        last_b64 = ""
+
+        for candidate in candidates:
+
+            png_bytes = self.encode_png(
+                image_array=candidate
+            )
+
+            image_b64 = base64.b64encode(
+                png_bytes
+            ).decode(
+                "ascii"
+            )
+
+            last_image = candidate
+            last_b64 = image_b64
+
+            if max_payload_chars <= 0 or len(image_b64) <= max_payload_chars:
+
+                if candidate is not image_array:
+
+                    self.log(
+                        (
+                            "Spectrogram resized for payload safety: "
+                            f"{candidate.shape[1]}x{candidate.shape[0]}, "
+                            f"{len(image_b64)} base64 chars."
+                        )
+                    )
+
+                return candidate, image_b64
+
+        self.log(
+            (
+                "Spectrogram payload still above target after resizing: "
+                f"{len(last_b64)} chars; target is {max_payload_chars}. "
+                "Sending smallest candidate anyway."
+            )
+        )
+
+        return last_image, last_b64
+
+    def resize_image_nearest(
+        self,
+        image_array: np.ndarray,
+        scale: float
+    ) -> np.ndarray:
+        """
+        Resize an image array using dependency-free nearest-neighbor sampling.
+        """
+
+        scale = max(
+            0.05,
+            min(
+                1.0,
+                float(scale)
+            )
+        )
+
+        height = max(
+            1,
+            int(
+                round(
+                    image_array.shape[0] * scale
+                )
+            )
+        )
+
+        width = max(
+            1,
+            int(
+                round(
+                    image_array.shape[1] * scale
+                )
+            )
+        )
+
+        y_indices = np.linspace(
+            0,
+            image_array.shape[0] - 1,
+            height
+        ).astype(
+            int
+        )
+
+        x_indices = np.linspace(
+            0,
+            image_array.shape[1] - 1,
+            width
+        ).astype(
+            int
+        )
+
+        if image_array.ndim == 2:
+
+            return image_array[
+                y_indices
+            ][:, x_indices]
+
+        return image_array[
+            y_indices
+        ][:, x_indices, :]
+
     # ========================================================
     # PNG ENCODING
     # ========================================================
@@ -1177,6 +1290,38 @@ class SpectrogramManager:
                 "enabled",
                 True
             )
+        )
+
+    def get_effective_payload_limit(self) -> int:
+        """
+        Return the payload limit used for the base64 PNG string.
+
+        The GUI receives the spectrogram inside a larger AVIS_LITE JSON
+        envelope over UDP, so the image string must stay well below the
+        theoretical UDP packet ceiling.  If an older config still says
+        65000, this safety cap keeps the image transport-sized without
+        requiring an immediate config migration.
+        """
+
+        configured_limit = self.get_int(
+            "max_payload_chars",
+            DEFAULT_CONFIG["max_payload_chars"]
+        )
+
+        transport_limit = self.get_int(
+            "transport_max_payload_chars",
+            DEFAULT_CONFIG["transport_max_payload_chars"]
+        )
+
+        if configured_limit <= 0:
+            return transport_limit
+
+        if transport_limit <= 0:
+            return configured_limit
+
+        return min(
+            configured_limit,
+            transport_limit
         )
 
     def get_int(
