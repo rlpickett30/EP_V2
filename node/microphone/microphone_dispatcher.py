@@ -59,12 +59,18 @@ class MicrophoneDispatcher:
 
         self.node_id = self.config.get("node_id")
         self.node_name = self.config.get("node_name")
+        self.microphone_type = self.get_active_microphone_type()
+        self.active_microphone_config = self.get_active_microphone_config()
+        self.microphone_enabled = self.microphone_type != "none"
+
+        self.apply_active_microphone_config()
 
         self.loop = MicrophoneLoop(
             recordings_root=self.config["recordings_root"],
             sample_rate=self.config["sample_rate"],
             channels=self.config["channels"],
             device=self.config.get("device"),
+            spectrogram_config=self.get_spectrogram_config(),
             debug=self.debug
         )
 
@@ -119,13 +125,83 @@ class MicrophoneDispatcher:
         with open(self.config_path, "r") as file:
             return json.load(file)
 
+    def get_active_microphone_type(self):
+
+        microphone_type = str(
+            self.config.get("microphone_type", "USB")
+        ).strip()
+
+        if microphone_type.upper() in {"USB", "SPH0645"}:
+            return microphone_type.upper()
+
+        if microphone_type.lower() in {"none", "off", "disabled"}:
+            return "none"
+
+        return "USB"
+
+    def get_active_microphone_config(self):
+
+        microphone_sections = self.config.get("microphones", {})
+
+        if not isinstance(microphone_sections, dict):
+            microphone_sections = {}
+
+        active = microphone_sections.get(self.microphone_type)
+
+        if not isinstance(active, dict):
+            active = {}
+
+        return active
+
+    def apply_active_microphone_config(self):
+
+        if self.microphone_type == "none":
+            self.config["device"] = None
+            return
+
+        self.config["device"] = self.active_microphone_config.get(
+            "device",
+            self.config.get("device"),
+        )
+
+        self.config["sample_rate"] = int(
+            self.active_microphone_config.get(
+                "sample_rate",
+                self.config.get("sample_rate", 48000),
+            )
+        )
+
+        self.config["channels"] = int(
+            self.active_microphone_config.get(
+                "channels",
+                self.config.get("channels", 1),
+            )
+        )
+
+    def get_spectrogram_config(self):
+
+        spectrogram_config = self.config.get("spectrogram", {})
+
+        if not isinstance(spectrogram_config, dict):
+            spectrogram_config = {}
+
+        if "enabled" not in spectrogram_config:
+            spectrogram_config["enabled"] = bool(
+                self.config.get("generate_spectrogram", False)
+            )
+
+        return spectrogram_config
+
     # --------------------------------------------------
     # Startup
     # --------------------------------------------------
 
     def start(self):
 
-        self.log("Starting microphone subsystem")
+        self.log(
+            f"Starting microphone subsystem type={self.microphone_type} "
+            f"device={self.config.get('device')}"
+        )
         self.register_subscriptions()
         self.running = True
         self.run()
@@ -378,6 +454,9 @@ class MicrophoneDispatcher:
     # --------------------------------------------------
 
     def recording_allowed(self, for_tdoa=False):
+
+        if not self.microphone_enabled:
+            return False
 
         require_pps = self.config.get(
             "require_pps_lock_for_tdoa"
@@ -717,6 +796,16 @@ class MicrophoneDispatcher:
 
         return event
 
+    def attach_recording_context(self, recording):
+
+        if not isinstance(recording, dict):
+            return recording
+
+        recording["microphone_type"] = self.microphone_type
+        recording["device"] = self.config.get("device")
+
+        return recording
+
     # --------------------------------------------------
     # Normal Recording
     # --------------------------------------------------
@@ -760,6 +849,7 @@ class MicrophoneDispatcher:
             )
             return None
 
+        recording = self.attach_recording_context(recording)
         self.last_recorded_window_epoch = scheduled_start_epoch
 
         event = self.manager.build_recording_available_event(
@@ -894,6 +984,8 @@ class MicrophoneDispatcher:
             self.log("TDOA recording failed")
             return
 
+        recording = self.attach_recording_context(recording)
+
         tdoa_event = self.manager.build_tdoa_recording_event(
             recording=recording,
             request_payload=request_payload,
@@ -942,6 +1034,10 @@ class MicrophoneDispatcher:
             "duration_sec": payload.get("duration_sec"),
             "recording_type": payload.get("recording_type"),
             "sync_source": payload.get("sync_source"),
+            "start_error_ms": payload.get("start_error_ms"),
+            "actual_duration_sec": payload.get("actual_duration_sec"),
+            "device": payload.get("device"),
+            "microphone_type": payload.get("microphone_type"),
             "pps_locked": payload.get("pps_locked"),
             "pps_state": payload.get("pps_state", {}),
             "tdoa_request_id": payload.get("tdoa_request_id"),
