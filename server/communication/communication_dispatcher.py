@@ -27,7 +27,7 @@
 #   - Handle inbound decoded events
 #   - Publish verified listener events to the local event bus
 #   - Handle outbound local events
-#   - Convert outbound events to verified SERVER_ events
+#   - Convert outbound events to verified server/node/gui events
 #   - Decide when messages should be sent
 #   - Decide when messages should be queued
 #   - Flush queued messages when communication becomes available
@@ -39,16 +39,11 @@
 #   - Receive UDP packets directly
 #   - Decode packet payloads directly
 #   - Store queued messages directly
-#   - Know Communication helper scripts
 #   - Perform Event Bus delivery logic
 #
 # Owner:
 #   Main / Subsystem root
 #
-# ============================================================
-
-# ============================================================
-# IMPORT DEFINITIONS FROM OTHER ENVIROPULSE SCRIPTS
 # ============================================================
 
 from communication.communication_state_manager import (
@@ -67,19 +62,11 @@ from communication.sender_manager import (
     SenderManager
 )
 
-# ============================================================
-# IMPORT SUPPORT LIBRARIES
-# ============================================================
-
 import json
 import logging
 
 from datetime import datetime
 
-
-# ============================================================
-# CLASS DEFINITIONS
-# ============================================================
 
 class CommunicationDispatcher:
 
@@ -160,7 +147,7 @@ class CommunicationDispatcher:
             )
 
     # ========================================================
-    # START
+    # START / STOP
     # ========================================================
 
     def start(
@@ -178,10 +165,6 @@ class CommunicationDispatcher:
         logging.info(
             "[Communication] Dispatcher ready."
         )
-
-    # ========================================================
-    # STOP
-    # ========================================================
 
     def stop(
         self
@@ -340,6 +323,64 @@ class CommunicationDispatcher:
             self.publish_communication_state()
 
     # ========================================================
+    # HANDLE TDOA REQUEST
+    # ========================================================
+
+    def handle_tdoa_request(
+        self,
+        event: dict
+    ):
+        """
+        Handle server-local TDOA_REQUEST and send it to nodes.
+        """
+
+        try:
+
+            if not isinstance(event, dict):
+
+                self.state.tx_errors += 1
+                logging.warning(
+                    "[Communication] TDOA_REQUEST was not a dictionary."
+                )
+                self.publish_communication_state()
+                return
+
+            outbound_event = dict(
+                event
+            )
+
+            outbound_event["event_type"] = "TDOA_REQUEST"
+            outbound_event.setdefault(
+                "source",
+                "communication"
+            )
+            outbound_event.setdefault(
+                "target",
+                "node"
+            )
+
+            self.send_event(
+                outbound_event
+            )
+
+            self.publish_communication_state()
+
+            logging.info(
+                "[Communication] TDOA_REQUEST sent or queued for nodes: "
+                f"request_id={outbound_event.get('tdoa_request_id') or outbound_event.get('request_id')}"
+            )
+
+        except Exception as error:
+
+            self.state.tx_errors += 1
+
+            logging.exception(
+                f"[Communication] TDOA_REQUEST failed: {error}"
+            )
+
+            self.publish_communication_state()
+
+    # ========================================================
     # HANDLE COMMUNICATION CHANGE MODE
     # ========================================================
 
@@ -347,26 +388,6 @@ class CommunicationDispatcher:
         self,
         event: dict
     ):
-        """
-        Handle Registry-approved communication mode changes.
-        
-        Current inbound event:
-            COMMUNICATION_CHANGE_MODE
-            
-            Expected event shape:
-                {
-                    "source": "platform_registry",
-                    "payload": {
-                        "reason": "NETWORK_MODE_CHANGE",
-                        "mode_payload": {
-                            "incoming_event": "enable_wifi",
-                            "mode": {
-                                "wifi_enabled": True
-                            }
-                        }
-                    }
-                }
-        """
 
         try:
 
@@ -413,7 +434,7 @@ class CommunicationDispatcher:
                 )
 
                 self.publish_communication_state()
-                
+
                 return
 
             self._apply_communication_mode_change(
@@ -437,7 +458,7 @@ class CommunicationDispatcher:
             )
 
             self.publish_communication_state()
-    
+
     # ========================================================
     # HANDLE NODE STATE UPDATED
     # ========================================================
@@ -446,34 +467,6 @@ class CommunicationDispatcher:
         self,
         event: dict
     ):
-        """
-        Handle NODE_STATE_UPDATED.
-
-        Purpose:
-            Forward accepted node state updates to GUI clients.
-
-        Source:
-            Platform Registry
-
-        Expected inbound event:
-            {
-                "event_type": "NODE_STATE_UPDATED",
-                "source": "platform_registry",
-                "payload": {
-                    ...
-                }
-            }
-
-        Outbound event:
-            {
-                "event_type": "NODE_STATE_UPDATED",
-                "source": "communication",
-                "target": "gui",
-                "payload": {
-                    ...
-                }
-            }
-        """
 
         try:
 
@@ -548,25 +541,6 @@ class CommunicationDispatcher:
         self,
         event: dict
     ):
-        """
-        Handle NODE_TDOA_STATE.
-
-        Purpose:
-            Forward accepted node TDOA readiness updates to GUI clients.
-
-        Source:
-            Platform Registry
-
-        Expected inbound event:
-            {
-                "event_type": "NODE_TDOA_STATE",
-                "source": "platform_registry",
-                "payload": {
-                    "node_id": "...",
-                    "tdoa_state": {...}
-                }
-            }
-        """
 
         try:
 
@@ -650,7 +624,7 @@ class CommunicationDispatcher:
                 f"[Communication] NODE_TDOA_STATE failed: {error}"
             )
 
-            self.publish_communication_state()            
+            self.publish_communication_state()
 
     # ========================================================
     # APPLY COMMUNICATION MODE CHANGE
@@ -662,9 +636,6 @@ class CommunicationDispatcher:
         mode: dict,
         mode_payload: dict
     ):
-        """
-        Apply a Registry-approved communication mode change locally.
-        """
 
         if incoming_event == "enable_wifi":
 
@@ -755,7 +726,7 @@ class CommunicationDispatcher:
             )
 
     # ========================================================
-    # QUEUE EVENT
+    # QUEUE / FLUSH
     # ========================================================
 
     def queue_event(
@@ -783,10 +754,6 @@ class CommunicationDispatcher:
                 "queue_size": self.sender_manager.queue_size()
             }
         )
-
-    # ========================================================
-    # FLUSH QUEUE
-    # ========================================================
 
     def flush_queue(
         self
@@ -892,7 +859,7 @@ class CommunicationDispatcher:
         elif event_type == "DISABLE_LORA":
 
             self.lora_enabled = False
-            
+
     # ========================================================
     # HANDLE SEND NODE CHANGE MODE
     # ========================================================
@@ -901,16 +868,6 @@ class CommunicationDispatcher:
         self,
         event: dict
     ):
-        """
-        Handle Registry-approved node mode changes.
-
-        Current inbound event:
-            SEND_NODE_CHANGE_MODE
-
-        Purpose:
-            Convert approved node mode command into an outbound
-            node command package and send it through Communication.
-        """
 
         try:
 
@@ -1008,7 +965,7 @@ class CommunicationDispatcher:
             )
 
             self.publish_communication_state()
-    
+
     # ========================================================
     # HANDLE NODE EVENT TO GUI
     # ========================================================
@@ -1017,13 +974,6 @@ class CommunicationDispatcher:
         self,
         event: dict
     ):
-        """
-        Handle accepted node events that should be visible in GUI.
-
-        Purpose:
-            Forward node event traffic to GUI clients after the
-            Communication listener has accepted and published it.
-        """
 
         try:
 
@@ -1071,7 +1021,7 @@ class CommunicationDispatcher:
             )
 
             self.publish_communication_state()
-    
+
     # ========================================================
     # HANDLE SERVER NODE REGISTER
     # ========================================================
@@ -1080,12 +1030,6 @@ class CommunicationDispatcher:
         self,
         event: dict
     ):
-        """
-        Handle SERVER_NODE_REGISTER.
-
-        Purpose:
-            Forward accepted node registration updates to GUI clients.
-        """
 
         try:
 
@@ -1135,7 +1079,7 @@ class CommunicationDispatcher:
             )
 
             self.publish_communication_state()
-    
+
     # ========================================================
     # EXTRACT NODE ID FROM NODE STATE PAYLOAD
     # ========================================================
@@ -1144,15 +1088,6 @@ class CommunicationDispatcher:
         self,
         payload: dict
     ):
-        """
-        Extract node_id from known NODE_STATE_UPDATED payload shapes.
-
-        Supports:
-            - payload["node_id"]
-            - payload["state"]["node_id"]
-            - payload["node_state_snapshot"]["node_id"]
-            - payload["state"]["node_state_snapshot"]["node_id"]
-        """
 
         if not isinstance(
             payload,
@@ -1224,7 +1159,7 @@ class CommunicationDispatcher:
                 return node_id
 
         return None
-    
+
     # ========================================================
     # CAN SEND NOW
     # ========================================================

@@ -1004,6 +1004,34 @@ class MicrophoneDispatcher:
 
         return target_node_id is None and target_nodes is None
 
+    def get_tdoa_request_item_for_this_node(self, request_payload):
+
+        request_items = request_payload.get("request_items")
+
+        if not isinstance(request_items, dict):
+            return {}
+
+        node_item = request_items.get(self.node_id)
+
+        if isinstance(node_item, dict):
+            return dict(node_item)
+
+        return {}
+
+    def merge_tdoa_request_item(self, request_payload):
+
+        merged_payload = dict(request_payload)
+
+        node_item = self.get_tdoa_request_item_for_this_node(
+            request_payload
+        )
+
+        for key, value in node_item.items():
+            if value is not None:
+                merged_payload[key] = value
+
+        return merged_payload
+
     def handle_tdoa_request(self, event):
 
         request_payload = self.get_payload(event)
@@ -1011,6 +1039,10 @@ class MicrophoneDispatcher:
         if not self.request_targets_this_node(request_payload):
             self.log("TDOA_REQUEST ignored for another node")
             return
+
+        request_payload = self.merge_tdoa_request_item(
+            request_payload
+        )
 
         recording_id = self.get_first_available(
             request_payload,

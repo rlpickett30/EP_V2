@@ -259,6 +259,10 @@ class MicrophoneManager:
 
         payload.update({
             "tdoa_request_id": request_id,
+            "avis_lite_id": self.get_first_available(
+                request_payload,
+                ["avis_lite_id", "species_code", "species_common"]
+            ),
             "request_id": request_id,
             "request_timestamp": self.get_first_available(
                 request_payload,

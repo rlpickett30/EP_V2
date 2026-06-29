@@ -37,6 +37,11 @@
 
 import copy
 import logging
+import wave
+from pathlib import Path
+
+import numpy as np
+
 from typing import Any, Optional
 
 from TDOA.TDOA_event_detection import (
@@ -359,6 +364,10 @@ class TDOAManager:
                     "No stored TDOA recordings matched candidate."
                 )
 
+            self._prepare_solver_for_recordings(
+                recordings=recordings
+            )
+
             channel_events = self._run_event_detection(
                 recordings=recordings
             )
@@ -534,8 +543,24 @@ class TDOAManager:
 
         sample_rate_hz = payload.get(
             "sample_rate_hz",
-            self.default_sample_rate_hz
+            payload.get(
+                "sample_rate",
+                self.default_sample_rate_hz
+            )
         )
+
+        wav_path = (
+            payload.get("wav_path")
+            or payload.get("recording_path")
+        )
+
+        if signal is None and wav_path is not None:
+            signal, loaded_sample_rate_hz = self._load_wav_signal(
+                wav_path=wav_path
+            )
+
+            if loaded_sample_rate_hz is not None:
+                sample_rate_hz = loaded_sample_rate_hz
 
         return {
             "node_id": node_id,
@@ -549,8 +574,77 @@ class TDOAManager:
                     "timestamp"
                 )
             ),
+            "recording_id": payload.get("recording_id"),
+            "wav_path": wav_path,
+            "position": payload.get("position"),
             "source_event": recording_event
         }
+
+    def _load_wav_signal(
+        self,
+        wav_path
+    ) -> tuple:
+        """
+        Load a WAV pointer returned by a node into a mono float signal.
+        """
+
+        path = Path(
+            wav_path
+        )
+
+        if not path.exists():
+            logging.warning(
+                f"TDOA WAV path does not exist on server: {path}"
+            )
+            return None, None
+
+        with wave.open(
+            str(path),
+            "rb"
+        ) as wav_file:
+
+            channels = wav_file.getnchannels()
+            sample_rate_hz = wav_file.getframerate()
+            sample_width = wav_file.getsampwidth()
+            frame_count = wav_file.getnframes()
+            raw_audio = wav_file.readframes(
+                frame_count
+            )
+
+        if sample_width == 2:
+            signal = np.frombuffer(
+                raw_audio,
+                dtype="<i2"
+            ).astype(
+                np.float32
+            ) / 32768.0
+
+        elif sample_width == 4:
+            signal = np.frombuffer(
+                raw_audio,
+                dtype="<i4"
+            ).astype(
+                np.float32
+            ) / float(1 << 31)
+
+        else:
+            raise ValueError(
+                f"Unsupported TDOA WAV sample width: {sample_width}"
+            )
+
+        if channels > 1:
+            usable_length = (
+                signal.size // channels
+            ) * channels
+
+            signal = signal[:usable_length].reshape(
+                -1,
+                channels
+            ).mean(
+                axis=1
+            )
+
+        return signal, sample_rate_hz
 
     def _trim_recording_store(
         self
@@ -571,6 +665,59 @@ class TDOAManager:
         self.recording_store = self.recording_store[
             overflow:
         ]
+
+
+    def _prepare_solver_for_recordings(
+        self,
+        recordings: list
+    ) -> None:
+        """
+        Build a temporary microphone-position map for the returned node set.
+
+        In deployment, node positions should come from registry/GPS payloads.
+        During the current indoor/bad-geometry milestone, fall back to a
+        deterministic tetrahedron so the solver door can open and attempt a
+        calculation.
+        """
+
+        fallback_positions = [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [1.0, 1.0, 0.0],
+            [1.0, 0.0, 1.0],
+            [0.0, 1.0, 1.0],
+            [1.0, 1.0, 1.0],
+        ]
+
+        microphone_positions = {}
+
+        for index, recording in enumerate(recordings):
+
+            channel_name = recording.get(
+                "channel_name"
+            )
+
+            if channel_name is None:
+                continue
+
+            position = recording.get(
+                "position"
+            )
+
+            if not isinstance(position, (list, tuple)) or len(position) != 3:
+                position = fallback_positions[
+                    index % len(fallback_positions)
+                ]
+
+            microphone_positions[channel_name] = position
+
+        if len(microphone_positions) >= 4:
+
+            self.microphone_positions = microphone_positions
+
+            self._rebuild_solver_helpers()
 
     # ========================================================
     # DETECTION / ANALYSIS / SOLVE PIPELINE

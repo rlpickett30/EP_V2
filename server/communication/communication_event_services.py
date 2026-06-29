@@ -17,7 +17,7 @@
 #   - Register Communication subscriptions with the Event Bus
 #   - Publish accepted inbound listener events
 #   - Publish internal Communication state events
-#   - Keep current GUI inbound events organized
+#   - Keep current GUI and node communication events organized
 #
 # Does NOT:
 #   - Send UDP packets
@@ -32,137 +32,10 @@
 # Owner:
 #   communication_dispatcher.py
 #
-# Current Scope:
-#   Server-side GUI receive verification.
-#
 # ============================================================
 
 
 class CommunicationEventServices:
-
-    # ========================================================
-    # EVENT COMMUNICATION INDEX
-    # ========================================================
-    #
-    # LISTENER PUBLICATIONS
-    #
-    # GUI_REGISTER
-    #
-    # Published By:
-    #     Communication listener after UDP decode
-    #
-    # Consumed By:
-    #     Journal
-    #
-    # Purpose:
-    #     Record that the GUI registered with the Server.
-    #
-    # --------------------------------------------------------
-    #
-    # FEATURE_MODE_CHANGE
-    #
-    # Published By:
-    #     Communication listener after UDP decode
-    #
-    # Consumed By:
-    #     Journal
-    #
-    # Purpose:
-    #     Record a GUI feature mode-change command received by
-    #     the Server.
-    #
-    # --------------------------------------------------------
-    #
-    # NETWORK_MODE_CHANGE
-    #
-    # Published By:
-    #     Communication listener after UDP decode
-    #
-    # Consumed By:
-    #     Journal
-    #
-    # Purpose:
-    #     Record a GUI network mode-change command received by
-    #     the Server.
-    #
-    # --------------------------------------------------------
-    #
-    # DETECTION_MODE_CHANGE
-    #
-    # Published By:
-    #     Communication listener after UDP decode
-    #
-    # Consumed By:
-    #     Journal
-    #
-    # Purpose:
-    #     Record a GUI detection mode-change command received by
-    #     the Server.
-    #
-    # ========================================================
-    #
-    # INTERNAL PUBLICATIONS
-    #
-    # NETWORK_CONNECTED
-    #
-    # Published By:
-    #     Communication dispatcher or manager
-    #
-    # Consumed By:
-    #     Journal
-    #
-    # Purpose:
-    #     Record that Communication transport is available.
-    #
-    # --------------------------------------------------------
-    #
-    # NETWORK_DISCONNECTED
-    #
-    # Published By:
-    #     Communication dispatcher or manager
-    #
-    # Consumed By:
-    #     Journal
-    #
-    # Purpose:
-    #     Record that Communication transport is unavailable.
-    #
-    # --------------------------------------------------------
-    #
-    # COMMUNICATION_STATE
-    #
-    # Published By:
-    #     Communication dispatcher or manager
-    #
-    # Consumed By:
-    #     Journal
-    #
-    # Purpose:
-    #     Record current Communication subsystem state.
-    #
-    # ========================================================
-    #
-    # SENDER SUBSCRIPTIONS
-    #
-    # None for current server GUI receive verification.
-    #
-    # ========================================================
-    #
-    # PUBLICATIONS
-    #
-    # Listener:
-    #     GUI_REGISTER
-    #     NODE_REGISTER
-    #     FEATURE_MODE_CHANGE
-    #     NETWORK_MODE_CHANGE
-    #     DETECTION_MODE_CHANGE
-    #
-    # Internal:
-    #     NETWORK_CONNECTED
-    #     NETWORK_DISCONNECTED
-    #     COMMUNICATION_STATE
-    #
-    # ========================================================
 
     # ========================================================
     # LISTENER PUBLICATIONS
@@ -172,23 +45,24 @@ class CommunicationEventServices:
 
         "GUI_REGISTER",
         "NODE_REGISTER",
-        
+
         "RTK_STATE",
         "GPS_STATE",
         "PPS_STATE",
         "ENVIRO_STATE",
         "MICROPHONE_SYNCED",
-        
+
         "AVIS_LITE",
+        "TDOA_RECORDING",
         "ENVIRO_EVENT",
         "GPS_COORD",
-        
+
         "FEATURE_MODE_CHANGE",
         "NETWORK_MODE_CHANGE",
         "DETECTION_MODE_CHANGE"
 
     ]
-    
+
     # ========================================================
     # INTERNAL PUBLICATIONS
     # ========================================================
@@ -197,9 +71,9 @@ class CommunicationEventServices:
 
         "NETWORK_CONNECTED",
         "NETWORK_DISCONNECTED",
-        
+
         "COMMUNICATION_STATE",
-        
+
         "EVENT_SENT",
         "EVENT_QUEUED",
         "QUEUE_FLUSHED"
@@ -216,7 +90,7 @@ class CommunicationEventServices:
         "SEND_NODE_CHANGE_MODE"
 
     ]
-    
+
     # ========================================================
     # SENDER SUBSCRIPTIONS
     # ========================================================
@@ -226,12 +100,14 @@ class CommunicationEventServices:
         "SERVER_NODE_REGISTER",
         "NODE_STATE_UPDATED",
         "NODE_TDOA_STATE",
-        
+
         "SERVER_AVIS_LITE",
         "SERVER_ENVIRO_EVENT",
-        "SERVER_GPS_COORD"
+        "SERVER_GPS_COORD",
+
+        "TDOA_REQUEST"
     ]
-    
+
     # ========================================================
     # ALL PUBLICATIONS
     # ========================================================
@@ -278,35 +154,42 @@ class CommunicationEventServices:
                     event_name,
                     dispatcher.handle_communication_change_mode
                 )
-                
+
             elif event_name == "SEND_NODE_CHANGE_MODE":
 
                 self.event_bus.subscribe(
                     event_name,
                     dispatcher.handle_send_node_change_mode
                 )
-    
+
             elif event_name == "SERVER_NODE_REGISTER":
 
                 self.event_bus.subscribe(
                     event_name,
                     dispatcher.handle_server_node_register
                 )
-            
+
             elif event_name == "NODE_STATE_UPDATED":
 
                 self.event_bus.subscribe(
                     event_name,
                     dispatcher.handle_node_state_updated
                 )
-                
+
             elif event_name == "NODE_TDOA_STATE":
 
                 self.event_bus.subscribe(
                     event_name,
                     dispatcher.handle_node_tdoa_state
                 )
-            
+
+            elif event_name == "TDOA_REQUEST":
+
+                self.event_bus.subscribe(
+                    event_name,
+                    dispatcher.handle_tdoa_request
+                )
+
             elif event_name in [
                 "SERVER_AVIS_LITE",
                 "SERVER_ENVIRO_EVENT",
@@ -319,7 +202,7 @@ class CommunicationEventServices:
                 )
 
     # ========================================================
-    # CAN PUBLISH
+    # CAN PUBLISH / SEND
     # ========================================================
 
     def can_publish(
@@ -328,6 +211,38 @@ class CommunicationEventServices:
     ) -> bool:
 
         return event_name in self.PUBLICATIONS
+
+    def can_send(
+        self,
+        event_name: str
+    ) -> bool:
+
+        return event_name in self.SENDER_SUBSCRIPTIONS
+
+    # ========================================================
+    # BUILD SERVER EVENT
+    # ========================================================
+
+    def build_server_event(
+        self,
+        event: dict
+    ) -> dict:
+
+        verified_event = dict(
+            event
+        )
+
+        verified_event.setdefault(
+            "source",
+            "communication"
+        )
+
+        verified_event.setdefault(
+            "target",
+            "node"
+        )
+
+        return verified_event
 
     # ========================================================
     # PUBLISH
@@ -412,7 +327,7 @@ class CommunicationEventServices:
             "COMMUNICATION_STATE",
             event
         )
-        
+
     # ========================================================
     # PUBLISH EVENT SENT
     # ========================================================
@@ -421,10 +336,6 @@ class CommunicationEventServices:
         self,
         payload: dict
     ):
-        """
-        Publish EVENT_SENT after Communication successfully sends
-        an outbound message.
-        """
 
         event = {
 
@@ -438,7 +349,8 @@ class CommunicationEventServices:
             "EVENT_SENT",
             event
         )
-        # ========================================================
+
+    # ========================================================
     # PUBLISH EVENT QUEUED
     # ========================================================
 
@@ -446,10 +358,6 @@ class CommunicationEventServices:
         self,
         payload: dict
     ):
-        """
-        Publish EVENT_QUEUED after Communication stores an
-        outbound message.
-        """
 
         event = {
 
@@ -472,10 +380,6 @@ class CommunicationEventServices:
         self,
         payload: dict
     ):
-        """
-        Publish QUEUE_FLUSHED after Communication attempts to
-        flush stored outbound messages.
-        """
 
         event = {
 

@@ -59,6 +59,9 @@ TDOA_RECORDING = "TDOA_RECORDING"
 WEATHER_UPDATE = "WEATHER_UPDATE"
 
 TDOA_CANDIDATE_READY = "TDOA_CANDIDATE_READY"
+TDOA_REQUEST = "TDOA_REQUEST"
+TDOA_COMPLETE_SET = "TDOA_COMPLETE_SET"
+TDOA_CALC_STARTED = "TDOA_CALC_STARTED"
 TDOA_CALC_REQUESTED = "TDOA_CALC_REQUESTED"
 TDOA_CALC_COMPLETE = "TDOA_CALC_COMPLETE"
 TDOA_CALC_FAILED = "TDOA_CALC_FAILED"
@@ -110,6 +113,9 @@ class TDOAEventServices:
     EVENT_WEATHER_UPDATE = WEATHER_UPDATE
 
     EVENT_TDOA_CANDIDATE_READY = TDOA_CANDIDATE_READY
+    EVENT_TDOA_REQUEST = TDOA_REQUEST
+    EVENT_TDOA_COMPLETE_SET = TDOA_COMPLETE_SET
+    EVENT_TDOA_CALC_STARTED = TDOA_CALC_STARTED
     EVENT_TDOA_CALC_REQUESTED = TDOA_CALC_REQUESTED
     EVENT_TDOA_CALC_COMPLETE = TDOA_CALC_COMPLETE
     EVENT_TDOA_CALC_FAILED = TDOA_CALC_FAILED
@@ -252,6 +258,24 @@ class TDOAEventServices:
     def publish_tdoa_candidate_ready(self, payload):
         self._publish(
             event_name=TDOA_CANDIDATE_READY,
+            payload=payload
+        )
+
+    def publish_tdoa_request(self, payload):
+        self._publish(
+            event_name=TDOA_REQUEST,
+            payload=payload
+        )
+
+    def publish_tdoa_complete_set(self, payload):
+        self._publish(
+            event_name=TDOA_COMPLETE_SET,
+            payload=payload
+        )
+
+    def publish_tdoa_calc_started(self, payload):
+        self._publish(
+            event_name=TDOA_CALC_STARTED,
             payload=payload
         )
 

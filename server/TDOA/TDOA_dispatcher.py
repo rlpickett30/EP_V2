@@ -73,6 +73,7 @@ from TDOA.TDOA_manager import TDOAManager
 
 import json
 import logging
+import uuid
 
 from datetime import datetime
 from pathlib import Path
@@ -126,6 +127,10 @@ class TDOADispatcher:
             "max_processed_candidate_keys",
             500
         )
+
+        self.pending_tdoa_requests = {}
+
+        self.completed_tdoa_requests = set()
 
         self.event_services = TDOAEventServices(
             event_bus=event_bus
@@ -885,23 +890,154 @@ class TDOADispatcher:
         candidate: dict
     ) -> None:
         """
-        Publish candidate readiness.
+        Publish candidate readiness and open the request path.
 
-        Do not call TDOA_manager.tdoa_estimate() here yet. The manager
-        cannot solve until TDOA_RECORDING events have been requested,
-        received, and stored.
+        The dispatcher owns this workflow step. The manager still does not
+        solve until TDOA_RECORDING responses have been received and a
+        TDOA_COMPLETE_SET has been assembled.
         """
 
         self.event_services.publish_tdoa_candidate_ready(
             candidate
         )
 
-        logging.info(
-            "[TDOA] Candidate ready. "
-            "Immediate solve skipped because TDOA_RECORDING request path "
-            "is not implemented yet. Next step is TDOA_REQUEST."
+        request = self._build_tdoa_request(
+            candidate=candidate
         )
-        
+
+        if request is None:
+            logging.warning(
+                "[TDOA] Candidate ready but no TDOA_REQUEST could be built."
+            )
+            return
+
+        self.pending_tdoa_requests[request["tdoa_request_id"]] = {
+            "request": request,
+            "candidate": candidate,
+            "required_node_ids": set(request.get("target_nodes", [])),
+            "responses": {},
+            "complete": False
+        }
+
+        self.event_services.publish_tdoa_request(
+            request
+        )
+
+        logging.info(
+            "[TDOA] Published TDOA_REQUEST: "
+            f"request_id={request.get('tdoa_request_id')} "
+            f"target_nodes={request.get('target_nodes')}"
+        )
+
+    def _build_tdoa_request(
+        self,
+        candidate: dict
+    ) -> dict | None:
+        """
+        Build one broadcast TDOA_REQUEST from a candidate package.
+
+        Each node receives the same request. The node microphone dispatcher
+        finds its own request item by node_id and returns the matching
+        recording pointer.
+        """
+
+        candidate_events = candidate.get(
+            "events",
+            []
+        )
+
+        if not isinstance(candidate_events, list):
+            return None
+
+        request_items = {}
+
+        for candidate_event in candidate_events:
+
+            if not isinstance(candidate_event, dict):
+                continue
+
+            payload = candidate_event.get(
+                "payload",
+                {}
+            )
+
+            if not isinstance(payload, dict):
+                payload = {}
+
+            node_id = (
+                candidate_event.get("node_id")
+                or payload.get("node_id")
+            )
+
+            recording_id = (
+                candidate_event.get("recording_id")
+                or payload.get("recording_id")
+            )
+
+            if node_id is None or recording_id is None:
+                continue
+
+            request_items[node_id] = {
+                "node_id": node_id,
+                "recording_id": recording_id,
+                "source_recording_id": recording_id,
+                "recording_utc": (
+                    candidate_event.get("recording_utc")
+                    or payload.get("recording_utc")
+                ),
+                "birdnet_start_time": (
+                    candidate_event.get("birdnet_start_time")
+                    or payload.get("birdnet_start_time")
+                ),
+                "birdnet_event_id": (
+                    candidate_event.get("birdnet_event_id")
+                    or payload.get("birdnet_event_id")
+                ),
+                "avis_lite_id": candidate.get("avis_lite_id"),
+                "species_code": (
+                    candidate_event.get("species_code")
+                    or payload.get("species_code")
+                ),
+                "species_common": (
+                    candidate_event.get("species_common")
+                    or payload.get("species_common")
+                )
+            }
+
+        if not request_items:
+            return None
+
+        candidate_key = self._build_candidate_key(
+            candidate
+        )
+
+        request_id = (
+            "tdoa_request_"
+            + uuid.uuid4().hex[:12]
+        )
+
+        return {
+            "tdoa_request_id": request_id,
+            "request_id": request_id,
+            "candidate_key": candidate_key,
+            "candidate": candidate,
+            "avis_lite_id": candidate.get("avis_lite_id"),
+            "target": "broadcast",
+            "target_node_id": "broadcast",
+            "target_nodes": sorted(request_items.keys()),
+            "required_node_count": len(request_items),
+            "request_items": request_items,
+            "request_timestamp": datetime.utcnow().isoformat(),
+            "request_mode": "existing_recording_pointer",
+            "duration_sec": self.config.get(
+                "tdoa_manager",
+                {}
+            ).get(
+                "tdoa_recording_duration_sec",
+                15
+            )
+        }
+
     # ========================================================
     # RECORDING / WEATHER HANDLING
     # ========================================================
@@ -911,9 +1047,8 @@ class TDOADispatcher:
         event: dict
     ) -> None:
         """
-        Forward TDOA recording data to manager.
-
-        Manager may store it, index it, or prepare it for later solve work.
+        Store a TDOA_RECORDING response and complete the request when all
+        requested nodes have answered.
         """
 
         try:
@@ -927,6 +1062,39 @@ class TDOADispatcher:
                     result
                 )
 
+            payload = event.get(
+                "payload",
+                event
+            )
+
+            if not isinstance(payload, dict):
+                return
+
+            request_id = (
+                payload.get("tdoa_request_id")
+                or payload.get("request_id")
+                or event.get("tdoa_request_id")
+                or event.get("request_id")
+            )
+
+            node_id = (
+                payload.get("node_id")
+                or event.get("node_id")
+            )
+
+            if request_id is None or node_id is None:
+                logging.info(
+                    "[TDOA] Stored TDOA_RECORDING without request tracking: "
+                    f"request_id={request_id} node_id={node_id}"
+                )
+                return
+
+            self._store_tdoa_recording_response(
+                request_id=request_id,
+                node_id=node_id,
+                event=event
+            )
+
         except Exception as error:
 
             logging.exception(
@@ -938,6 +1106,121 @@ class TDOADispatcher:
                     "error": str(error),
                     "source_event": event
                 }
+            )
+
+    def _store_tdoa_recording_response(
+        self,
+        request_id: str,
+        node_id: str,
+        event: dict
+    ) -> None:
+        """
+        Store one node response and trigger solve when the complete set exists.
+        """
+
+        pending = self.pending_tdoa_requests.get(
+            request_id
+        )
+
+        if pending is None:
+            logging.warning(
+                "[TDOA] Received TDOA_RECORDING for unknown request: "
+                f"request_id={request_id} node_id={node_id}"
+            )
+            return
+
+        pending["responses"][node_id] = event
+
+        required_node_ids = pending.get(
+            "required_node_ids",
+            set()
+        )
+
+        received_node_ids = set(
+            pending["responses"].keys()
+        )
+
+        logging.info(
+            "[TDOA] TDOA_RECORDING response accepted: "
+            f"request_id={request_id} node_id={node_id} "
+            f"received={len(received_node_ids)}/{len(required_node_ids)}"
+        )
+
+        if pending.get("complete", False):
+            return
+
+        if not required_node_ids.issubset(received_node_ids):
+            return
+
+        pending["complete"] = True
+
+        complete_set = {
+            "tdoa_request_id": request_id,
+            "request": pending.get("request"),
+            "candidate": pending.get("candidate"),
+            "node_ids": sorted(received_node_ids),
+            "required_node_ids": sorted(required_node_ids),
+            "recording_events": [
+                pending["responses"][node_id]
+                for node_id in sorted(required_node_ids)
+            ],
+            "completed_at_utc": datetime.utcnow().isoformat()
+        }
+
+        self.event_services.publish_tdoa_complete_set(
+            complete_set
+        )
+
+        self._handle_tdoa_complete_set(
+            complete_set
+        )
+
+    def _handle_tdoa_complete_set(
+        self,
+        complete_set: dict
+    ) -> None:
+        """
+        Invoke the manager once a complete requested recording set exists.
+        """
+
+        request_id = complete_set.get(
+            "tdoa_request_id"
+        )
+
+        candidate = complete_set.get(
+            "candidate"
+        )
+
+        self.event_services.publish_tdoa_calc_started(
+            {
+                "tdoa_request_id": request_id,
+                "candidate": candidate,
+                "node_ids": complete_set.get("node_ids", [])
+            }
+        )
+
+        self.event_services.publish_tdoa_calc_requested(
+            {
+                "tdoa_request_id": request_id,
+                "candidate": candidate,
+                "node_ids": complete_set.get("node_ids", [])
+            }
+        )
+
+        result = self.manager.tdoa_estimate(
+            candidate
+        )
+
+        result["tdoa_request_id"] = request_id
+        result["complete_set"] = complete_set
+
+        if result.get("success", False):
+            self.event_services.publish_tdoa_calc_complete(
+                result
+            )
+        else:
+            self.event_services.publish_tdoa_calc_failed(
+                result
             )
 
     def _handle_weather_update(
