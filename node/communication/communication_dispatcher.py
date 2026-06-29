@@ -88,6 +88,7 @@ from communication.communication_event_services import (
     GPS_STATE,
     TDOA_RECORDING,
     AVIS_LITE,
+    MICROPHONE_SYNCED,
     NODE_REGISTER,
     GPS_COORD,
     ENVIRO_EVENT,
