@@ -106,6 +106,7 @@ class MicrophoneDispatcher:
         self.recording_index = {}
         self.last_recorded_window_epoch = None
         self.consecutive_synced_windows = 0
+        self._duration_clamp_logged = False
 
     # --------------------------------------------------
     # Debug
@@ -807,6 +808,106 @@ class MicrophoneDispatcher:
         return recording
 
     # --------------------------------------------------
+    # Recording Duration Budget
+    # --------------------------------------------------
+
+    def get_min_window_spacing_seconds(self):
+
+        window_seconds = self.get_recording_window_seconds()
+
+        if len(window_seconds) < 2:
+
+            return float(
+                self.config.get(
+                    "recording_interval_sec",
+                    15.0
+                )
+            )
+
+        gaps = []
+
+        for index, second in enumerate(window_seconds):
+
+            next_second = window_seconds[
+                (index + 1) % len(window_seconds)
+            ]
+
+            gap = next_second - second
+
+            if gap <= 0:
+
+                gap += 60
+
+            gaps.append(
+                gap
+            )
+
+        return float(
+            min(gaps)
+        )
+
+    def get_effective_recording_duration_sec(self):
+
+        try:
+
+            configured_duration = float(
+                self.config.get(
+                    "recording_duration_sec",
+                    14.0
+                )
+            )
+
+        except Exception:
+
+            configured_duration = 14.0
+
+        if not self.config.get(
+            "align_recordings_to_pps_boundary",
+            True
+        ):
+
+            return configured_duration
+
+        try:
+
+            guard_seconds = float(
+                self.config.get(
+                    "recording_guard_seconds",
+                    1.0
+                )
+            )
+
+        except Exception:
+
+            guard_seconds = 1.0
+
+        min_spacing = self.get_min_window_spacing_seconds()
+        max_duration = max(
+            1.0,
+            min_spacing - max(0.0, guard_seconds)
+        )
+
+        if configured_duration > max_duration:
+
+            if not self._duration_clamp_logged:
+
+                self.log(
+                    (
+                        "Recording duration clamped to protect timing: "
+                        f"configured={configured_duration:.3f}s "
+                        f"effective={max_duration:.3f}s "
+                        f"window_spacing={min_spacing:.3f}s "
+                        f"guard={guard_seconds:.3f}s"
+                    )
+                )
+
+                self._duration_clamp_logged = True
+
+            return max_duration
+
+        return configured_duration
+
+    # --------------------------------------------------
     # Normal Recording
     # --------------------------------------------------
 
@@ -817,8 +918,6 @@ class MicrophoneDispatcher:
                 "Recording skipped because PPS/GPS lock is not available"
             )
             return None
-
-        pps_state = self.get_pps_state_snapshot()
 
         (
             sync_source,
@@ -833,8 +932,10 @@ class MicrophoneDispatcher:
             )
             return None
 
+        pps_state = self.get_pps_state_snapshot()
+
         recording = self.loop.record(
-            duration_sec=self.config["recording_duration_sec"],
+            duration_sec=self.get_effective_recording_duration_sec(),
             recording_type="recording",
             pps_state=pps_state,
             sync_source=sync_source,

@@ -48,6 +48,16 @@ class MicrophoneLoop:
         self.channels = int(channels)
         self.device = device
         self.spectrogram_config = spectrogram_config or {}
+        self.write_file_spectrogram = bool(
+            self.spectrogram_config.get(
+                "write_file",
+                False
+            )
+            or self.spectrogram_config.get(
+                "write_png_file",
+                False
+            )
+        )
         self.debug = debug
 
     # --------------------------------------------------
@@ -346,11 +356,19 @@ class MicrophoneLoop:
             audio
         )
 
-        spectrogram_path = self.generate_spectrogram(
-            wav_path=paths["wav_path"],
-            spectrogram_path=paths["spectrogram_path"],
-            audio=audio
-        )
+        spectrogram_path = None
+
+        # Keep the microphone timing path minimal. Recording-side PNG
+        # generation can take long enough to miss the next quarter-minute
+        # window. BirdNET now builds AVIS_LITE spectrogram payloads from its
+        # asynchronous worker instead.
+        if self.write_file_spectrogram:
+
+            spectrogram_path = self.generate_spectrogram(
+                wav_path=paths["wav_path"],
+                spectrogram_path=paths["spectrogram_path"],
+                audio=audio
+            )
 
         actual_duration_sec = (
             recording_finished_monotonic - recording_started_monotonic

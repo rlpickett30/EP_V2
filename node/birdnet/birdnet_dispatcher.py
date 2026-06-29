@@ -61,7 +61,10 @@ from birdnet.birdnet_manager import BirdNetManager
 # IMPORT SUPPORT LIBRARIES
 # ============================================================
 
+import copy
 import json
+import queue
+import threading
 
 from datetime import datetime
 from datetime import timezone
@@ -121,6 +124,30 @@ class BirdNetDispatcher:
         )
 
         self.started = False
+        self.worker_stop_requested = False
+
+        try:
+
+            analysis_queue_max_size = int(
+                self.config.get(
+                    "analysis_queue_max_size",
+                    16
+                )
+            )
+
+        except Exception:
+
+            analysis_queue_max_size = 16
+
+        if analysis_queue_max_size < 1:
+
+            analysis_queue_max_size = 1
+
+        self.analysis_queue = queue.Queue(
+            maxsize=analysis_queue_max_size
+        )
+
+        self.analysis_worker = None
 
         self.manager = BirdNetManager(
             debug=self.debug,
@@ -203,6 +230,7 @@ class BirdNetDispatcher:
         )
 
         self.register_subscriptions()
+        self.start_analysis_worker()
 
         self.started = True
 
@@ -215,6 +243,7 @@ class BirdNetDispatcher:
     ):
 
         self.started = False
+        self.stop_analysis_worker()
 
         self.log(
             "BirdNET subsystem stopped"
@@ -239,6 +268,133 @@ class BirdNetDispatcher:
         self.log(
             "Subscriptions registered"
         )
+
+    # ========================================================
+    # ANALYSIS WORKER LIFECYCLE
+    # ========================================================
+
+    def start_analysis_worker(
+        self
+    ):
+
+        if (
+            self.analysis_worker is not None
+            and self.analysis_worker.is_alive()
+        ):
+
+            return
+
+        self.worker_stop_requested = False
+
+        self.analysis_worker = threading.Thread(
+            target=self.analysis_worker_loop,
+            name="BirdNetAnalysisWorker",
+            daemon=True
+        )
+
+        self.analysis_worker.start()
+
+        self.log(
+            "Analysis worker started"
+        )
+
+    def stop_analysis_worker(
+        self
+    ):
+
+        self.worker_stop_requested = True
+
+        try:
+
+            self.analysis_queue.put_nowait(
+                None
+            )
+
+        except queue.Full:
+
+            pass
+
+        if self.analysis_worker is not None:
+
+            self.analysis_worker.join(
+                timeout=2.0
+            )
+
+        self.analysis_worker = None
+
+    def analysis_worker_loop(
+        self
+    ):
+
+        while not self.worker_stop_requested:
+
+            try:
+
+                job = self.analysis_queue.get(
+                    timeout=0.25
+                )
+
+            except queue.Empty:
+
+                continue
+
+            try:
+
+                if job is None:
+
+                    return
+
+                self.process_recording_job(
+                    job
+                )
+
+            except Exception as error:
+
+                self.log(
+                    f"Analysis worker error: {error}"
+                )
+
+            finally:
+
+                try:
+
+                    self.analysis_queue.task_done()
+
+                except Exception:
+
+                    pass
+
+    def enqueue_recording_job(
+        self,
+        job
+    ):
+
+        try:
+
+            self.analysis_queue.put_nowait(
+                job
+            )
+
+            self.log(
+                (
+                    f"Queued recording for async BirdNET analysis: "
+                    f"{job.get('recording_id')} "
+                    f"queue_size={self.analysis_queue.qsize()}"
+                )
+            )
+
+            return True
+
+        except queue.Full:
+
+            self.log(
+                (
+                    "Analysis queue full; dropping recording to protect "
+                    f"microphone timing: {job.get('recording_id')}"
+                )
+            )
+
+            return False
 
     # ========================================================
     # EVENT HANDLING: GPS_COORD
@@ -375,8 +531,45 @@ class BirdNetDispatcher:
 
             return
 
+        job = {
+            "event_dict": copy.deepcopy(
+                event_dict
+            ),
+            "payload": copy.deepcopy(
+                payload
+            ),
+            "recording_id": recording_id,
+            "recording_path": recording_path,
+            "latitude": self.current_latitude,
+            "longitude": self.current_longitude,
+            "week": self.get_week(),
+            "min_confidence": self.get_min_confidence()
+        }
+
+        self.enqueue_recording_job(
+            job
+        )
+
+    def process_recording_job(
+        self,
+        job
+    ):
+
+        payload = job.get(
+            "payload",
+            {}
+        )
+
+        recording_id = job.get(
+            "recording_id"
+        )
+
+        recording_path = job.get(
+            "recording_path"
+        )
+
         self.log(
-            f"Recording received: {recording_id}"
+            f"Processing queued recording: {recording_id}"
         )
 
         try:
@@ -384,10 +577,10 @@ class BirdNetDispatcher:
             detection_packages = self.manager.process_recording(
                 recording_id=recording_id,
                 recording_path=recording_path,
-                latitude=self.current_latitude,
-                longitude=self.current_longitude,
-                week=self.get_week(),
-                min_confidence=self.get_min_confidence()
+                latitude=job.get("latitude"),
+                longitude=job.get("longitude"),
+                week=job.get("week"),
+                min_confidence=job.get("min_confidence")
             )
 
         except Exception as error:

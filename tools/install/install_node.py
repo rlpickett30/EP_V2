@@ -75,8 +75,9 @@ DEFAULT_MICROPHONE_TYPE = "USB"
 DEFAULT_MIC_SAMPLE_RATE = 48000
 DEFAULT_MIC_CHANNELS = 1
 DEFAULT_MIC_DEVICE = 2
-DEFAULT_RECORDING_DURATION_SEC = 14.5
+DEFAULT_RECORDING_DURATION_SEC = 14.0
 DEFAULT_RECORDING_INTERVAL_SEC = 15
+DEFAULT_RECORDING_GUARD_SEC = 1.0
 
 DEFAULT_PPS_GPIO_BCM = 4
 DEFAULT_PPS_PHYSICAL_PIN = 7
@@ -160,9 +161,11 @@ DEFAULT_MICROPHONE_CONFIG = {
     "recording_duration_sec": DEFAULT_RECORDING_DURATION_SEC,
     "recording_interval_sec": DEFAULT_RECORDING_INTERVAL_SEC,
     "recording_window_seconds": [0, 15, 30, 45],
-    "generate_spectrogram": True,
+    "generate_spectrogram": False,
+    "recording_guard_seconds": DEFAULT_RECORDING_GUARD_SEC,
     "spectrogram": {
-        "enabled": True,
+        "enabled": False,
+        "write_file": False,
         "style": "purple_pink_yellow",
         "cmap": "magma",
         "max_frequency_hz": 6000,
@@ -968,11 +971,13 @@ def build_microphone_config(
 
     config["recording_duration_sec"] = DEFAULT_RECORDING_DURATION_SEC
     config["recording_interval_sec"] = DEFAULT_RECORDING_INTERVAL_SEC
+    config["recording_guard_seconds"] = DEFAULT_RECORDING_GUARD_SEC
     config["recording_window_seconds"] = [0, 15, 30, 45]
 
-    config["generate_spectrogram"] = True
+    config["generate_spectrogram"] = False
     config["spectrogram"] = {
-        "enabled": True,
+        "enabled": False,
+        "write_file": False,
         "style": "purple_pink_yellow",
         "cmap": "magma",
         "max_frequency_hz": 6000,
