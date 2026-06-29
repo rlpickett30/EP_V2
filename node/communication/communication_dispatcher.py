@@ -127,6 +127,8 @@ except Exception:
 
 import json
 import logging
+import math
+import threading
 import time
 
 from copy import deepcopy
@@ -172,6 +174,20 @@ DEFAULT_CONFIG = {
     },
     "network": {
         "publish_state_on_start": True
+    },
+    "send_stagger": {
+        "enabled": True,
+        "auto_node_offset": True,
+        "node_offset_seconds": None,
+        "node_offset_scale_seconds": 0.1,
+        "max_node_offset_seconds": 0.9,
+        "align_to_fractional_second": True,
+        "event_spacing_seconds": 0.075,
+        "event_types": [
+            AVIS_LITE,
+            TDOA_RECORDING,
+            MICROPHONE_SYNCED
+        ]
     }
 }
 
@@ -266,6 +282,10 @@ class CommunicationDispatcher:
             self.wifi_enabled = True
 
         self.running = False
+
+        self.send_stagger_config = self._build_send_stagger_config()
+        self.last_stagger_send_monotonic = 0.0
+        self.stagger_lock = threading.Lock()
 
         self.outbound_send_events = set(
             OUTBOUND_SEND_EVENTS
@@ -638,6 +658,377 @@ class CommunicationDispatcher:
                 "[Communication] Inbound dispatcher error: %s",
                 error
             )
+
+    # ========================================================
+    # SEND STAGGERING
+    # ========================================================
+
+    def _build_send_stagger_config(
+        self
+    ) -> dict:
+        """
+        Build outbound send-stagger settings.
+
+        This lives in Communication so recording and BirdNET timing remain
+        untouched. Only network delivery is delayed.
+        """
+
+        config = deepcopy(
+            DEFAULT_CONFIG.get(
+                "send_stagger",
+                {}
+            )
+        )
+
+        configured = self.config.get(
+            "send_stagger",
+            {}
+        )
+
+        if isinstance(
+            configured,
+            dict
+        ):
+
+            self._deep_update(
+                config,
+                configured
+            )
+
+        return config
+
+    def _message_should_be_staggered(
+        self,
+        message: dict
+    ) -> bool:
+
+        config = self.send_stagger_config
+
+        if not bool(
+            config.get(
+                "enabled",
+                False
+            )
+        ):
+
+            return False
+
+        event_type = self._extract_event_type(
+            message
+        )
+
+        configured_events = config.get(
+            "event_types",
+            []
+        )
+
+        if configured_events in (None, "*"):
+
+            return True
+
+        if not isinstance(
+            configured_events,
+            (list, tuple, set)
+        ):
+
+            configured_events = [
+                configured_events
+            ]
+
+        allowed_events = {
+            str(item)
+            for item in configured_events
+        }
+
+        return (
+            "*" in allowed_events
+            or event_type in allowed_events
+        )
+
+    def _extract_message_node_id(
+        self,
+        message: dict
+    ):
+
+        payload = self._get_payload(
+            message
+        )
+
+        candidates = [
+            payload.get("node_id"),
+            message.get("node_id") if isinstance(message, dict) else None,
+            self.config.get("node_id"),
+            payload.get("node_name"),
+            message.get("node_name") if isinstance(message, dict) else None,
+            self.config.get("node_name"),
+        ]
+
+        for candidate in candidates:
+
+            if candidate not in (None, ""):
+
+                return str(
+                    candidate
+                )
+
+        return None
+
+    def _extract_node_number(
+        self,
+        node_id
+    ):
+
+        if node_id is None:
+
+            return None
+
+        text = str(
+            node_id
+        ).strip()
+
+        digits = ""
+
+        for character in reversed(
+            text
+        ):
+
+            if character.isdigit():
+
+                digits = character + digits
+                continue
+
+            if digits:
+
+                break
+
+        if not digits:
+
+            return None
+
+        try:
+
+            return int(
+                digits
+            )
+
+        except Exception:
+
+            return None
+
+    def _get_node_send_offset_seconds(
+        self,
+        message: dict
+    ) -> float:
+
+        config = self.send_stagger_config
+
+        configured_offset = config.get(
+            "node_offset_seconds"
+        )
+
+        if configured_offset is not None:
+
+            try:
+
+                offset = float(
+                    configured_offset
+                )
+
+            except Exception:
+
+                offset = 0.0
+
+        elif bool(
+            config.get(
+                "auto_node_offset",
+                True
+            )
+        ):
+
+            node_number = self._extract_node_number(
+                self._extract_message_node_id(
+                    message
+                )
+            )
+
+            if node_number is None:
+
+                offset = 0.0
+
+            else:
+
+                try:
+
+                    scale = float(
+                        config.get(
+                            "node_offset_scale_seconds",
+                            0.1
+                        )
+                    )
+
+                except Exception:
+
+                    scale = 0.1
+
+                offset = float(
+                    node_number
+                ) * scale
+
+        else:
+
+            offset = 0.0
+
+        try:
+
+            max_offset = float(
+                config.get(
+                    "max_node_offset_seconds",
+                    0.9
+                )
+            )
+
+        except Exception:
+
+            max_offset = 0.9
+
+        max_offset = max(
+            0.0,
+            max_offset
+        )
+
+        return max(
+            0.0,
+            min(
+                offset,
+                max_offset
+            )
+        )
+
+    def _get_event_spacing_seconds(
+        self
+    ) -> float:
+
+        try:
+
+            return max(
+                0.0,
+                float(
+                    self.send_stagger_config.get(
+                        "event_spacing_seconds",
+                        0.075
+                    )
+                )
+            )
+
+        except Exception:
+
+            return 0.075
+
+    def _get_fractional_stagger_delay_seconds(
+        self,
+        offset_seconds: float
+    ) -> float:
+        """
+        Delay until the node's fractional second slot.
+
+        Example:
+            node_01 -> 0.1 second mark
+            node_05 -> 0.5 second mark
+        """
+
+        if not bool(
+            self.send_stagger_config.get(
+                "align_to_fractional_second",
+                True
+            )
+        ):
+
+            return offset_seconds
+
+        if offset_seconds <= 0.0:
+
+            return 0.0
+
+        now_epoch = time.time()
+        base_epoch = math.floor(
+            now_epoch
+        )
+        target_epoch = base_epoch + offset_seconds
+
+        if target_epoch <= now_epoch:
+
+            target_epoch += 1.0
+
+        return max(
+            0.0,
+            target_epoch - now_epoch
+        )
+
+    def apply_send_stagger(
+        self,
+        message: dict
+    ):
+        """
+        Smooth heavy outbound events after they are built.
+
+        This intentionally does not touch recording timestamps, BirdNET
+        detection timestamps, or TDOA timing metadata.
+        """
+
+        if not self._message_should_be_staggered(
+            message
+        ):
+
+            return
+
+        offset_seconds = self._get_node_send_offset_seconds(
+            message
+        )
+
+        delay_seconds = self._get_fractional_stagger_delay_seconds(
+            offset_seconds
+        )
+
+        spacing_seconds = self._get_event_spacing_seconds()
+
+        with self.stagger_lock:
+
+            now_monotonic = time.monotonic()
+            earliest_by_spacing = (
+                self.last_stagger_send_monotonic
+                + spacing_seconds
+            )
+
+            target_monotonic = max(
+                now_monotonic + delay_seconds,
+                earliest_by_spacing
+            )
+
+            delay_seconds = max(
+                0.0,
+                target_monotonic - now_monotonic
+            )
+
+            self.last_stagger_send_monotonic = target_monotonic
+
+        if delay_seconds <= 0.0:
+
+            return
+
+        event_type = self._extract_event_type(
+            message
+        )
+
+        self.log(
+            (
+                f"Staggering outbound {event_type} by "
+                f"{delay_seconds:.3f}s"
+            )
+        )
+
+        time.sleep(
+            delay_seconds
+        )
 
     # ========================================================
     # OUTBOUND SEND HANDLING
@@ -1134,6 +1525,10 @@ class CommunicationDispatcher:
         if self.sender_manager is None:
 
             return False
+
+        self.apply_send_stagger(
+            message
+        )
 
         if self.active_transport == WIFI:
 

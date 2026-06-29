@@ -109,6 +109,8 @@ DEFAULT_SUBSYSTEMS = {
 
 
 DEFAULT_COMMUNICATION_CONFIG = {
+    "node_id": "auto",
+    "node_name": "auto",
     "wifi_enabled": True,
     "lora_enabled": False,
     "udp": {
@@ -126,6 +128,20 @@ DEFAULT_COMMUNICATION_CONFIG = {
     "network": {
         "heartbeat_timeout_seconds": 30,
         "network_check_interval_seconds": 5,
+    },
+    "send_stagger": {
+        "enabled": True,
+        "auto_node_offset": True,
+        "node_offset_seconds": None,
+        "node_offset_scale_seconds": 0.1,
+        "max_node_offset_seconds": 0.9,
+        "align_to_fractional_second": True,
+        "event_spacing_seconds": 0.075,
+        "event_types": [
+            "AVIS_LITE",
+            "TDOA_RECORDING",
+            "MICROPHONE_SYNCED",
+        ],
     },
 }
 
@@ -917,6 +933,8 @@ def build_communication_config(
 
     config = deepcopy(existing_config)
 
+    config["node_id"] = answers["node_id"]
+    config["node_name"] = answers["node_name"]
     config["wifi_enabled"] = True
     config.setdefault("lora_enabled", False)
 
@@ -938,6 +956,25 @@ def build_communication_config(
     config.setdefault("network", {})
     config["network"].setdefault("heartbeat_timeout_seconds", 30)
     config["network"].setdefault("network_check_interval_seconds", 5)
+
+    if not isinstance(config.get("send_stagger"), dict):
+        config["send_stagger"] = {}
+
+    config["send_stagger"]["enabled"] = True
+    config["send_stagger"].setdefault("auto_node_offset", True)
+    config["send_stagger"].setdefault("node_offset_seconds", None)
+    config["send_stagger"].setdefault("node_offset_scale_seconds", 0.1)
+    config["send_stagger"].setdefault("max_node_offset_seconds", 0.9)
+    config["send_stagger"].setdefault("align_to_fractional_second", True)
+    config["send_stagger"].setdefault("event_spacing_seconds", 0.075)
+    config["send_stagger"].setdefault(
+        "event_types",
+        [
+            "AVIS_LITE",
+            "TDOA_RECORDING",
+            "MICROPHONE_SYNCED",
+        ],
+    )
 
     return config
 

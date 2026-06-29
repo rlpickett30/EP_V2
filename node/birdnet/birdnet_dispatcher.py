@@ -599,7 +599,12 @@ class BirdNetDispatcher:
 
             return
 
-        for detection_package in detection_packages:
+        selected_detection_packages = self.select_detection_packages(
+            detection_packages=detection_packages,
+            recording_id=recording_id
+        )
+
+        for detection_package in selected_detection_packages:
 
             avis_lite_event = self.build_avis_lite_event(
                 detection_package=detection_package,
@@ -613,8 +618,81 @@ class BirdNetDispatcher:
             )
 
         self.log(
-            f"Published {len(detection_packages)} AVIS_LITE event(s) for {recording_id}"
+            (
+                f"Published {len(selected_detection_packages)} AVIS_LITE event(s) "
+                f"for {recording_id}; "
+                f"filtered_from={len(detection_packages)}"
+            )
         )
+
+    # ========================================================
+    # DETECTION OUTPUT FILTERING
+    # ========================================================
+
+    def get_max_avis_events_per_recording(
+        self
+    ) -> int:
+        """
+        Limit how many AVIS_LITE packets one recording window can emit.
+
+        Default is one visual packet per recording. BirdNET may find several
+        3-second detections inside a 14-second file, but the GUI transport
+        should not receive several duplicate spectrogram images for the same
+        15-second window.
+        """
+
+        raw_value = self.config.get(
+            "max_avis_events_per_recording",
+            self.config.get(
+                "max_events_per_recording",
+                1
+            )
+        )
+
+        try:
+
+            value = int(
+                raw_value
+            )
+
+        except Exception:
+
+            value = 1
+
+        return max(
+            1,
+            value
+        )
+
+    def select_detection_packages(
+        self,
+        detection_packages,
+        recording_id=None
+    ):
+
+        if not detection_packages:
+
+            return []
+
+        max_events = self.get_max_avis_events_per_recording()
+
+        selected = detection_packages[:max_events]
+
+        dropped_count = max(
+            0,
+            len(detection_packages) - len(selected)
+        )
+
+        if dropped_count > 0:
+
+            self.log(
+                (
+                    f"Filtered {dropped_count} secondary BirdNET detection(s) "
+                    f"for {recording_id}; max_avis_events_per_recording={max_events}"
+                )
+            )
+
+        return selected
 
     # ========================================================
     # AVIS_LITE EVENT NORMALIZATION
@@ -710,6 +788,17 @@ class BirdNetDispatcher:
             "birdnet_event_utc": birdnet_event_utc,
             "birdnet_start_time": birdnet_start_time,
             "birdnet_end_time": birdnet_end_time,
+            "detection_index": detection_package.get(
+                "detection_index"
+            ),
+            "primary_detection": detection_package.get(
+                "primary_detection",
+                False
+            ),
+            "spectrogram_attached": detection_package.get(
+                "spectrogram_attached",
+                False
+            ),
             "recording_id": recording_id,
             "recording_path": recording_path,
             "wav_path": source_payload.get(

@@ -105,25 +105,45 @@ class BirdNetManager:
         self,
         recording_id,
         detection,
-        spectrogram_package=None
+        spectrogram_package=None,
+        detection_index=0
     ):
 
         birdnet_event_utc = int(
             time.time()
         )
 
+        species_code = detection.get(
+            "species_code",
+            "unknown"
+        )
+
+        start_time = detection.get(
+            "start_time",
+            0.0
+        )
+
+        try:
+
+            start_ms = int(
+                float(start_time) * 1000.0
+            )
+
+        except Exception:
+
+            start_ms = 0
+
         birdnet_event_id = (
-            f"AVIS_{birdnet_event_utc}"
+            f"AVIS_{recording_id}_{species_code}_{start_ms:05d}_{detection_index:02d}"
         )
 
         detection_package = {
             "birdnet_event_id": birdnet_event_id,
             "birdnet_event_utc": birdnet_event_utc,
             "recording_id": recording_id,
-            "species_code": detection.get(
-                "species_code",
-                "unknown"
-            ),
+            "detection_index": detection_index,
+            "primary_detection": detection_index == 0,
+            "species_code": species_code,
             "common_name": detection.get(
                 "common_name",
                 "unknown"
@@ -136,10 +156,7 @@ class BirdNetManager:
                 "confidence",
                 0.0
             ),
-            "birdnet_start_time": detection.get(
-                "start_time",
-                0.0
-            ),
+            "birdnet_start_time": start_time,
             "birdnet_end_time": detection.get(
                 "end_time",
                 0.0
@@ -152,6 +169,11 @@ class BirdNetManager:
         ):
 
             detection_package["spectrogram"] = spectrogram_package
+            detection_package["spectrogram_attached"] = True
+
+        else:
+
+            detection_package["spectrogram_attached"] = False
 
         return detection_package
 
@@ -215,12 +237,24 @@ class BirdNetManager:
 
         detection_packages = []
 
-        for detection in detections:
+        for detection_index, detection in enumerate(
+            detections
+        ):
+
+            # Only the primary detection carries the image. Secondary
+            # detections remain lightweight so one 15-second recording does
+            # not create several duplicate spectrogram payloads.
+            detection_spectrogram = (
+                spectrogram_package
+                if detection_index == 0
+                else None
+            )
 
             detection_package = self.build_detection_package(
                 recording_id=recording_id,
                 detection=detection,
-                spectrogram_package=spectrogram_package
+                spectrogram_package=detection_spectrogram,
+                detection_index=detection_index
             )
 
             detection_packages.append(
@@ -228,7 +262,10 @@ class BirdNetManager:
             )
 
         self.log(
-            f"Created {len(detection_packages)} BirdNET detection packages"
+            (
+                f"Created {len(detection_packages)} BirdNET detection packages; "
+                "spectrogram attached to primary detection only"
+            )
         )
 
         return detection_packages
