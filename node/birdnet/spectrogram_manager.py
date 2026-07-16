@@ -17,7 +17,7 @@
 #   birdnet_config.json
 #
 # Expected config section:
-#   spectrogram
+#   config["spectrogram"]
 #
 # Does:
 #   - Read WAV audio from disk
@@ -27,12 +27,14 @@
 #   - Serialize the PNG as base64 text
 #   - Return metadata needed by the GUI to decode and display the image
 #   - Support classic pink / purple spectrogram coloring
+#   - Enforce UDP-safe spectrogram payload limits
 #
 # Does NOT:
 #   - Subscribe to the event bus
 #   - Publish events
 #   - Run BirdNET analysis
 #   - Build final AVIS_LITE events
+#   - Own recording workflow
 #   - Require matplotlib, PIL, or OpenCV
 #
 # Owner:

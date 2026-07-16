@@ -1,21 +1,50 @@
-"""
-microphone_loop.py
-
-Responsibilities:
-- Detect audio input devices
-- Create recording directories
-- Record audio
-- Save WAV files
-- Return recording information
-
-This module intentionally knows nothing about:
-- EventBus
-- Dispatchers
-- BirdNET
-- TDOA
-- AVIS
-- Recycling policies
-"""
+# ============================================================
+# microphone_loop.py
+#
+# EnviroPulse V2.0
+#
+# Subsystem:
+#   Microphone
+#
+# Role:
+#   Manager
+#
+# Purpose:
+#   Perform low-level microphone recording work. Detect audio input
+#   availability, create recording paths, record audio, save WAV files, and
+#   return recording information to MicrophoneDispatcher.
+#
+# Expected config source:
+#   microphone_config.json
+#
+# Expected config section:
+#   config["recordings_root"], config["sample_rate"],
+#   config["channels"], config["device"], config["spectrogram"]
+#
+# Does:
+#   - Detect available audio input devices
+#   - Create recording directories
+#   - Build recording paths
+#   - Record audio from the configured microphone device
+#   - Save WAV files
+#   - Optionally write file-based spectrogram PNGs
+#   - Return recording metadata needed by MicrophoneDispatcher
+#   - Report actual recording duration and start timing error
+#
+# Does NOT:
+#   - Publish events
+#   - Subscribe to the event bus
+#   - Own microphone workflow decisions
+#   - Track PPS state
+#   - Track GPS state
+#   - Decide TDOA request targeting
+#   - Run BirdNET analysis
+#   - Manage recycling policies
+#
+# Owner:
+#   microphone_dispatcher.py
+#
+# ============================================================
 
 from __future__ import annotations
 

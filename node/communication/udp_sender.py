@@ -1,16 +1,16 @@
 # ============================================================
 # udp_sender.py
 #
-# EnviroPulse V2
+# EnviroPulse V2.0
 #
 # Subsystem:
-#   Communication
+#   Node Communication
 #
 # Role:
 #   Helper Script
 #
 # Purpose:
-#   Serialize outbound messages and send them as UDP packets.
+#   Serialize prepared outbound messages and send them as UDP packets.
 #
 # Expected config source:
 #   communication_config.json
@@ -19,11 +19,13 @@
 #   config["udp"]
 #
 # Does:
+#   - Open a UDP sender socket
 #   - Serialize outbound messages as JSON
-#   - Send UDP packets
+#   - Send UDP packets to the configured destination
 #   - Report send success or failure
 #   - Allow destination updates
-#   - Close the UDP socket
+#   - Return current destination information
+#   - Close the UDP sender socket
 #
 # Does NOT:
 #   - Retry messages
@@ -31,7 +33,9 @@
 #   - Store messages
 #   - Decide when messages should be sent
 #   - Publish events
-#   - Manage communication state
+#   - Subscribe to the event bus
+#   - Manage Communication state
+#   - Receive inbound messages
 #
 # Owner:
 #   sender_manager.py

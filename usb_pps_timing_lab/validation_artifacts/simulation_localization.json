@@ -1,0 +1,25 @@
+{
+    "microphones_used": [
+        "node_01",
+        "node_02",
+        "node_03",
+        "node_04"
+    ],
+    "source_position_m": [
+        -0.0012083544877291642,
+        -0.003735689778793813,
+        1.0
+    ],
+    "success": true,
+    "message": "`gtol` termination condition is satisfied.",
+    "cost": 7.901879151006597e-11,
+    "residuals_microseconds": [
+        0.0,
+        7.2550250083624235,
+        -7.264110584044319,
+        7.255028976875413
+    ],
+    "residual_rms_microseconds": 6.285660981640889,
+    "speed_of_sound_mps": 343.2,
+    "fixed_z": 1.0
+}

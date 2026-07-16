@@ -12,33 +12,36 @@
 #
 # Purpose:
 #   Own environmental sensor driver lifecycle and return unified
-#   environmental sensor snapshots.
+#   environmental sensor snapshots to EnvironmentalDispatcher.
 #
 # Expected config source:
 #   environmental_config.json
 #
 # Expected config section:
-#   config["sensors"], config["sample_hz"],
-#   config["sea_level_pressure_hpa"]
+#   config["enabled"], config["sample_hz"],
+#   config["sea_level_pressure_hpa"], config["sensors"]
 #
 # Does:
-#   - Start only configured environmental sensor drivers.
-#   - Stop environmental sensor drivers.
-#   - Collect sensor snapshots.
-#   - Return failure snapshots for disabled or failed sensors.
+#   - Start only configured environmental sensor drivers
+#   - Stop environmental sensor drivers
+#   - Create supported environmental sensor drivers
+#   - Collect sensor snapshots
+#   - Mark sensor online status from driver snapshots
+#   - Return failure snapshots for disabled or failed sensors
+#   - Preserve driver startup errors for dispatcher visibility
 #
 # Does NOT:
-#   - Publish events.
-#   - Subscribe to the event bus.
-#   - Decide whether a state or reading should be published.
-#   - Own node identity.
-#   - Own environmental workflow.
+#   - Publish events
+#   - Subscribe to the event bus
+#   - Decide whether a state or reading should be published
+#   - Own node identity
+#   - Own environmental workflow
+#   - Build ENVIRO_STATE or ENVIRO_EVENT payloads
 #
 # Owner:
 #   environmental_dispatcher.py
 #
 # ============================================================
-
 from __future__ import annotations
 
 import time

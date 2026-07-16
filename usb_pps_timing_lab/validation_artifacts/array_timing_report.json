@@ -1,0 +1,115 @@
+{
+    "schema": "usb_pps_array_comparison_v1",
+    "recordings": {
+        "node_01": "/mnt/data/usb_pps_timing_lab/simulated_demo_output/corrected/node_01/node_01_gps_corrected.wav",
+        "node_02": "/mnt/data/usb_pps_timing_lab/simulated_demo_output/corrected/node_02/node_02_gps_corrected.wav",
+        "node_03": "/mnt/data/usb_pps_timing_lab/simulated_demo_output/corrected/node_03/node_03_gps_corrected.wav",
+        "node_04": "/mnt/data/usb_pps_timing_lab/simulated_demo_output/corrected/node_04/node_04_gps_corrected.wav"
+    },
+    "sample_rate_hz": 48000,
+    "event_sample": 24000,
+    "event_time_seconds": 0.5,
+    "analysis_window_start_seconds": 0.47,
+    "analysis_window_stop_seconds": 0.53,
+    "frequency_band_hz": [
+        300.0,
+        10000.0
+    ],
+    "reference_microphone": "node_01",
+    "relative_delays_seconds": {
+        "node_01": 0.0,
+        "node_02": 9.990770066861818e-08,
+        "node_03": 2.2243004876748e-07,
+        "node_04": -2.1669846250198523e-05
+    },
+    "reference_correlation_strengths": {
+        "node_01": 1.0,
+        "node_02": 0.16586237898527031,
+        "node_03": 0.17639960652982817,
+        "node_04": 0.12318653573114056
+    },
+    "arrival_spread_microseconds": 21.892276298966003,
+    "arrival_spread_equivalent_cm": 0.7513429225805132,
+    "pairwise": [
+        {
+            "microphone_a": "node_01",
+            "microphone_b": "node_02",
+            "delay_seconds_a_minus_b": -9.990770066861847e-08,
+            "delay_microseconds_a_minus_b": -0.09990770066861847,
+            "equivalent_distance_m": -3.4288322869469856e-05,
+            "equivalent_distance_cm": -0.0034288322869469854,
+            "gcc_phat_peak_strength": 0.16586237898527031
+        },
+        {
+            "microphone_a": "node_01",
+            "microphone_b": "node_03",
+            "delay_seconds_a_minus_b": -2.2243004876747999e-07,
+            "delay_microseconds_a_minus_b": -0.22243004876748,
+            "equivalent_distance_m": -7.633799273699913e-05,
+            "equivalent_distance_cm": -0.007633799273699913,
+            "gcc_phat_peak_strength": 0.17639960652982822
+        },
+        {
+            "microphone_a": "node_01",
+            "microphone_b": "node_04",
+            "delay_seconds_a_minus_b": 2.1669846250198523e-05,
+            "delay_microseconds_a_minus_b": 21.66984625019852,
+            "equivalent_distance_m": 0.007437091233068133,
+            "equivalent_distance_cm": 0.7437091233068133,
+            "gcc_phat_peak_strength": 0.12318653573114058
+        },
+        {
+            "microphone_a": "node_02",
+            "microphone_b": "node_03",
+            "delay_seconds_a_minus_b": -1.409039469502109e-08,
+            "delay_microseconds_a_minus_b": -0.01409039469502109,
+            "equivalent_distance_m": -4.835823459331238e-06,
+            "equivalent_distance_cm": -0.0004835823459331238,
+            "gcc_phat_peak_strength": 0.18990582244089482
+        },
+        {
+            "microphone_a": "node_02",
+            "microphone_b": "node_04",
+            "delay_seconds_a_minus_b": 2.1644678392705623e-05,
+            "delay_microseconds_a_minus_b": 21.64467839270562,
+            "equivalent_distance_m": 0.007428453624376569,
+            "equivalent_distance_cm": 0.742845362437657,
+            "gcc_phat_peak_strength": 0.15363466729633207
+        },
+        {
+            "microphone_a": "node_03",
+            "microphone_b": "node_04",
+            "delay_seconds_a_minus_b": 2.1621155430355695e-05,
+            "delay_microseconds_a_minus_b": 21.621155430355696,
+            "equivalent_distance_m": 0.007420380543698074,
+            "equivalent_distance_cm": 0.7420380543698074,
+            "gcc_phat_peak_strength": 0.13917050786995386
+        }
+    ],
+    "pairwise_delay_matrix_microseconds": {
+        "node_01": {
+            "node_01": 0.0,
+            "node_02": -0.09990770066861818,
+            "node_03": -0.22243004876748002,
+            "node_04": 21.66984625019852
+        },
+        "node_02": {
+            "node_01": 0.09990770066861818,
+            "node_02": 0.0,
+            "node_03": -0.12252234809886182,
+            "node_04": 21.769753950867138
+        },
+        "node_03": {
+            "node_01": 0.22243004876748002,
+            "node_02": 0.12252234809886182,
+            "node_03": 0.0,
+            "node_04": 21.892276298966003
+        },
+        "node_04": {
+            "node_01": -21.66984625019852,
+            "node_02": -21.769753950867138,
+            "node_03": -21.892276298966003,
+            "node_04": 0.0
+        }
+    }
+}

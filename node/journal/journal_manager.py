@@ -1,16 +1,41 @@
 # ============================================================
 # journal_manager.py
 #
-# EnviroPulse V2
+# EnviroPulse V2.0
 #
-# Responsibilities:
-#   - Format journal entries
-#   - Print system story events
+# Subsystem:
+#   Journal
+#
+# Role:
+#   Manager
+#
+# Purpose:
+#   Format observed platform events into Journal entries and print the system
+#   story according to Journal configuration.
+#
+# Expected config source:
+#   journal_config.py
+#
+# Expected config section:
+#   JOURNAL_CONFIG
+#
+# Does:
+#   - Load Journal configuration defaults
+#   - Receive events from JournalDispatcher
+#   - Build journal entry dictionaries
+#   - Format event timestamp, source, event type, and payload fields
+#   - Print journal entries to the terminal when enabled
 #
 # Does NOT:
-#   - Decide routing
+#   - Decide event routing
 #   - Modify events
 #   - Publish events
+#   - Subscribe to the event bus
+#   - Own Journal subscription registration
+#   - Own platform event production
+#
+# Owner:
+#   journal_dispatcher.py
 #
 # ============================================================
 

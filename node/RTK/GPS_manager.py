@@ -1,18 +1,45 @@
-"""
-GPS_manager.py
-
-Responsibilities:
-- Own FP9 driver.
-- Create GPS snapshots.
-- Create GPS event IDs.
-- Preserve GPS / DGPS / RTK fix metadata from the FP9 driver.
-
-This module intentionally knows nothing about:
-- EventBus
-- Dispatchers
-- Publishers
-- Subscribers
-"""
+# ============================================================
+# GPS_manager.py
+#
+# EnviroPulse V2.0
+#
+# Subsystem:
+#   RTK
+#
+# Role:
+#   Manager
+#
+# Purpose:
+#   Own the FP9 driver, create normalized GPS snapshots, and preserve GPS,
+#   DGPS, and RTK fix metadata for RTKDispatcher.
+#
+# Expected config source:
+#   RTK_config.json
+#
+# Expected config section:
+#   config["gps"]
+#
+# Does:
+#   - Own the FP9Driver instance
+#   - Connect to the ZED-F9P through FP9Driver
+#   - Create GPS snapshots
+#   - Create GPS event IDs
+#   - Preserve latitude, longitude, altitude, satellite, and HDOP data
+#   - Preserve GPS, DGPS, RTK fixed, and RTK float metadata
+#   - Normalize fix quality into readable fix labels
+#
+# Does NOT:
+#   - Own EventBus logic
+#   - Publish events
+#   - Subscribe to events
+#   - Own PPS state
+#   - Own RTK correction transport workflow
+#   - Decide node registration or TDOA readiness
+#
+# Owner:
+#   RTK_dispatcher.py
+#
+# ============================================================
 
 from __future__ import annotations
 

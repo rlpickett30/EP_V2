@@ -10,36 +10,48 @@
 #   Dispatcher
 #
 # Purpose:
-#   Own node Communication workflow.
+#   Own the node Communication subsystem workflow. Coordinate local event-bus
+#   communication, outbound server delivery, inbound server commands,
+#   transport mode changes, network state, queued messages, and send
+#   staggering.
 #
 # Expected config source:
 #   communication_config.json
 #
 # Expected config section:
-#   Full communication config
+#   Full file
 #
 # Does:
-#   - Create and own communication_state_manager.py
-#   - Create and own communication_event_services.py
-#   - Create and own listener_manager.py
-#   - Create and own sender_manager.py
-#   - Register Sender subscriptions
-#   - Register Listener publications
-#   - Send node state and node event messages to the server
+#   - Load Communication configuration
+#   - Create and own CommunicationStateManager
+#   - Create and own CommunicationEventServices
+#   - Create and own ListenerManager
+#   - Create and own SenderManager
+#   - Register Communication event subscriptions
+#   - Handle outbound node state and event messages
+#   - Send node messages to the server through the active transport
+#   - Queue outbound messages when active transport cannot send
+#   - Flush queued messages when transport becomes available
+#   - Handle inbound listener events from the server
 #   - Publish inbound TDOA_REQUEST messages to the node bus
+#   - Publish inbound SEND_NODE_CHANGE_MODE messages to the node bus
 #   - Publish EVENT_SENT after successful sends
-#   - Track NETWORK_CONNECTED and NETWORK_DISCONNECTED
+#   - Track NETWORK_CONNECTED and NETWORK_DISCONNECTED state
 #   - Handle SEND_NODE_CHANGE_MODE
 #   - Switch active outbound transport between Wi-Fi and LoRa
-#   - Queue outbound messages when the active transport cannot send
+#   - Apply configured outbound send staggering
+#   - Report Communication subsystem status
 #
 # Does NOT:
 #   - Open sockets directly
 #   - Send UDP packets directly
 #   - Receive UDP packets directly
-#   - Decode packet payloads directly
+#   - Decode raw UDP bytes directly
+#   - Publish directly to the event bus
+#   - Subscribe directly to the event bus
 #   - Analyze recordings
 #   - Own node registration contents
+#   - Own platform registry state
 #   - Perform Event Bus delivery logic
 #
 # Owner:

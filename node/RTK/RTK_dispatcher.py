@@ -1,44 +1,54 @@
-"""
-RTK_dispatcher.py
-
-EnviroPulse V2.0
-
-Subsystem:
-    RTK
-
-Role:
-    Dispatcher
-
-Purpose:
-    Own the RTK subsystem workflow.
-
-Publishes:
-    - RTK_STATE
-    - GPS_STATE
-    - PPS_STATE
-    - GPS_COORD
-
-Subscribes:
-    - None
-
-Does:
-    - Load RTK configuration.
-    - Resolve node identity from config or hostname.
-    - Coordinate GPS, PPS, RTK base, and RTK rover managers.
-    - Track GPS lock state.
-    - Track PPS lock state.
-    - Track RTK fix state from the GPS snapshot.
-    - Publish canonical node RTK events through RTKEventServices.
-    - Publish GPS coordinates at a configured interval.
-    - In BASE mode: configure Survey-In and broadcast RTCM.
-    - In ROVER mode: receive RTCM and write corrections to the F9P.
-
-Does NOT:
-    - Publish legacy GPS_LOCK, GPS_LOST, PPS_LOCK, or PPS_LOST events.
-    - Subscribe directly to the event bus.
-    - Publish directly to the event bus.
-    - Own node registration.
-"""
+# ============================================================
+# RTK_dispatcher.py
+#
+# EnviroPulse V2.0
+#
+# Subsystem:
+#   RTK
+#
+# Role:
+#   Dispatcher
+#
+# Purpose:
+#   Own the RTK subsystem workflow. Coordinate GPS, PPS, RTK base, and RTK
+#   rover managers, then publish canonical node positioning and timing events.
+#
+# Expected config source:
+#   RTK_config.json
+#
+# Expected config section:
+#   Full file
+#
+# Does:
+#   - Load RTK configuration
+#   - Resolve node identity from config or hostname
+#   - Resolve RTK mode as base, rover, or disabled
+#   - Coordinate GPSManager
+#   - Coordinate PPSManager
+#   - Coordinate RTKBaseManager when in base mode
+#   - Coordinate RTKRoverManager when in rover mode
+#   - Track GPS lock state
+#   - Track PPS lock state
+#   - Track RTK online, fixed, and float state
+#   - Publish RTK_STATE events through RTKEventServices
+#   - Publish GPS_STATE events through RTKEventServices
+#   - Publish PPS_STATE events through RTKEventServices
+#   - Publish GPS_COORD events through RTKEventServices
+#   - Publish periodic state heartbeats
+#
+# Does NOT:
+#   - Publish legacy GPS_LOCK, GPS_LOST, PPS_LOCK, or PPS_LOST events
+#   - Subscribe directly to the event bus
+#   - Publish directly to the event bus
+#   - Own node registration
+#   - Open GNSS serial hardware directly
+#   - Parse raw NMEA sentences directly
+#   - Measure kernel PPS directly
+#
+# Owner:
+#   Main / Subsystem root
+#
+# ============================================================
 
 from __future__ import annotations
 

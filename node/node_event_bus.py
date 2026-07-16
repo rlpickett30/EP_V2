@@ -1,24 +1,47 @@
-"""
-node_event_bus.py
-
-EnviroPulse V2
-
-Purpose:
-    Central publish/subscribe system
-    for communication between subsystems.
-
-Responsibilities:
-    - Register subscribers
-    - Remove subscribers
-    - Publish events
-    - Route events to subscribers
-
-Not Responsible For:
-    - Event creation
-    - Event storage
-    - Threading
-    - Queue management
-"""
+# ============================================================
+# node_event_bus.py
+#
+# EnviroPulse V2.0
+#
+# Subsystem:
+#   Node Runtime
+#
+# Role:
+#   Event Bus
+#
+# Purpose:
+#   Provide the central local publish/subscribe system used for
+#   communication between node subsystems.
+#
+# Expected config source:
+#   None
+#
+# Expected config section:
+#   None
+#
+# Does:
+#   - Register subscribers
+#   - Remove subscribers
+#   - Publish events
+#   - Support event_bus.publish(event)
+#   - Support event_bus.publish(event_name, event)
+#   - Route events to registered subscribers
+#   - Report current subscription mappings
+#   - Log subscription and publish activity when debug is enabled
+#
+# Does NOT:
+#   - Create events
+#   - Store events
+#   - Interpret event meaning
+#   - Own subsystem workflow
+#   - Own threading
+#   - Own queue management
+#   - Own transport or network delivery
+#
+# Owner:
+#   node_main.py
+#
+# ============================================================
 
 from collections import defaultdict
 import logging

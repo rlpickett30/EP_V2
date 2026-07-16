@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # ============================================================
 # node_main.py
 #
@@ -10,8 +11,9 @@
 #   Main
 #
 # Purpose:
-#   Start the EnviroPulse node runtime, create subsystem
-#   dispatchers, start them, and keep the process alive.
+#   Start the EnviroPulse node runtime, create the local EventBus, create
+#   configured subsystem dispatchers, start them in daemon threads, keep the
+#   process alive, and stop subsystems during shutdown.
 #
 # Expected config source:
 #   node_config.json
@@ -21,25 +23,28 @@
 #   config["register"], config["debug"]
 #
 # Does:
-#   - Resolve the node runtime directory.
-#   - Load central node identity from node_config.json.
-#   - Create the EventBus.
-#   - Create configured subsystem dispatchers.
-#   - Start subsystem dispatchers in daemon threads.
-#   - Keep the node process alive.
-#   - Stop subsystems during shutdown.
+#   - Resolve the node runtime directory
+#   - Load central node identity from node_config.json
+#   - Validate required node configuration fields
+#   - Create the local EventBus
+#   - Create configured subsystem dispatchers
+#   - Start subsystem dispatchers in daemon threads
+#   - Print node startup information
+#   - Keep the node process alive
+#   - Stop subsystems during shutdown
 #
 # Does NOT:
-#   - Own sensor logic.
-#   - Own event routing policy.
-#   - Own subsystem workflow.
-#   - Know manager names.
-#   - Know helper script names.
-#   - Maintain platform state.
-#   - Hard-code real node identity.
+#   - Own sensor logic
+#   - Own event routing internals
+#   - Own subsystem workflow
+#   - Know manager names
+#   - Know helper script names
+#   - Maintain platform registry state
+#   - Hard-code real node identity
+#   - Send network messages directly
 #
 # Owner:
-#   Subsystem root
+#   Project / Runtime entry point
 #
 # ============================================================
 

@@ -1,38 +1,43 @@
-"""
-RTK_event_services.py
-
-EnviroPulse V2.0
-
-Subsystem:
-    RTK
-
-Role:
-    Event Services
-
-Purpose:
-    Connect the RTK subsystem to the EnviroPulse event bus.
-
-Publishes:
-    - RTK_STATE
-    - GPS_STATE
-    - PPS_STATE
-    - GPS_COORD
-
-Subscribes:
-    - None
-
-Does:
-    - Publish canonical RTK output events
-    - Provide a thin communication layer between RTK and the event bus
-
-Does NOT:
-    - Track GPS, PPS, or RTK state
-    - Inspect event payloads
-    - Make workflow decisions
-    - Access hardware
-    - Handle configuration
-"""
-
+# ============================================================
+# RTK_event_services.py
+#
+# EnviroPulse V2.0
+#
+# Subsystem:
+#   RTK
+#
+# Role:
+#   Event Services
+#
+# Purpose:
+#   Connect the RTK subsystem to the EnviroPulse event bus.
+#
+# Expected config source:
+#   None
+#
+# Expected config section:
+#   None
+#
+# Does:
+#   - Publish canonical RTK output events
+#   - Publish RTK_STATE events
+#   - Publish GPS_STATE events
+#   - Publish PPS_STATE events
+#   - Publish GPS_COORD events
+#   - Provide a thin communication layer between RTK and the event bus
+#
+# Does NOT:
+#   - Track GPS, PPS, or RTK state
+#   - Inspect event payloads
+#   - Make workflow decisions
+#   - Access hardware
+#   - Handle configuration
+#   - Own RTK subsystem startup
+#
+# Owner:
+#   RTK_dispatcher.py
+#
+# ============================================================
 from __future__ import annotations
 
 

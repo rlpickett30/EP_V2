@@ -1,14 +1,48 @@
 #!/usr/bin/env python3
-"""
-DPS310_driver.py
-
-Persistent, long-lived I2C driver for the Infineon DPS310 pressure sensor.
-
-Design intent:
-- The driver owns the sensor for the lifetime of the process.
-- It periodically samples pressure and temperature.
-- It exposes raw facts; policy decisions belong elsewhere.
-"""
+# ============================================================
+# DPS310_driver.py
+#
+# EnviroPulse V2.0
+#
+# Subsystem:
+#   Environmental
+#
+# Role:
+#   Helper Script
+#
+# Purpose:
+#   Provide a persistent, long-lived I2C driver for the Infineon DPS310
+#   pressure sensor and expose latest raw pressure, temperature, and altitude
+#   facts.
+#
+# Expected config source:
+#   environmental_config.json
+#
+# Expected config section:
+#   config["sample_hz"], config["sea_level_pressure_hpa"],
+#   config["sensors"]["dps310"]
+#
+# Does:
+#   - Own the DPS310 sensor for the lifetime of the process
+#   - Start and stop the DPS310 sampling thread
+#   - Read pressure from the DPS310
+#   - Read temperature from the DPS310
+#   - Calculate altitude using configured sea-level pressure
+#   - Maintain a latest sensor snapshot
+#   - Report sample counts and driver errors
+#
+# Does NOT:
+#   - Publish events
+#   - Subscribe to the event bus
+#   - Make environmental workflow decisions
+#   - Decide whether the environmental subsystem is online
+#   - Own node identity
+#   - Own configuration loading
+#
+# Owner:
+#   driver_manager.py
+#
+# ============================================================
 
 from __future__ import annotations
 

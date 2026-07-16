@@ -1,40 +1,48 @@
 # ============================================================
-# TDOA_dispatcher.py
+# birdnet_dispatcher.py
 #
 # EnviroPulse V2.0
 #
 # Subsystem:
-#   TDOA
+#   BirdNET
 #
 # Role:
 #   Dispatcher
 #
 # Purpose:
-#   Own TDOA subsystem workflow.
+#   Own the BirdNET subsystem workflow. Receive recording and GPS events,
+#   coordinate BirdNetManager analysis, and publish canonical AVIS_LITE
+#   events through BirdNetEventServices.
 #
 # Expected config source:
-#   TDOA_config.json
+#   birdnet_config.json
 #
 # Expected config section:
-#   config["tdoa_dispatcher"]
+#   Full file
 #
 # Does:
-#   - Create and own TDOA_event_services.py
-#   - Create and own TDOA_state_manager.py
-#   - Create and own candidate_filter.py
-#   - Create and own TDOA_manager.py
-#   - Receive subscribed TDOA events
-#   - Track recent avis_lite events
-#   - Ask candidate_filter.py for valid TDOA candidates
-#   - Call TDOA_manager.py only after a valid candidate exists
-#   - Publish TDOA state, candidate, result, and failure events
+#   - Load BirdNET configuration
+#   - Start and stop the BirdNET subsystem
+#   - Register BirdNET event subscriptions
+#   - Track runtime BirdNET location state
+#   - Handle GPS_COORD events
+#   - Handle RECORDING_AVAILABLE events
+#   - Queue recordings for asynchronous BirdNET analysis
+#   - Coordinate BirdNetManager
+#   - Build canonical AVIS_LITE events
+#   - Attach payload-safe spectrogram packages when available
+#   - Publish AVIS_LITE events through BirdNetEventServices
 #
 # Does NOT:
-#   - Solve TDOA directly
-#   - Publish directly to Event Bus
-#   - Perform candidate filtering internally
-#   - Maintain node-state truth directly
-#   - Own Platform Registry state
+#   - Analyze WAV files directly
+#   - Generate spectrograms directly
+#   - Subscribe directly to the event bus
+#   - Publish directly to the event bus
+#   - Rewrite runtime GPS values back into config
+#   - Publish state events
+#   - Publish mode events
+#   - Own node registration
+#   - Send AVIS_LITE to the server directly
 #
 # Owner:
 #   Main / Subsystem root
@@ -1020,7 +1028,6 @@ class TDOADispatcher:
             "tdoa_request_id": request_id,
             "request_id": request_id,
             "candidate_key": candidate_key,
-            "candidate": candidate,
             "avis_lite_id": candidate.get("avis_lite_id"),
             "target": "broadcast",
             "target_node_id": "broadcast",
@@ -1036,7 +1043,7 @@ class TDOADispatcher:
                 "tdoa_recording_duration_sec",
                 15
             )
-        }
+        }        
 
     # ========================================================
     # RECORDING / WEATHER HANDLING

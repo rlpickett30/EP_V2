@@ -1,0 +1,11 @@
+{
+  "coordinate_units": "meters",
+  "speed_of_sound_mps": 343.2,
+  "microphones": {
+    "node_01": [2.0, 0.0, 1.0],
+    "node_02": [0.0, 2.0, 1.0],
+    "node_03": [-2.0, 0.0, 1.0],
+    "node_04": [0.0, -2.0, 1.0]
+  },
+  "expected_source": [0.0, 0.0, 1.0]
+}

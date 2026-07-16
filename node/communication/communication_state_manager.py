@@ -1,20 +1,47 @@
 # ============================================================
 # communication_state_manager.py
 #
-# EnviroPulse V2
+# EnviroPulse V2.0
 #
-# Communication State
+# Subsystem:
+#   Node Communication
 #
-# Responsibilities:
-#   - Store communication state
-#   - Store communication statistics
-#   - Provide communication status
+# Role:
+#   State Manager
+#
+# Purpose:
+#   Store Communication subsystem truth and runtime statistics for
+#   CommunicationDispatcher.
+#
+# Expected config source:
+#   None
+#
+# Expected config section:
+#   None
+#
+# Does:
+#   - Store network connected state
+#   - Store server reachable state
+#   - Store receive counters
+#   - Store transmit counters
+#   - Store receive error counters
+#   - Store transmit error counters
+#   - Store last receive time
+#   - Store last transmit time
+#   - Return Communication status snapshots
 #
 # Does NOT:
 #   - Send messages
 #   - Receive messages
 #   - Check connectivity
-#   - Make decisions
+#   - Make workflow decisions
+#   - Publish events
+#   - Subscribe to the event bus
+#   - Own transport mode changes
+#   - Own queued messages
+#
+# Owner:
+#   communication_dispatcher.py
 #
 # ============================================================
 

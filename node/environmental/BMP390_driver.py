@@ -1,14 +1,47 @@
 #!/usr/bin/env python3
-"""
-BMP390_driver.py
-
-Persistent, long-lived I2C driver for the Bosch BMP390 (BMP3xx family).
-
-Design intent:
-- The driver OWNS the sensor for the lifetime of the process.
-- It periodically samples pressure (and temperature) and keeps a "latest snapshot".
-- It exposes raw facts; policy decisions belong elsewhere.
-"""
+# ============================================================
+# BMP390_driver.py
+#
+# EnviroPulse V2.0
+#
+# Subsystem:
+#   Environmental
+#
+# Role:
+#   Helper Script
+#
+# Purpose:
+#   Provide a persistent, long-lived I2C driver for the Bosch BMP390 pressure
+#   sensor and expose latest raw pressure, temperature, and altitude facts.
+#
+# Expected config source:
+#   environmental_config.json
+#
+# Expected config section:
+#   config["sample_hz"], config["sea_level_pressure_hpa"],
+#   config["sensors"]["bmp390"]
+#
+# Does:
+#   - Own the BMP390 sensor for the lifetime of the process
+#   - Start and stop the BMP390 sampling thread
+#   - Read pressure from the BMP390
+#   - Read temperature from the BMP390
+#   - Calculate altitude using configured sea-level pressure
+#   - Maintain a latest sensor snapshot
+#   - Report sample counts and driver errors
+#
+# Does NOT:
+#   - Publish events
+#   - Subscribe to the event bus
+#   - Make environmental workflow decisions
+#   - Decide whether the environmental subsystem is online
+#   - Own node identity
+#   - Own configuration loading
+#
+# Owner:
+#   driver_manager.py
+#
+# ============================================================
 
 from __future__ import annotations
 

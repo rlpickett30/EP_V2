@@ -1,19 +1,44 @@
-"""
-RTK_base_manager.py
-
-Temporary-to-platform RTK base manager.
-
-Responsibilities:
-- Use the shared FP9Driver owned by GPSManager.
-- Optionally configure the local ZED-F9P as a Survey-In base.
-- Consume RTCM3 packets extracted from the local F9P stream.
-- Broadcast or unicast RTCM packets to rover nodes over UDP.
-
-Does NOT:
-- Own EventBus logic.
-- Own node identity.
-- Open the serial port separately from GPSManager.
-"""
+# ============================================================
+# RTK_base_manager.py
+#
+# EnviroPulse V2.0
+#
+# Subsystem:
+#   RTK
+#
+# Role:
+#   Manager
+#
+# Purpose:
+#   Manage RTK base correction transport by consuming RTCM3 packets from the
+#   shared F9P driver and sending them to rover nodes over UDP.
+#
+# Expected config source:
+#   RTK_config.json
+#
+# Expected config section:
+#   config["rtk"]["base"]
+#
+# Does:
+#   - Use the shared FP9Driver owned by GPSManager
+#   - Optionally configure the local ZED-F9P as a Survey-In base
+#   - Consume RTCM3 packets extracted from the local F9P stream
+#   - Send RTCM packets to configured rover targets over UDP
+#   - Optionally broadcast RTCM packets over UDP
+#   - Track RTCM consume and transmit counters
+#   - Return role-aware RTK base transport status snapshots
+#
+# Does NOT:
+#   - Own EventBus logic
+#   - Publish events
+#   - Own node identity
+#   - Open the serial port separately from GPSManager
+#   - Interpret rover RTK fix state
+#
+# Owner:
+#   RTK_dispatcher.py
+#
+# ============================================================
 
 from __future__ import annotations
 

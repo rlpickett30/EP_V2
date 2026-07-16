@@ -1,0 +1,1116 @@
+EnviroPulse V2.1 - Node Event Contract
+========================================
+
+Scope: Node-side event flow only.
+Status: Code-aligned draft after installer/node-runtime refactor.
+Boundary: This contract stops at the node's outbound message. Server-side promoted events such as SERVER_AVIS_LITE, SERVER_GPS_COORD, NODE_STATE_UPDATED, and NODE_TDOA_STATE are downstream server contracts, not node events.
+
+Standard Event Envelope
+-----------------------
+
+Every canonical node event should use this envelope:
+
+event_type: string
+source: string
+target: string
+timestamp: UTC ISO string
+payload: dictionary
+
+The node event bus supports both forms:
+
+event_bus.publish(event)
+event_bus.publish(event_type, event)
+
+target is a routing intention, not proof of delivery. Common node targets are:
+
+server
+sender
+birdnet
+node
+journal
+
+Direction Groups
+----------------
+
+Server -> Node:
+
+TDOA_REQUEST
+SEND_NODE_CHANGE_MODE
+
+Node-local only:
+
+RECORDING_AVAILABLE
+NETWORK_CONNECTED
+NETWORK_DISCONNECTED
+EVENT_SENT
+
+Node -> Server:
+
+NODE_REGISTER
+PPS_STATE
+GPS_STATE
+RTK_STATE
+GPS_COORD
+ENVIRO_STATE
+ENVIRO_EVENT
+TDOA_RECORDING
+MICROPHONE_SYNCED
+AVIS_LITE
+
+
+Event Contracts
+===============
+
+TDOA_REQUEST
+------------
+
+Purpose:
+Server command requesting a synchronized TDOA recording from one or more nodes.
+
+Direction:
+Server -> Node local bus.
+
+Node publisher:
+communication_dispatcher.py, after inbound listener decode.
+
+Original platform source:
+Server TDOA subsystem.
+
+Node subscribers:
+- microphone_dispatcher.py
+- journal_dispatcher.py
+
+Expected result:
+TDOA_REQUEST
+-> Microphone
+-> TDOA_RECORDING
+-> Communication
+-> Server
+
+Required envelope fields:
+event_type = "TDOA_REQUEST"
+source = "server"
+target = node_id, "node", "all", or "broadcast"
+timestamp
+payload
+
+Payload fields currently supported by Microphone:
+target_node_id
+target_nodes
+target
+request_items
+recording_id
+source_recording_id
+duration_sec
+tdoa_duration_sec
+start_epoch
+start_epoch_utc
+start_time_epoch
+scheduled_start_epoch
+tdoa_request_id
+request_id
+event_id
+avis_lite_id
+species_code
+species_common
+request_timestamp
+timestamp
+requested_start_utc
+start_time_utc
+scheduled_start_utc
+
+Communication-added payload fields:
+payload["_communication"]["active_transport"]
+payload["_communication"]["received_timestamp"]
+payload["_communication"]["transport"]
+payload["_communication"]["source_ip"]
+payload["_communication"]["source_port"]
+payload["_communication"]["rx_count"]
+payload["_communication"]["rx_errors"]
+
+Notes:
+If recording_id points to an existing normal recording in the microphone recording index, Microphone can publish a TDOA_RECORDING pointer instead of creating a fresh recording.
+
+
+SEND_NODE_CHANGE_MODE
+---------------------
+
+Purpose:
+Server command instructing the node to change Communication transport mode.
+
+Direction:
+Server -> Node local bus.
+
+Node publisher:
+communication_dispatcher.py, after inbound listener decode.
+
+Node subscribers:
+- communication_dispatcher.py
+- journal_dispatcher.py
+
+Required command meaning:
+One of the supported mode fields must resolve to Wi-Fi or LoRa.
+
+Supported fields:
+mode
+network_mode
+transport
+command
+action
+value
+payload.mode
+payload.network_mode
+payload.transport
+payload.command
+payload.action
+payload.value
+
+Accepted Wi-Fi aliases:
+wifi
+wi-fi
+udp
+enable_wifi
+send_wifi
+send_via_wifi
+wifi_on
+
+Accepted LoRa aliases:
+lora
+lorawan
+enable_lora
+send_lora
+send_via_lora
+lora_on
+
+Expected result:
+SEND_NODE_CHANGE_MODE
+-> Communication mode handler
+-> active_transport updated
+-> NETWORK_CONNECTED or NETWORK_DISCONNECTED
+-> optional queue flush
+
+Atlas note:
+Keep the name SEND_NODE_CHANGE_MODE for now. It is awkward on the node side, but current code uses it. Rename only after a full server/GUI scan.
+
+
+NODE_REGISTER
+-------------
+
+Purpose:
+Register or refresh node identity and capabilities with the server.
+
+Direction:
+Node -> Server.
+
+Publisher:
+node_register.py.
+
+Subscribers:
+- communication_dispatcher.py
+- journal_dispatcher.py
+
+Trigger:
+NETWORK_CONNECTED
+heartbeat while network_connected == True
+
+Required payload fields:
+node_id
+node_name
+hostname
+node_type
+platform
+software
+reason
+capabilities
+
+Current capability fields:
+environmental
+birdnet
+gps
+rtk
+pps
+microphone
+tdoa_recording
+wifi
+lora
+
+Expected path:
+NETWORK_CONNECTED
+-> NodeRegister
+-> NODE_REGISTER
+-> Communication
+-> Server
+
+Atlas note:
+The old contract said Node Main publishes this. Current ownership is cleaner: Node Main starts NodeRegister; NodeRegister publishes the event.
+
+
+PPS_STATE
+---------
+
+Purpose:
+Report PPS availability and lock state.
+
+Direction:
+Node -> Server, also node-local timing input.
+
+Publisher:
+RTK_dispatcher.py.
+
+Subscribers:
+- microphone_dispatcher.py
+- communication_dispatcher.py
+- journal_dispatcher.py
+
+Required payload fields:
+node_id
+node_name
+subsystem = "rtk"
+pps_online
+pps_locked
+pps_valid
+state
+snapshot
+
+State values:
+LOCKED
+LOST
+
+Snapshot fields may include:
+event_id
+event_utc
+pps_present
+pps_source
+pps_device
+pps_name
+pps_seq
+pps_seq_changed
+last_pps_kernel_time
+last_pps_kernel_time_sec
+last_pps_kernel_time_nsec
+pps_age_sec
+raw_assert
+last_error
+
+Expected path:
+PPSManager
+-> RTKDispatcher
+-> PPS_STATE
+-> Microphone timing gate
+-> Communication
+-> Server
+
+Atlas note:
+This is the node's real PPS readiness signal. Do not replace it with ZED-F9P serial status.
+
+
+GPS_STATE
+---------
+
+Purpose:
+Report GPS availability and fix validity.
+
+Direction:
+Node -> Server, also node-local microphone gate.
+
+Publisher:
+RTK_dispatcher.py.
+
+Subscribers:
+- microphone_dispatcher.py
+- communication_dispatcher.py
+- journal_dispatcher.py
+
+Required payload fields:
+node_id
+node_name
+subsystem = "rtk"
+gps_online
+gps_locked
+fix_valid
+fix_quality
+fix_label
+state
+snapshot
+
+State values:
+LOCKED
+LOST
+
+Snapshot fields may include:
+event_id
+event_utc
+latitude
+longitude
+altitude_m
+satellites
+hdop
+fix_quality
+fix_label
+rtk_status
+rtk_state
+rtk_online
+rtk_fixed
+rtk_float
+last_sentence
+driver_timestamp
+
+Expected path:
+GPSManager
+-> RTKDispatcher
+-> GPS_STATE
+-> Microphone lock gate
+-> Communication
+-> Server
+
+Atlas note:
+This is now a Microphone subscription too. The old contract only listed PPS for Microphone, but current recording gates can require both PPS and GPS.
+
+
+RTK_STATE
+---------
+
+Purpose:
+Report role-aware RTK availability.
+
+Direction:
+Node -> Server.
+
+Publisher:
+RTK_dispatcher.py.
+
+Subscribers:
+- communication_dispatcher.py
+- journal_dispatcher.py
+
+Required payload fields:
+node_id
+node_name
+subsystem = "rtk"
+rtk_mode
+rtk_role
+is_rtk_base
+is_rtk_rover
+rtk_online
+rtk_fixed
+rtk_float
+rtk_fix_type
+rtk_status
+fix_quality
+state
+mode
+transport_snapshot
+snapshot
+
+Base-mode payload fields:
+rtk_base_online
+rtcm_output_online
+rtcm_tx_online
+rtcm_packets_sent_total
+transport_snapshot.base_online
+transport_snapshot.rtcm_output_online
+transport_snapshot.rtcm_tx_online
+
+Rover-mode payload fields:
+rtcm_rx_online
+rtcm_packets_received_total
+transport_snapshot.rtcm_rx_online
+transport_snapshot.packets_received_total
+transport_snapshot.bytes_written_total
+
+State values:
+ONLINE
+STARTING
+OFFLINE
+
+RTK fix types:
+BASE
+FIXED
+FLOAT
+NONE
+
+Atlas note:
+Base RTK readiness is transport/output based. Rover RTK readiness is GPS fix-quality based. Do not force the base to pretend it is a rover.
+
+
+GPS_COORD
+---------
+
+Purpose:
+Publish node coordinates.
+
+Direction:
+Node -> Server and node-local BirdNET location input.
+
+Publisher:
+RTK_dispatcher.py.
+
+Subscribers:
+- birdnet_dispatcher.py
+- communication_dispatcher.py
+- journal_dispatcher.py
+
+Required payload fields:
+node_id
+node_name
+subsystem = "rtk"
+gps_coord
+lat
+lon
+latitude
+longitude
+alt
+altitude_m
+fix_valid
+fix_quality
+rtk_online
+rtk_fixed
+rtk_float
+snapshot
+
+Coordinate object:
+gps_coord.lat
+gps_coord.lon
+gps_coord.alt
+gps_coord.altitude_m
+
+Expected paths:
+RTK/GPS
+-> GPS_COORD
+-> BirdNET runtime location update
+
+RTK/GPS
+-> GPS_COORD
+-> Communication
+-> Server
+
+Atlas note:
+Keep both short and long aliases: lat/lon and latitude/longitude. They protect cross-subsystem compatibility.
+
+
+ENVIRO_STATE
+------------
+
+Purpose:
+Report environmental subsystem availability.
+
+Direction:
+Node -> Server.
+
+Publisher:
+environmental_dispatcher.py.
+
+Subscribers:
+- communication_dispatcher.py
+- journal_dispatcher.py
+
+Required payload fields:
+node_id
+node_name
+subsystem = "environmental"
+state
+online
+enabled
+enviro_online
+required_sensors
+sensors
+
+State values:
+ONLINE
+DEGRADED
+OFFLINE
+DISABLED
+UNCONFIGURED
+
+Sensor state fields:
+online
+started
+last_error
+sample_count
+
+Expected path:
+Environmental sensors
+-> DriverManager snapshot
+-> EnvironmentalDispatcher
+-> ENVIRO_STATE
+-> Communication
+-> Server
+
+
+ENVIRO_EVENT
+------------
+
+Purpose:
+Publish environmental measurements.
+
+Direction:
+Node -> Server.
+
+Publisher:
+environmental_dispatcher.py.
+
+Subscribers:
+- communication_dispatcher.py
+- journal_dispatcher.py
+
+Required payload fields:
+node_id
+node_name
+subsystem = "environmental"
+online
+enabled
+state
+temperature_c
+humidity_rh
+humidity_percent
+pressure_hpa
+altitude_m
+sensors
+snapshot
+
+Expected path:
+Environmental sensors
+-> DriverManager snapshot
+-> EnvironmentalDispatcher
+-> ENVIRO_EVENT
+-> Communication
+-> Server
+
+Atlas note:
+humidity_rh and humidity_percent are intentionally duplicated for compatibility.
+
+
+RECORDING_AVAILABLE
+-------------------
+
+Purpose:
+Node-local notice that a normal recording is ready for BirdNET analysis.
+
+Direction:
+Node-local only.
+
+Publisher:
+microphone_dispatcher.py.
+
+Subscribers:
+- birdnet_dispatcher.py
+- journal_dispatcher.py
+
+Required top-level fields:
+event_type = "RECORDING_AVAILABLE"
+source = "microphone"
+target = "birdnet"
+timestamp
+payload
+event_id
+recording_id
+recording_utc
+recording_path
+wav_path
+metadata_path
+window_utc
+window_epoch
+window_second
+
+Required payload fields:
+node_id
+node_name
+recording_id
+recording_utc
+recording_epoch
+recording_path
+wav_path
+metadata_path
+sample_rate
+channels
+duration_sec
+frame_count
+recording_type
+sync_source
+pps_locked
+pps_state
+scheduled_start_utc
+scheduled_start_epoch
+window_utc
+window_epoch
+window_second
+start_error_ms
+actual_duration_sec
+device
+microphone_type
+
+Optional payload fields:
+spectrogram_path
+
+Expected path:
+Microphone capture
+-> RECORDING_AVAILABLE
+-> BirdNET worker
+-> AVIS_LITE
+
+Atlas note:
+Keep this node-local. Do not route RECORDING_AVAILABLE through Communication unless there is a specific server need.
+
+
+TDOA_RECORDING
+--------------
+
+Purpose:
+Node response to a TDOA_REQUEST, containing recording identity, local file path, timing metadata, and request lineage.
+
+Direction:
+Node -> Server.
+
+Publisher:
+microphone_dispatcher.py.
+
+Subscribers:
+- communication_dispatcher.py
+- journal_dispatcher.py
+
+Required top-level fields:
+event_type = "TDOA_RECORDING"
+source = "microphone"
+target = "sender"
+timestamp
+payload
+event_id
+tdoa_request_id
+request_id
+recording_id
+recording_utc
+recording_path
+wav_path
+metadata_path
+window_utc
+window_epoch
+window_second
+
+Required payload fields:
+node_id
+node_name
+recording_id
+recording_utc
+recording_epoch
+recording_path
+wav_path
+metadata_path
+sample_rate
+channels
+duration_sec
+frame_count
+recording_type
+sync_source
+pps_locked
+pps_state
+scheduled_start_utc
+scheduled_start_epoch
+window_utc
+window_epoch
+window_second
+start_error_ms
+actual_duration_sec
+device
+microphone_type
+tdoa_request_id
+request_id
+
+Optional payload fields:
+spectrogram_path
+avis_lite_id
+request_timestamp
+requested_start_utc
+requested_duration_sec
+
+Expected path:
+TDOA_REQUEST
+-> Microphone
+-> TDOA_RECORDING
+-> Communication
+-> Server
+
+Atlas note:
+This is currently a recording pointer / metadata / timing package, not embedded audio.
+
+
+MICROPHONE_SYNCED
+-----------------
+
+Purpose:
+Report that a microphone recording started within the configured PPS/GPS sync window.
+
+Direction:
+Node -> Server.
+
+Publisher:
+microphone_dispatcher.py.
+
+Subscribers:
+- communication_dispatcher.py
+
+Recommended subscriber addition:
+- journal_dispatcher.py
+
+Required top-level fields:
+event_type = "MICROPHONE_SYNCED"
+source = "microphone"
+target = "server"
+timestamp
+payload
+event_id
+recording_id
+recording_utc
+recording_epoch
+recording_path
+wav_path
+metadata_path
+microphone_synced
+sync_error_ms
+sync_window_ms
+window_utc
+window_epoch
+window_second
+
+Required payload fields:
+node_id
+node_name
+recording_id
+recording_utc
+recording_epoch
+recording_path
+wav_path
+metadata_path
+sample_rate
+channels
+duration_sec
+recording_type
+sync_source
+sync_state = "SYNCED"
+microphone_synced = True
+pps_locked
+pps_state
+scheduled_start_epoch
+scheduled_start_utc
+window_epoch
+window_utc
+window_second
+sync_error_ms
+sync_window_ms
+consecutive_synced_windows
+
+Expected path:
+Microphone recording completes
+-> sync error calculated
+-> MICROPHONE_SYNCED
+-> Communication
+-> Server
+
+Atlas note:
+This event is important for proving the TDOA door is open before the math is meaningful.
+
+
+AVIS_LITE
+---------
+
+Purpose:
+Lightweight BirdNET detection event with recording lineage and optional payload-safe spectrogram.
+
+Direction:
+Node -> Server.
+
+Publisher:
+birdnet_dispatcher.py.
+
+Subscribers:
+- communication_dispatcher.py
+- journal_dispatcher.py
+
+Required envelope fields:
+event_type = "AVIS_LITE"
+source = "birdnet"
+target = "sender"
+timestamp
+payload
+
+Required payload fields:
+node_id
+node_name
+species_common
+species_scientific
+species_code
+confidence
+detection_time_utc
+birdnet_event_id
+birdnet_event_utc
+birdnet_start_time
+birdnet_end_time
+detection_index
+primary_detection
+spectrogram_attached
+recording_id
+recording_path
+wav_path
+recording_utc
+sample_rate
+channels
+duration_sec
+recording_type
+sync_source
+pps_locked
+spectrogram_available
+
+Optional payload fields:
+spectrogram
+
+Spectrogram package fields when available:
+available
+encoding = "base64"
+mime_type = "image/png"
+format = "png"
+scope = "recording"
+image_png_b64
+width
+height
+sample_rate
+duration_sec
+fft_size
+hop_length
+min_frequency_hz
+max_frequency_hz
+
+Expected path:
+RECORDING_AVAILABLE
+-> BirdNET
+-> AVIS_LITE
+-> Communication
+-> Server
+
+Atlas note:
+Current BirdNET should emit only a limited number of AVIS_LITE events per recording. The primary detection carries the spectrogram package; secondary detections should stay lighter.
+
+
+NETWORK_CONNECTED
+-----------------
+
+Purpose:
+Local Communication state event indicating the active transport is available for sending.
+
+Direction:
+Node-local only.
+
+Publisher:
+communication_dispatcher.py.
+
+Subscribers:
+- communication_dispatcher.py
+- node_register.py
+- journal_dispatcher.py
+
+Required payload fields:
+active_transport
+wifi_enabled
+lora_enabled
+udp_enabled
+reason
+source_event_type
+
+Expected path:
+Communication startup or mode change
+-> NETWORK_CONNECTED
+-> NodeRegister
+-> NODE_REGISTER
+
+Atlas note:
+In current code, this means Communication believes it can send through the configured transport. It is not proof that the server received a packet.
+
+
+NETWORK_DISCONNECTED
+--------------------
+
+Purpose:
+Local Communication state event indicating the active transport is unavailable.
+
+Direction:
+Node-local only.
+
+Publisher:
+communication_dispatcher.py.
+
+Subscribers:
+- communication_dispatcher.py
+- node_register.py
+- journal_dispatcher.py
+
+Required payload fields:
+active_transport
+wifi_enabled
+lora_enabled
+udp_enabled
+reason
+source_event_type
+
+Expected path:
+Communication inbound state or mode change
+-> NETWORK_DISCONNECTED
+-> NodeRegister marks network_connected False
+
+Atlas note:
+This should stop NODE_REGISTER heartbeat until the next NETWORK_CONNECTED.
+
+
+EVENT_SENT
+----------
+
+Purpose:
+Local confirmation that Communication successfully handed an outbound message to the active transport.
+
+Direction:
+Node-local only.
+
+Publisher:
+communication_dispatcher.py.
+
+Subscribers:
+- journal_dispatcher.py
+
+Required payload fields:
+message
+active_transport
+sent_from_queue
+tx_count
+tx_errors
+last_tx_time
+queue_size
+
+Expected path:
+Communication sends outbound message
+-> EVENT_SENT
+-> Journal
+
+Atlas note:
+EVENT_SENT means local send success / transport handoff. It does not mean server acknowledgement.
+
+
+Corrected Subsystem Rules
+=========================
+
+Node Communication
+------------------
+
+Subscribes for outbound send:
+PPS_STATE
+ENVIRO_STATE
+RTK_STATE
+GPS_STATE
+MICROPHONE_SYNCED
+TDOA_RECORDING
+AVIS_LITE
+NODE_REGISTER
+GPS_COORD
+ENVIRO_EVENT
+
+Subscribes for local Communication state/mode:
+NETWORK_CONNECTED
+NETWORK_DISCONNECTED
+SEND_NODE_CHANGE_MODE
+
+Publishes locally:
+TDOA_REQUEST
+SEND_NODE_CHANGE_MODE
+NETWORK_CONNECTED
+NETWORK_DISCONNECTED
+EVENT_SENT
+
+
+Node Microphone
+---------------
+
+Subscribes:
+PPS_STATE
+GPS_STATE
+TDOA_REQUEST
+
+Publishes:
+RECORDING_AVAILABLE
+TDOA_RECORDING
+MICROPHONE_SYNCED
+
+
+Node BirdNET
+------------
+
+Subscribes:
+GPS_COORD
+RECORDING_AVAILABLE
+
+Publishes:
+AVIS_LITE
+
+
+Node RTK
+--------
+
+Publishes:
+PPS_STATE
+GPS_STATE
+RTK_STATE
+GPS_COORD
+
+
+Node Environmental
+------------------
+
+Publishes:
+ENVIRO_STATE
+ENVIRO_EVENT
+
+
+Node Register
+-------------
+
+Subscribes:
+NETWORK_CONNECTED
+NETWORK_DISCONNECTED
+
+Publishes:
+NODE_REGISTER
+
+
+Node Journal
+------------
+
+Currently subscribes:
+SEND_NODE_CHANGE_MODE
+TDOA_RECORDING
+RECORDING_AVAILABLE
+NETWORK_CONNECTED
+NETWORK_DISCONNECTED
+EVENT_SENT
+RTK_STATE
+GPS_STATE
+PPS_STATE
+GPS_COORD
+TDOA_REQUEST
+ENVIRO_STATE
+ENVIRO_EVENT
+AVIS_LITE
+NODE_REGISTER
+
+Recommended addition:
+MICROPHONE_SYNCED
+
+
+Atlas Notes for Future Work
+===========================
+
+RECORDING_AVAILABLE should remain node-local because it feeds BirdNET. TDOA_RECORDING is the server-facing recording response.
+
+GPS_COORD is both a server-facing coordinate event and a local BirdNET location update. Do not remove BirdNET from that path.
+
+RTK_STATE must stay role-aware. Base readiness is about RTCM output/transport. Rover readiness is about received corrections and fix quality.
+
+NETWORK_CONNECTED and EVENT_SENT should not be treated as server acknowledgements. They are node-side Communication state and send-handoff events.
+
+SEND_NODE_CHANGE_MODE should stay unchanged until the server and GUI contracts are scanned. Rename pressure is real, but premature renaming would create unnecessary breakage.
+
+MICROPHONE_SYNCED is now one of the most important proof events for the current TDOA milestone. Journal should subscribe to it.

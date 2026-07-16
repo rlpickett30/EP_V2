@@ -1,19 +1,48 @@
-"""
-microphone_manager.py
-
-Responsibilities:
-- Build RECORDING_AVAILABLE events
-- Build TDOA_RECORDING events
-- Build MICROPHONE_SYNCED events
-- Normalize microphone recording objects into EnviroPulse event form
-
-This module intentionally knows nothing about:
-- EventBus
-- Dispatchers
-- BirdNET
-- Audio recording
-- Recycling policies
-"""
+# ============================================================
+# microphone_manager.py
+#
+# EnviroPulse V2.0
+#
+# Subsystem:
+#   Microphone
+#
+# Role:
+#   Manager
+#
+# Purpose:
+#   Normalize microphone recording objects into canonical EnviroPulse
+#   microphone event dictionaries.
+#
+# Expected config source:
+#   None
+#
+# Expected config section:
+#   None
+#
+# Does:
+#   - Build shared microphone event payload fields
+#   - Build RECORDING_AVAILABLE events
+#   - Build TDOA_RECORDING events
+#   - Build MICROPHONE_SYNCED events
+#   - Preserve recording lineage
+#   - Preserve PPS state context in recording events
+#   - Preserve scheduled window timing metadata
+#   - Preserve TDOA request metadata when available
+#
+# Does NOT:
+#   - Record audio
+#   - Access microphone hardware
+#   - Publish events
+#   - Subscribe to the event bus
+#   - Own timing decisions
+#   - Own TDOA request targeting
+#   - Own BirdNET analysis
+#   - Own recycling policies
+#
+# Owner:
+#   microphone_dispatcher.py
+#
+# ============================================================
 
 from __future__ import annotations
 

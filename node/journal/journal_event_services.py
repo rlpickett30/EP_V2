@@ -10,17 +10,27 @@
 #   Event Services
 #
 # Purpose:
-#   Own Journal event subscriptions for the node platform.
+#   Connect the Journal subsystem to the EnviroPulse event bus by registering
+#   Journal subscriptions for observed node platform events.
+#
+# Expected config source:
+#   None
+#
+# Expected config section:
+#   None
 #
 # Does:
 #   - Document Journal event communication
-#   - Register Journal subscriptions with the Event Bus
+#   - Store Journal subscription event names
+#   - Register Journal subscriptions with the event bus
 #   - Subscribe directly to observed node platform events
+#   - Provide subscription and publication index helpers
 #
 # Does NOT:
 #   - Publish events
-#   - Make decisions
-#   - Store data
+#   - Make workflow decisions
+#   - Store journal data
+#   - Format journal entries
 #   - Import Communication event services
 #   - Perform Event Bus delivery logic
 #

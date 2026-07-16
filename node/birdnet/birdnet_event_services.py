@@ -25,10 +25,12 @@
 #
 # Does NOT:
 #   - Analyze WAV files
+#   - Generate spectrograms
 #   - Inspect event payloads
 #   - Make workflow decisions
 #   - Track BirdNET state
 #   - Modify configuration
+#   - Own BirdNET subsystem startup
 #
 # Owner:
 #   birdnet_dispatcher.py

@@ -1,17 +1,43 @@
-"""
-RTK_rover_manager.py
-
-Temporary-to-platform RTK rover manager.
-
-Responsibilities:
-- Listen for RTCM3 correction packets over UDP.
-- Write received RTCM bytes into the local ZED-F9P using the shared FP9Driver.
-
-Does NOT:
-- Own EventBus logic.
-- Own node identity.
-- Open the serial port separately from GPSManager.
-"""
+# ============================================================
+# RTK_rover_manager.py
+#
+# EnviroPulse V2.0
+#
+# Subsystem:
+#   RTK
+#
+# Role:
+#   Manager
+#
+# Purpose:
+#   Manage RTK rover correction transport by receiving RTCM3 packets over UDP
+#   and writing them to the local ZED-F9P through the shared F9P driver.
+#
+# Expected config source:
+#   RTK_config.json
+#
+# Expected config section:
+#   config["rtk"]["rover"]
+#
+# Does:
+#   - Listen for RTCM3 correction packets over UDP
+#   - Write received RTCM bytes into the local ZED-F9P
+#   - Use the shared FP9Driver owned by GPSManager
+#   - Track RTCM receive and write counters
+#   - Return role-aware RTK rover transport status snapshots
+#
+# Does NOT:
+#   - Own EventBus logic
+#   - Publish events
+#   - Own node identity
+#   - Open the serial port separately from GPSManager
+#   - Interpret GPS fix quality directly
+#   - Decide whether the node is TDOA capable
+#
+# Owner:
+#   RTK_dispatcher.py
+#
+# ============================================================
 
 from __future__ import annotations
 

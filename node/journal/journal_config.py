@@ -1,11 +1,38 @@
 # ============================================================
 # journal_config.py
 #
-# EnviroPulse V2
+# EnviroPulse V2.0
 #
-# Responsibilities:
-#   - Store journal defaults
-#   - Enable or disable journal output
+# Subsystem:
+#   Journal
+#
+# Role:
+#   Helper Script
+#
+# Purpose:
+#   Store default Journal configuration values used by JournalManager.
+#
+# Expected config source:
+#   None
+#
+# Expected config section:
+#   None
+#
+# Does:
+#   - Store Journal default settings
+#   - Enable or disable Journal output
+#   - Control terminal printing
+#   - Control whether source, event type, and payload fields are included
+#
+# Does NOT:
+#   - Publish events
+#   - Subscribe to the event bus
+#   - Record events directly
+#   - Format journal entries
+#   - Own Journal workflow
+#
+# Owner:
+#   journal_manager.py
 #
 # ============================================================
 

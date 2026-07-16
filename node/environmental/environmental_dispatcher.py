@@ -11,7 +11,9 @@
 #   Dispatcher
 #
 # Purpose:
-#   Own the environmental subsystem workflow.
+#   Own the environmental subsystem workflow. Coordinate environmental sensor
+#   drivers, track environmental state, and publish canonical environmental
+#   events through EnvironmentalEventServices.
 #
 # Expected config source:
 #   environmental_config.json
@@ -22,20 +24,25 @@
 #   node_config["node_id"], node_config["node_name"]
 #
 # Does:
-#   - Load environmental subsystem configuration.
-#   - Resolve node identity from provided values or node_config.json.
-#   - Start and stop environmental managers.
-#   - Poll environmental sensor snapshots.
-#   - Track environmental state.
-#   - Publish ENVIRO_STATE.
-#   - Publish ENVIRO_EVENT when readings are available.
+#   - Load environmental subsystem configuration
+#   - Resolve node identity from provided values or node_config.json
+#   - Start and stop environmental managers
+#   - Poll environmental sensor snapshots
+#   - Track individual sensor online state
+#   - Track overall environmental online state
+#   - Build ENVIRO_STATE payloads
+#   - Build ENVIRO_EVENT payloads
+#   - Publish ENVIRO_STATE through EnvironmentalEventServices
+#   - Publish ENVIRO_EVENT through EnvironmentalEventServices
+#   - Publish environmental state heartbeats
 #
 # Does NOT:
-#   - Own sensor driver implementation.
-#   - Publish directly to the event bus.
-#   - Subscribe directly to the event bus.
-#   - Own platform registry state.
-#   - Own node registration.
+#   - Own sensor driver implementation
+#   - Publish directly to the event bus
+#   - Subscribe directly to the event bus
+#   - Own platform registry state
+#   - Own node registration
+#   - Own raw I2C hardware access
 #
 # Owner:
 #   node_main.py

@@ -1,32 +1,46 @@
-"""
-FP9_driver.py
-
-u-blox ZED-F9P Driver
-
-Responsibilities:
-- Connect to ZED-F9P over USB serial.
-- Read mixed USB serial data from the receiver.
-- Parse NMEA GGA and RMC sentences.
-- Extract RTCM3 packets produced by a base receiver.
-- Write RTCM3 packets into a rover receiver.
-- Send basic UBX configuration messages for temporary Survey-In base mode.
-- Return raw hardware facts.
-
-Does NOT:
-- Own EventBus logic.
-- Publish events.
-- Own node identity.
-- Claim true PPS lock from USB serial.
-
-Notes:
-- The SparkFun PPS LED can indicate that the ZED-F9P has a valid
-  timepulse, but USB serial does not prove that the Raspberry Pi has
-  measured the PPS edge.
-- True PPS readiness for TDOA should come from the ZED-F9P PPS pin wired
-  to a Raspberry Pi GPIO input.
-- RTK correction transport is handled above this driver by RTK base and
-  rover managers.
-"""
+# ============================================================
+# FP9_driver.py
+#
+# EnviroPulse V2.0
+#
+# Subsystem:
+#   RTK
+#
+# Role:
+#   Helper Script
+#
+# Purpose:
+#   Provide low-level ZED-F9P serial access, NMEA parsing, RTCM packet
+#   extraction, RTCM writing, and temporary Survey-In configuration support.
+#
+# Expected config source:
+#   RTK_config.json
+#
+# Expected config section:
+#   config["gps"]
+#
+# Does:
+#   - Connect to the ZED-F9P over USB serial
+#   - Read mixed USB serial data from the receiver
+#   - Parse NMEA GGA and RMC sentences
+#   - Preserve latest GPS fix data
+#   - Extract RTCM3 packets produced by a base receiver
+#   - Write RTCM3 packets into a rover receiver
+#   - Send basic UBX configuration messages for Survey-In base mode
+#   - Return raw hardware and driver status
+#
+# Does NOT:
+#   - Own EventBus logic
+#   - Publish events
+#   - Own node identity
+#   - Claim true PPS lock from USB serial
+#   - Decide RTK base or rover role
+#   - Decide TDOA readiness
+#
+# Owner:
+#   GPS_manager.py
+#
+# ============================================================
 
 from __future__ import annotations
 

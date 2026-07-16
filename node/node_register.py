@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # ============================================================
 # node_register.py
 #
@@ -11,8 +10,9 @@
 #   Helper Script
 #
 # Purpose:
-#   Publish NODE_REGISTER after communication reports network
-#   connectivity and republish NODE_REGISTER on heartbeat.
+#   Publish NODE_REGISTER after Communication reports network connectivity
+#   and republish NODE_REGISTER on heartbeat while the network remains
+#   connected.
 #
 # Expected config source:
 #   node_config.json
@@ -22,17 +22,24 @@
 #   config["subsystems"]
 #
 # Does:
-#   - Publish NODE_REGISTER after NETWORK_CONNECTED.
-#   - Publish NODE_REGISTER heartbeat while network is connected.
-#   - Provide server and GUI with stable node identity.
-#   - Provide server and GUI with node capabilities.
+#   - Load node configuration when needed
+#   - Resolve node identity
+#   - Subscribe to NETWORK_CONNECTED
+#   - Subscribe to NETWORK_DISCONNECTED
+#   - Track network connected state
+#   - Build NODE_REGISTER payloads
+#   - Report node identity
+#   - Report node capabilities
+#   - Publish NODE_REGISTER after network connection
+#   - Publish NODE_REGISTER heartbeat while network is connected
 #
 # Does NOT:
-#   - Send UDP directly.
-#   - Own communication transport.
-#   - Manage subsystem state.
-#   - Own runtime startup.
-#   - Guess a real node identity from hard-coded defaults.
+#   - Send UDP directly
+#   - Own communication transport
+#   - Manage subsystem state
+#   - Own runtime startup
+#   - Own event bus implementation
+#   - Guess a real node identity from hard-coded defaults
 #
 # Owner:
 #   node_main.py

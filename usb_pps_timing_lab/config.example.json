@@ -1,0 +1,45 @@
+{
+  "node_id": "node_01",
+  "audio": {
+    "device": 2,
+    "sample_rate_hz": 48000,
+    "channels": 1,
+    "dtype": "int16",
+    "block_frames": 1024,
+    "chunk_seconds": 60.0,
+    "latency": "low",
+    "queue_blocks": 512
+  },
+  "pps": {
+    "assert_path": "/sys/class/pps/pps0/assert",
+    "poll_interval_ms": 2.0
+  },
+  "gnss": {
+    "enabled": true,
+    "serial_device": "/dev/ttyACM0",
+    "baud": 38400,
+    "pairing_window_ms": 750.0,
+    "allow_system_time_fallback": true
+  },
+  "session": {
+    "root_directory": "sessions"
+  },
+  "clock_fit": {
+    "sigma_clip": 4.0,
+    "minimum_audio_blocks": 100,
+    "minimum_pps_anchors": 5,
+    "warning_residual_us": 1000.0,
+    "failure_residual_us": 5000.0
+  },
+  "correction": {
+    "target_sample_rate_hz": 48000,
+    "interpolation": "cubic",
+    "time_map_mode": "local_linear",
+    "local_margin_seconds": 30.0
+  },
+  "telemetry": {
+    "enabled": true,
+    "interval_seconds": 1.0,
+    "cpu_temperature_path": "/sys/class/thermal/thermal_zone0/temp"
+  }
+}

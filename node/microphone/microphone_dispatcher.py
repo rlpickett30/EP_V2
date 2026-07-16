@@ -1,28 +1,62 @@
-"""
-microphone_dispatcher.py
-
-Responsibilities:
-- Load microphone configuration
-- Own microphone loop
-- Own microphone manager
-- Own recycler
-- Own microphone event services
-- Track PPS_STATE
-- Track GPS_STATE
-- Control normal recording timing
-- Control TDOA request recording
-- Control recycler timing
-
-Canonical microphone event contract:
-- Subscribes: PPS_STATE, GPS_STATE, TDOA_REQUEST
-- Publishes: RECORDING_AVAILABLE, TDOA_RECORDING, MICROPHONE_SYNCED
-
-This module intentionally knows nothing about:
-- Audio hardware internals
-- BirdNET internals
-- Sender internals
-- EventBus internals
-"""
+# ============================================================
+# microphone_dispatcher.py
+#
+# EnviroPulse V2.0
+#
+# Subsystem:
+#   Microphone
+#
+# Role:
+#   Dispatcher
+#
+# Purpose:
+#   Own the microphone subsystem workflow. Coordinate microphone recording,
+#   PPS/GPS state awareness, synchronized recording windows, TDOA recording
+#   requests, metadata writing, and recording cleanup.
+#
+# Expected config source:
+#   microphone_config.json
+#
+# Expected config section:
+#   Full file
+#
+# Does:
+#   - Load microphone configuration
+#   - Resolve active microphone type and active microphone settings
+#   - Own MicrophoneLoop
+#   - Own MicrophoneManager
+#   - Own Recycler
+#   - Own MicrophoneEventServices
+#   - Subscribe to PPS_STATE events through MicrophoneEventServices
+#   - Subscribe to GPS_STATE events through MicrophoneEventServices
+#   - Subscribe to TDOA_REQUEST events through MicrophoneEventServices
+#   - Track PPS lock state
+#   - Track GPS lock state
+#   - Control normal recording timing
+#   - Align normal recordings to configured PPS windows when available
+#   - Control TDOA request recording
+#   - Align TDOA recordings to requested PPS boundaries when available
+#   - Publish RECORDING_AVAILABLE events through MicrophoneEventServices
+#   - Publish TDOA_RECORDING events through MicrophoneEventServices
+#   - Publish MICROPHONE_SYNCED events through MicrophoneEventServices
+#   - Write initial recording metadata
+#   - Control recycler timing
+#
+# Does NOT:
+#   - Own audio hardware internals
+#   - Record audio directly
+#   - Build WAV files directly
+#   - Publish directly to the event bus
+#   - Subscribe directly to the event bus
+#   - Own BirdNET analysis
+#   - Own sender transport
+#   - Own platform registry state
+#   - Own node registration
+#
+# Owner:
+#   node_main.py
+#
+# ============================================================
 
 from __future__ import annotations
 

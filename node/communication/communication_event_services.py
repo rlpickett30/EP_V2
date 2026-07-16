@@ -11,50 +11,30 @@
 #
 # Purpose:
 #   Connect the node Communication subsystem to the local node event bus.
-#   Register Sender, Listener, Communication state, and Communication mode
-#   subscriptions.
-#   Publish Communication and Listener outputs using the canonical node
-#   communication event names.
+#   Register approved Communication subscriptions and publish approved
+#   Communication outputs using canonical node communication event names.
 #
-# Canonical subscriptions from node drawing:
-#   Sender state subscriber:
-#       PPS_STATE
-#       ENVIRO_STATE
-#       RTK_STATE
-#       GPS_STATE
+# Expected config source:
+#   None
 #
-#   Sender event subscriber:
-#       TDOA_RECORDING
-#       AVIS_LITE
-#       NODE_REGISTER
-#       GPS_COORD
-#       ENVIRO_EVENT
-#
-#   Communication state subscriber:
-#       NETWORK_CONNECTED
-#       NETWORK_DISCONNECTED
-#
-#   Communication mode subscriber:
-#       SEND_NODE_CHANGE_MODE
-#
-# Canonical publications from node drawing:
-#   Listener event publisher:
-#       TDOA_REQUEST
-#
-#   Listener mode publisher:
-#       SEND_NODE_CHANGE_MODE
-#
-#   Communication state publisher:
-#       NETWORK_CONNECTED
-#       NETWORK_DISCONNECTED
-#
-#   Communication event publisher:
-#       EVENT_SENT
+# Expected config section:
+#   None
 #
 # Does:
+#   - Store canonical Communication event names
+#   - Store Sender state subscription groups
+#   - Store Sender event subscription groups
+#   - Store Communication state subscription groups
+#   - Store Communication mode subscription groups
+#   - Store Listener publication groups
 #   - Register approved local bus subscriptions
 #   - Publish approved local bus events
-#   - Keep the Communication dispatcher away from raw event-bus wiring
+#   - Publish NETWORK_CONNECTED events
+#   - Publish NETWORK_DISCONNECTED events
+#   - Publish EVENT_SENT events
+#   - Publish TDOA_REQUEST events
+#   - Publish SEND_NODE_CHANGE_MODE events
+#   - Provide event index helper methods
 #
 # Does NOT:
 #   - Send packets
@@ -62,6 +42,9 @@
 #   - Change Wi-Fi or LoRa modes
 #   - Queue messages
 #   - Inspect payload contents
+#   - Make workflow decisions
+#   - Manage Communication state
+#   - Perform Event Bus delivery logic
 #
 # Owner:
 #   communication_dispatcher.py

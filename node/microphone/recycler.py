@@ -1,19 +1,49 @@
-"""
-recycler.py
-
-Responsibilities:
-- Manage recording retention
-- Delete expired recordings
-- Delete expired metadata
-- Traverse recording directories
-
-This module intentionally knows nothing about:
-- EventBus
-- Dispatchers
-- BirdNET
-- TDOA
-- GPS
-"""
+# ============================================================
+# recycler.py
+#
+# EnviroPulse V2.0
+#
+# Subsystem:
+#   Microphone
+#
+# Role:
+#   Manager
+#
+# Purpose:
+#   Manage microphone recording retention by deleting expired recordings,
+#   spectrogram files, and metadata files from the recordings directory.
+#
+# Expected config source:
+#   microphone_config.json
+#
+# Expected config section:
+#   config["recordings_root"], config["storage_retention_days"],
+#   config["recycler_interval_sec"]
+#
+# Does:
+#   - Traverse recording directories
+#   - Load recording metadata
+#   - Determine recording age from metadata or filename fallback
+#   - Apply retention rules
+#   - Preserve recordings marked for preservation
+#   - Delete expired WAV files
+#   - Delete expired spectrogram PNG files
+#   - Delete expired metadata JSON files
+#
+# Does NOT:
+#   - Publish events
+#   - Subscribe to the event bus
+#   - Record audio
+#   - Analyze recordings
+#   - Own microphone timing
+#   - Own TDOA workflow
+#   - Own BirdNET workflow
+#   - Own GPS or PPS state
+#
+# Owner:
+#   microphone_dispatcher.py
+#
+# ============================================================
 
 from __future__ import annotations
 

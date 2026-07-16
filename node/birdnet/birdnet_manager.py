@@ -18,14 +18,14 @@
 #   birdnet_config.json
 #
 # Expected config section:
-#   spectrogram
+#   config["spectrogram"]
 #
 # Does:
 #   - Validate the supplied WAV path
 #   - Call birdnet_analyzer.py
 #   - Coordinate spectrogram_manager.py
 #   - Convert BirdNET detections into normalized detection packages
-#   - Attach one serialized spectrogram package to each detection package
+#   - Attach one serialized spectrogram package to the primary detection package
 #   - Preserve recording lineage
 #
 # Does NOT:
@@ -35,6 +35,7 @@
 #   - Guess recording paths from recording IDs
 #   - Read or write BirdNET configuration
 #   - Own GPS state
+#   - Own BirdNET subsystem workflow
 #
 # Owner:
 #   birdnet_dispatcher.py

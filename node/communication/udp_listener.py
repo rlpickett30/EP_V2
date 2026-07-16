@@ -1,16 +1,17 @@
 # ============================================================
 # udp_listener.py
 #
-# EnviroPulse V2
+# EnviroPulse V2.0
 #
 # Subsystem:
-#   Communication
+#   Node Communication
 #
 # Role:
 #   Helper Script
 #
 # Purpose:
-#   Listen for raw UDP packets and forward them to listener_manager.py.
+#   Listen for raw UDP packets and forward packet dictionaries to
+#   ListenerManager.
 #
 # Expected config source:
 #   communication_config.json
@@ -20,18 +21,22 @@
 #
 # Does:
 #   - Open a UDP socket
-#   - Bind to configured host and port
+#   - Bind to the configured host and port
 #   - Receive raw UDP packets
-#   - Attach receive metadata
-#   - Forward packets to listener_manager.py
+#   - Attach receive timestamp metadata
+#   - Attach source IP metadata
+#   - Attach source port metadata
+#   - Forward raw packet dictionaries to ListenerManager
+#   - Stop and close the UDP listener socket
 #
 # Does NOT:
-#   - Decode messages
+#   - Decode JSON messages
 #   - Route events
 #   - Publish events
 #   - Send messages
-#   - Store state
-#   - Make communication decisions
+#   - Store messages
+#   - Store Communication state
+#   - Make Communication workflow decisions
 #
 # Owner:
 #   listener_manager.py

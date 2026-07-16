@@ -1,32 +1,36 @@
 # ============================================================
 # sender_manager.py
 #
-# EnviroPulse V2
+# EnviroPulse V2.0
 #
 # Subsystem:
-#   Communication
+#   Node Communication
 #
 # Role:
 #   Manager
 #
 # Purpose:
-#   Own outbound sender work for the Communication subsystem.
+#   Own outbound sender work for the Communication subsystem. Build prepared
+#   outbound messages, send them through UDPSender, and manage the persistent
+#   outbound queue through SenderDatabase.
 #
 # Expected config source:
 #   communication_config.json
 #
 # Expected config section:
-#   config["udp"]
+#   config["udp"], config["queue"]
 #
 # Does:
-#   - Create and own udp_sender.py
-#   - Create and own sender_database.py
+#   - Create and own UDPSender
+#   - Create and own SenderDatabase
 #   - Build outbound messages
-#   - Send prepared messages
+#   - Send prepared messages over UDP
 #   - Store queued messages
 #   - Retrieve queued messages
-#   - Remove sent messages from queue
+#   - Remove sent messages from the queue
+#   - Clear queued messages
 #   - Report queue size
+#   - Close the UDP sender
 #
 # Does NOT:
 #   - Decide when messages should be sent
@@ -34,7 +38,9 @@
 #   - Flush queues by itself
 #   - Publish events
 #   - Subscribe to the event bus
-#   - Manage communication state
+#   - Manage Communication state
+#   - Switch Wi-Fi or LoRa modes
+#   - Receive inbound messages
 #
 # Owner:
 #   communication_dispatcher.py

@@ -1,13 +1,42 @@
 #!/usr/bin/env python3
-"""
-environmental_event_services.py
-
-Environmental Event Publisher
-
-Publishes only the environmental contract events used by the node:
-- ENVIRO_STATE
-- ENVIRO_EVENT
-"""
+# ============================================================
+# environmental_event_services.py
+#
+# EnviroPulse V2.0
+#
+# Subsystem:
+#   Environmental
+#
+# Role:
+#   Event Services
+#
+# Purpose:
+#   Connect the Environmental subsystem to the EnviroPulse event bus.
+#
+# Expected config source:
+#   None
+#
+# Expected config section:
+#   None
+#
+# Does:
+#   - Build canonical environmental event envelopes
+#   - Publish ENVIRO_STATE events
+#   - Publish ENVIRO_EVENT events
+#   - Provide a thin communication layer between Environmental and the event bus
+#
+# Does NOT:
+#   - Read environmental sensors
+#   - Track environmental state
+#   - Inspect sensor snapshots
+#   - Make workflow decisions
+#   - Handle configuration
+#   - Own environmental subsystem startup
+#
+# Owner:
+#   environmental_dispatcher.py
+#
+# ============================================================
 
 from __future__ import annotations
 

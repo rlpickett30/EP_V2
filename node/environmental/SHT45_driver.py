@@ -1,14 +1,45 @@
 #!/usr/bin/env python3
-"""
-SHT45_driver.py
-
-Persistent, long-lived I2C driver for the Sensirion SHT45 (SHT4x family).
-
-Design intent:
-- The driver OWNS the sensor for the lifetime of the process.
-- It periodically samples temperature and humidity and keeps a "latest snapshot".
-- It exposes raw facts; policy decisions belong elsewhere.
-"""
+# ============================================================
+# SHT45_driver.py
+#
+# EnviroPulse V2.0
+#
+# Subsystem:
+#   Environmental
+#
+# Role:
+#   Helper Script
+#
+# Purpose:
+#   Provide a persistent, long-lived I2C driver for the Sensirion SHT45
+#   temperature and humidity sensor and expose latest raw environmental facts.
+#
+# Expected config source:
+#   environmental_config.json
+#
+# Expected config section:
+#   config["sample_hz"], config["sensors"]["sht45"]
+#
+# Does:
+#   - Own the SHT45 sensor for the lifetime of the process
+#   - Start and stop the SHT45 sampling thread
+#   - Read temperature from the SHT45
+#   - Read relative humidity from the SHT45
+#   - Maintain a latest sensor snapshot
+#   - Report sample counts and driver errors
+#
+# Does NOT:
+#   - Publish events
+#   - Subscribe to the event bus
+#   - Make environmental workflow decisions
+#   - Decide whether the environmental subsystem is online
+#   - Own node identity
+#   - Own configuration loading
+#
+# Owner:
+#   driver_manager.py
+#
+# ============================================================
 
 from __future__ import annotations
 

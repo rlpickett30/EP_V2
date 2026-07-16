@@ -1,0 +1,269 @@
+{
+    "schema": "usb_pps_clock_model_v1",
+    "session_directory": "/mnt/data/usb_pps_timing_lab/simulated_demo_output/node_01_simulated",
+    "node_id": "node_01",
+    "nominal_sample_rate_hz": 48000.0,
+    "effective_sample_rate_hz": 48001.68703547021,
+    "sample_rate_error_ppm": 35.14657229608531,
+    "portaudio_sample_rate_hz": 48001.68703547021,
+    "sample_to_monotonic": {
+        "origin_sample": 479744.0,
+        "origin_monotonic_ns": 4009995316323.6997,
+        "ns_per_sample": 20832.601138811293,
+        "accepted_blocks": 938,
+        "rejected_blocks": 0,
+        "residual_p95_us": 29.823167919921875,
+        "residual_max_us": 53.70546923828125
+    },
+    "sample_to_utc": {
+        "origin_sample": 497777.45025410154,
+        "origin_utc_ns": 1800000010500000000,
+        "origin_utc_iso": "2027-01-15T08:00:10.500000Z",
+        "ns_per_sample": 20832.601138811293
+    },
+    "quality": {
+        "status": "WARN",
+        "pps_anchor_count": 20,
+        "accepted_pps_anchors": 19,
+        "rejected_pps_anchors": 1,
+        "pps_residual_p95_us": 0.0,
+        "pps_residual_max_us": 0.0,
+        "warning_threshold_us": 1000.0,
+        "failure_threshold_us": 5000.0,
+        "gnss_paired_anchor_count": 0,
+        "system_time_fallback_anchor_count": 20,
+        "utc_sources": [
+            "simulation"
+        ],
+        "absolute_offset_notice": "A low residual proves internal consistency, not independently verified physical ADC-to-PPS offset accuracy."
+    },
+    "coverage": {
+        "first_utc_ns": 1800000001000000000,
+        "last_utc_ns": 1800000020000000000,
+        "first_utc_iso": "2027-01-15T08:00:01Z",
+        "last_utc_iso": "2027-01-15T08:00:20Z",
+        "duration_seconds": 19.0
+    },
+    "pps_anchors": [
+        {
+            "sequence": 1000,
+            "utc_ns": 1800000001000000000,
+            "utc_iso": "2027-01-15T08:00:01Z",
+            "utc_source": "simulation",
+            "pps_monotonic_ns": 4000871000000,
+            "sample_index": 41761.42341713456,
+            "fit_residual_us": 0.0,
+            "accepted": true,
+            "rmc_arrival_delay_ms": 120.0
+        },
+        {
+            "sequence": 1001,
+            "utc_ns": 1800000002000000000,
+            "utc_iso": "2027-01-15T08:00:02Z",
+            "utc_source": "simulation",
+            "pps_monotonic_ns": 4001871000000,
+            "sample_index": 89763.11045260477,
+            "fit_residual_us": 0.0,
+            "accepted": true,
+            "rmc_arrival_delay_ms": 120.0
+        },
+        {
+            "sequence": 1002,
+            "utc_ns": 1800000003000000000,
+            "utc_iso": "2027-01-15T08:00:03Z",
+            "utc_source": "simulation",
+            "pps_monotonic_ns": 4002871000000,
+            "sample_index": 137764.79748807498,
+            "fit_residual_us": 0.0,
+            "accepted": true,
+            "rmc_arrival_delay_ms": 120.0
+        },
+        {
+            "sequence": 1003,
+            "utc_ns": 1800000004000000000,
+            "utc_iso": "2027-01-15T08:00:04Z",
+            "utc_source": "simulation",
+            "pps_monotonic_ns": 4003871000000,
+            "sample_index": 185766.4845235452,
+            "fit_residual_us": 0.0,
+            "accepted": true,
+            "rmc_arrival_delay_ms": 120.0
+        },
+        {
+            "sequence": 1004,
+            "utc_ns": 1800000005000000000,
+            "utc_iso": "2027-01-15T08:00:05Z",
+            "utc_source": "simulation",
+            "pps_monotonic_ns": 4004871000000,
+            "sample_index": 233768.1715590154,
+            "fit_residual_us": 0.0,
+            "accepted": true,
+            "rmc_arrival_delay_ms": 120.0
+        },
+        {
+            "sequence": 1005,
+            "utc_ns": 1800000006000000000,
+            "utc_iso": "2027-01-15T08:00:06Z",
+            "utc_source": "simulation",
+            "pps_monotonic_ns": 4005871000000,
+            "sample_index": 281769.8585944856,
+            "fit_residual_us": 0.0,
+            "accepted": true,
+            "rmc_arrival_delay_ms": 120.0
+        },
+        {
+            "sequence": 1006,
+            "utc_ns": 1800000007000000000,
+            "utc_iso": "2027-01-15T08:00:07Z",
+            "utc_source": "simulation",
+            "pps_monotonic_ns": 4006871000000,
+            "sample_index": 329771.5456299558,
+            "fit_residual_us": 0.0,
+            "accepted": true,
+            "rmc_arrival_delay_ms": 120.0
+        },
+        {
+            "sequence": 1007,
+            "utc_ns": 1800000008000000000,
+            "utc_iso": "2027-01-15T08:00:08Z",
+            "utc_source": "simulation",
+            "pps_monotonic_ns": 4007871000000,
+            "sample_index": 377773.23266542604,
+            "fit_residual_us": 0.0,
+            "accepted": true,
+            "rmc_arrival_delay_ms": 120.0
+        },
+        {
+            "sequence": 1008,
+            "utc_ns": 1800000009000000000,
+            "utc_iso": "2027-01-15T08:00:09Z",
+            "utc_source": "simulation",
+            "pps_monotonic_ns": 4008871000000,
+            "sample_index": 425774.91970089625,
+            "fit_residual_us": 0.0,
+            "accepted": true,
+            "rmc_arrival_delay_ms": 120.0
+        },
+        {
+            "sequence": 1009,
+            "utc_ns": 1800000010000000000,
+            "utc_iso": "2027-01-15T08:00:10Z",
+            "utc_source": "simulation",
+            "pps_monotonic_ns": 4009871000000,
+            "sample_index": 473776.60673636646,
+            "fit_residual_us": 0.0,
+            "accepted": true,
+            "rmc_arrival_delay_ms": 120.0
+        },
+        {
+            "sequence": 1010,
+            "utc_ns": 1800000011000000000,
+            "utc_iso": "2027-01-15T08:00:11Z",
+            "utc_source": "simulation",
+            "pps_monotonic_ns": 4010871000000,
+            "sample_index": 521778.2937718367,
+            "fit_residual_us": 0.0,
+            "accepted": true,
+            "rmc_arrival_delay_ms": 120.0
+        },
+        {
+            "sequence": 1011,
+            "utc_ns": 1800000012000000000,
+            "utc_iso": "2027-01-15T08:00:12Z",
+            "utc_source": "simulation",
+            "pps_monotonic_ns": 4011871000000,
+            "sample_index": 569779.9808073068,
+            "fit_residual_us": 0.0,
+            "accepted": true,
+            "rmc_arrival_delay_ms": 120.0
+        },
+        {
+            "sequence": 1012,
+            "utc_ns": 1800000013000000000,
+            "utc_iso": "2027-01-15T08:00:13Z",
+            "utc_source": "simulation",
+            "pps_monotonic_ns": 4012871000000,
+            "sample_index": 617781.6678427771,
+            "fit_residual_us": 0.0,
+            "accepted": true,
+            "rmc_arrival_delay_ms": 120.0
+        },
+        {
+            "sequence": 1013,
+            "utc_ns": 1800000014000000000,
+            "utc_iso": "2027-01-15T08:00:14Z",
+            "utc_source": "simulation",
+            "pps_monotonic_ns": 4013871000000,
+            "sample_index": 665783.3548782472,
+            "fit_residual_us": 0.0,
+            "accepted": true,
+            "rmc_arrival_delay_ms": 120.0
+        },
+        {
+            "sequence": 1014,
+            "utc_ns": 1800000015000000000,
+            "utc_iso": "2027-01-15T08:00:15Z",
+            "utc_source": "simulation",
+            "pps_monotonic_ns": 4014871000000,
+            "sample_index": 713785.0419137175,
+            "fit_residual_us": 0.0,
+            "accepted": true,
+            "rmc_arrival_delay_ms": 120.0
+        },
+        {
+            "sequence": 1015,
+            "utc_ns": 1800000016000000000,
+            "utc_iso": "2027-01-15T08:00:16Z",
+            "utc_source": "simulation",
+            "pps_monotonic_ns": 4015871000000,
+            "sample_index": 761786.7289491878,
+            "fit_residual_us": 0.0,
+            "accepted": true,
+            "rmc_arrival_delay_ms": 120.0
+        },
+        {
+            "sequence": 1016,
+            "utc_ns": 1800000017000000000,
+            "utc_iso": "2027-01-15T08:00:17Z",
+            "utc_source": "simulation",
+            "pps_monotonic_ns": 4016871000000,
+            "sample_index": 809788.415984658,
+            "fit_residual_us": 0.0,
+            "accepted": true,
+            "rmc_arrival_delay_ms": 120.0
+        },
+        {
+            "sequence": 1017,
+            "utc_ns": 1800000018000000000,
+            "utc_iso": "2027-01-15T08:00:18Z",
+            "utc_source": "simulation",
+            "pps_monotonic_ns": 4017871000000,
+            "sample_index": 857790.1030201281,
+            "fit_residual_us": 0.0,
+            "accepted": true,
+            "rmc_arrival_delay_ms": 120.0
+        },
+        {
+            "sequence": 1018,
+            "utc_ns": 1800000019000000000,
+            "utc_iso": "2027-01-15T08:00:19Z",
+            "utc_source": "simulation",
+            "pps_monotonic_ns": 4018871000000,
+            "sample_index": 905791.7900555984,
+            "fit_residual_us": 0.0,
+            "accepted": true,
+            "rmc_arrival_delay_ms": 120.0
+        },
+        {
+            "sequence": 1019,
+            "utc_ns": 1800000020000000000,
+            "utc_iso": "2027-01-15T08:00:20Z",
+            "utc_source": "simulation",
+            "pps_monotonic_ns": 4019871000000,
+            "sample_index": 953793.4770910686,
+            "fit_residual_us": 0.0,
+            "accepted": false,
+            "rmc_arrival_delay_ms": 120.0
+        }
+    ]
+}

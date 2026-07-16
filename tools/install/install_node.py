@@ -1,47 +1,61 @@
 #!/usr/bin/env python3
-"""
-install_node.py
-
-EnviroPulse V2.0
-
-Subsystem:
-    Installer
-
-Role:
-    Node Install Wizard
-
-Purpose:
-    Create and update EnviroPulse node deployment configuration.
-
-Writes:
-    - node/node_config.json
-    - node/communication/communication_config.json
-    - node/microphone/microphone_config.json
-    - node/RTK/RTK_config.json
-
-Does:
-    - Collect node identity and deployment facts.
-    - Create the central node configuration file.
-    - Update installer-owned values in subsystem JSON configs.
-    - Preserve existing subsystem tuning values when possible.
-    - Create timestamped backups before overwriting existing files.
-    - Support dry-run mode.
-
-Does NOT:
-    - Modify production Python source files.
-    - Start node runtime.
-    - Install apt packages.
-    - Install Python packages.
-    - Configure systemd services.
-    - Rewrite boot overlays.
-    - Own subsystem runtime workflow.
-
-Architecture Notes:
-    - install_node.py is deployment tooling only.
-    - node_config.json becomes the central install-time identity source.
-    - Subsystem JSON files keep subsystem tuning values.
-    - Runtime Main will later load node_config.json and pass identity into subsystem owners.
-"""
+# ============================================================
+# install_node.py
+#
+# EnviroPulse V2.0
+#
+# Subsystem:
+#   Installer
+#
+# Role:
+#   Node Install Wizard
+#
+# Purpose:
+#   Create and update EnviroPulse node deployment configuration files from
+#   installer prompts while preserving subsystem tuning values where possible.
+#
+# Expected config source:
+#   Existing node and subsystem JSON configuration files
+#
+# Expected config section:
+#   node/node_config.json
+#   node/communication/communication_config.json
+#   node/microphone/microphone_config.json
+#   node/RTK/RTK_config.json
+#   node/environmental/environmental_config.json
+#
+# Does:
+#   - Collect node identity and deployment facts
+#   - Normalize node IDs
+#   - Infer node display names
+#   - Collect node role as base, rover, or standalone
+#   - Collect server host and network port settings
+#   - Collect microphone type and device settings
+#   - Collect RTK base node IDs and UDP rover targets
+#   - Create central node_config.json content
+#   - Update installer-owned values in Communication config
+#   - Update installer-owned values in Microphone config
+#   - Update installer-owned values in RTK config
+#   - Build Environmental config defaults
+#   - Preserve existing subsystem tuning values when possible
+#   - Create timestamped backups before overwriting existing files
+#   - Support dry-run mode
+#   - Support confirmed write mode
+#
+# Does NOT:
+#   - Modify production Python source files
+#   - Start node runtime
+#   - Install apt packages
+#   - Install Python packages
+#   - Configure systemd services
+#   - Rewrite boot overlays
+#   - Own subsystem runtime workflow
+#   - Validate live hardware availability
+#
+# Owner:
+#   tools/install/install.sh
+#
+# ============================================================
 
 from __future__ import annotations
 

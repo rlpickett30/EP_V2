@@ -10,27 +10,30 @@
 #   Dispatcher
 #
 # Purpose:
-#   Own Journal subsystem workflow and route subscribed node
-#   platform events to journal storage.
+#   Own the Journal subsystem workflow and route subscribed node platform
+#   events to JournalManager.
 #
 # Expected config source:
-#   None
+#   journal_config.py
 #
 # Expected config section:
-#   None
+#   JOURNAL_CONFIG
 #
 # Does:
-#   - Create and own journal_manager.py
-#   - Create and own journal_event_services.py
+#   - Create and own JournalManager
+#   - Create and own JournalEventServices
 #   - Register Journal event subscriptions
-#   - Receive platform events
-#   - Send events to Journal Manager
+#   - Receive subscribed platform events
+#   - Send received events to JournalManager
+#   - Start and stop Journal dispatcher state
 #
 # Does NOT:
 #   - Interpret event meaning
 #   - Modify events
 #   - Republish events
 #   - Perform Event Bus delivery logic
+#   - Format journal entries directly
+#   - Own subsystem event producers
 #
 # Owner:
 #   Main / Subsystem root

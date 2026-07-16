@@ -1,29 +1,44 @@
-"""
-PPS_manager.py
-
-EnviroPulse V2.0
-
-Subsystem:
-    RTK
-
-Role:
-    PPS Manager
-
-Purpose:
-    Read Linux kernel PPS state from /sys/class/pps/pps0/assert
-    and create canonical PPS snapshots for RTKDispatcher.
-
-Important:
-    This manager does not own the serial GPS port.
-    The PPS signal is already owned by the Linux kernel PPS driver.
-    GPIO18 appears as consumer="pps@12", so direct gpiomon access is expected
-    to be busy.
-
-Current integration level:
-    - Detects PPS online / locked from kernel PPS assert timestamps.
-    - Reports latest PPS sequence and kernel timestamp.
-    - Does not yet pair PPS with RMC UTC labels. That comes next.
-"""
+# ============================================================
+# PPS_manager.py
+#
+# EnviroPulse V2.0
+#
+# Subsystem:
+#   RTK
+#
+# Role:
+#   Manager
+#
+# Purpose:
+#   Read Linux kernel PPS state from /sys/class/pps/pps0/assert and create
+#   canonical PPS snapshots for RTKDispatcher.
+#
+# Expected config source:
+#   RTK_config.json
+#
+# Expected config section:
+#   config["pps"]
+#
+# Does:
+#   - Read Linux kernel PPS assert timestamps
+#   - Detect whether the PPS device is present
+#   - Detect whether PPS is online and recently valid
+#   - Track PPS sequence changes
+#   - Report latest PPS kernel timestamp
+#   - Build PPS snapshots for RTKDispatcher
+#
+# Does NOT:
+#   - Own the serial GPS port
+#   - Publish events
+#   - Subscribe to events
+#   - Access the event bus
+#   - Configure the ZED-F9P
+#   - Pair PPS edges with RMC UTC labels yet
+#
+# Owner:
+#   RTK_dispatcher.py
+#
+# ============================================================
 
 from __future__ import annotations
 

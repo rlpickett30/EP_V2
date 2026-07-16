@@ -1,16 +1,18 @@
 # ============================================================
 # listener_manager.py
 #
-# EnviroPulse V2
+# EnviroPulse V2.0
 #
 # Subsystem:
-#   Communication
+#   Node Communication
 #
 # Role:
 #   Manager
 #
 # Purpose:
-#   Own inbound listener work for the Communication subsystem.
+#   Own inbound listener work for the Communication subsystem. Decode raw
+#   UDP packet payloads into normalized inbound listener events and forward
+#   them to CommunicationDispatcher.
 #
 # Expected config source:
 #   communication_config.json
@@ -19,18 +21,23 @@
 #   config["udp"]
 #
 # Does:
-#   - Create and own udp_listener.py
-#   - Receive raw packets from udp_listener.py
+#   - Create and own UDPListener
+#   - Start the UDP listener thread
+#   - Stop the UDP listener
+#   - Receive raw packet dictionaries from UDPListener
 #   - Decode UTF-8 JSON payloads
 #   - Build normalized inbound listener events
-#   - Forward decoded events to communication_dispatcher.py
+#   - Preserve transport, timestamp, source IP, and source port metadata
+#   - Forward decoded inbound events to CommunicationDispatcher
 #
 # Does NOT:
 #   - Route messages
 #   - Publish events
 #   - Send messages
 #   - Store messages
-#   - Make communication decisions
+#   - Queue messages
+#   - Make Communication workflow decisions
+#   - Manage Communication state
 #
 # Owner:
 #   communication_dispatcher.py

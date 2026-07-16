@@ -1,19 +1,47 @@
-"""
-microphone_event_services.py
-
-Microphone Event Mailbox
-
-Responsibilities:
-- Publish microphone events
-- Register microphone subscriptions
-
-Canonical microphone event contract:
-- Subscribes: PPS_STATE, GPS_STATE, TDOA_REQUEST
-- Publishes: RECORDING_AVAILABLE, TDOA_RECORDING, MICROPHONE_SYNCED
-
-This module intentionally contains no recording logic, timing logic,
-state tracking, request decisions, or hardware access.
-"""
+# ============================================================
+# microphone_event_services.py
+#
+# EnviroPulse V2.0
+#
+# Subsystem:
+#   Microphone
+#
+# Role:
+#   Event Services
+#
+# Purpose:
+#   Connect the microphone subsystem to the EnviroPulse event bus.
+#
+# Expected config source:
+#   None
+#
+# Expected config section:
+#   None
+#
+# Does:
+#   - Subscribe microphone dispatcher callbacks to microphone input events
+#   - Subscribe to PPS_STATE events
+#   - Subscribe to GPS_STATE events
+#   - Subscribe to TDOA_REQUEST events
+#   - Publish RECORDING_AVAILABLE events
+#   - Publish TDOA_RECORDING events
+#   - Publish MICROPHONE_SYNCED events
+#   - Provide a thin communication layer between Microphone and the event bus
+#
+# Does NOT:
+#   - Record audio
+#   - Inspect event payloads
+#   - Track PPS or GPS state
+#   - Make workflow decisions
+#   - Handle recording timing
+#   - Access microphone hardware
+#   - Handle configuration
+#   - Own microphone subsystem startup
+#
+# Owner:
+#   microphone_dispatcher.py
+#
+# ============================================================
 
 from __future__ import annotations
 

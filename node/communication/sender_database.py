@@ -1,16 +1,16 @@
 # ============================================================
 # sender_database.py
 #
-# EnviroPulse V2
+# EnviroPulse V2.0
 #
 # Subsystem:
-#   Communication
+#   Node Communication
 #
 # Role:
 #   Helper Script
 #
 # Purpose:
-#   Persist queued outbound Communication messages.
+#   Persist queued outbound Communication messages for SenderManager.
 #
 # Expected config source:
 #   communication_config.json
@@ -20,11 +20,13 @@
 #
 # Does:
 #   - Create the outbound queue file when missing
+#   - Load queued outbound messages
+#   - Save queued outbound messages
 #   - Persist outbound messages
 #   - Retrieve queued messages
 #   - Remove sent messages
 #   - Clear the outbound queue
-#   - Provide queue statistics
+#   - Provide queue count statistics
 #
 # Does NOT:
 #   - Send messages
@@ -32,7 +34,9 @@
 #   - Decide when messages should be queued
 #   - Decide when messages should be flushed
 #   - Publish events
-#   - Manage communication state
+#   - Subscribe to the event bus
+#   - Manage Communication state
+#   - Own transport mode
 #
 # Owner:
 #   sender_manager.py
