@@ -235,6 +235,29 @@ class MicrophoneManager:
                 "stream_status_event_count",
                 0
             ),
+            "raw_timing_quality": recording.get(
+                "raw_timing_quality",
+                "UNKNOWN"
+            ),
+
+            "timing_issues": recording.get(
+                "timing_issues",
+                []
+            ),
+
+            "clock_fit_eligible": bool(
+                recording.get(
+                    "clock_fit_eligible",
+                    False
+                )
+            ),
+
+            "corrected_tdoa_eligible": bool(
+                recording.get(
+                    "corrected_tdoa_eligible",
+                    False
+                )
+            ),            
         }
 
         return payload

@@ -878,7 +878,111 @@ class MicrophoneDispatcher:
         recording["device"] = self.config.get("device")
 
         return recording
+    
+    def attach_timing_quality(self, recording):
 
+        if not isinstance(recording, dict):
+            return recording
+
+        status_events = recording.get(
+            "stream_status_events",
+            []
+        )
+
+        if not isinstance(status_events, list):
+            status_events = []
+
+        timing_issues = []
+
+        for status_event in status_events:
+
+            if isinstance(status_event, dict):
+                status_text = str(
+                    status_event.get(
+                        "status",
+                        ""
+                    )
+                ).strip().lower()
+
+            else:
+                status_text = str(
+                    status_event
+                ).strip().lower()
+
+            if not status_text:
+                continue
+
+            if "overflow" in status_text:
+
+                issue = "input_overflow"
+
+            elif "underflow" in status_text:
+
+                issue = "input_underflow"
+
+            else:
+
+                issue = "portaudio_status"
+
+            if issue not in timing_issues:
+                timing_issues.append(issue)
+
+        raw_timing_quality = (
+            "DEGRADED"
+            if timing_issues
+            else
+            "CLEAN"
+        )
+
+        recording_engine = str(
+            recording.get(
+                "recording_engine",
+                ""
+            )
+        )
+
+        clock_fit_eligible = bool(
+            recording_engine == "continuous_pps"
+            and
+            not timing_issues
+        )
+
+        corrected_tdoa_eligible = bool(
+            clock_fit_eligible
+            and
+            recording.get("timing_state")
+            ==
+            "pps_clock_fitted"
+        )
+
+        recording["raw_timing_quality"] = (
+            raw_timing_quality
+        )
+
+        recording["timing_issues"] = (
+            timing_issues
+        )
+
+        recording["clock_fit_eligible"] = (
+            clock_fit_eligible
+        )
+
+        recording["corrected_tdoa_eligible"] = (
+            corrected_tdoa_eligible
+        )
+
+        if timing_issues:
+
+            self.log(
+                (
+                    "Recording timing degraded: "
+                    f"recording_id="
+                    f"{recording.get('recording_id')} "
+                    f"issues={timing_issues}"
+                )
+            )
+
+        return recording
     # --------------------------------------------------
     # Recording Duration Budget
     # --------------------------------------------------
@@ -1307,8 +1411,17 @@ class MicrophoneDispatcher:
             )
             return None
 
-        recording = self.attach_recording_context(recording)
-        self.last_recorded_window_epoch = scheduled_start_epoch
+        recording = self.attach_recording_context(
+            recording
+        )
+
+        recording = self.attach_timing_quality(
+            recording
+        )
+
+        self.last_recorded_window_epoch = (
+            scheduled_start_epoch
+        )
 
         event = self.manager.build_recording_available_event(
             recording=recording,
@@ -1474,7 +1587,13 @@ class MicrophoneDispatcher:
             self.log("TDOA recording failed")
             return
 
-        recording = self.attach_recording_context(recording)
+        recording = self.attach_recording_context(
+            recording
+        )
+
+        recording = self.attach_timing_quality(
+            recording
+        )
 
         tdoa_event = self.manager.build_tdoa_recording_event(
             recording=recording,
@@ -1530,7 +1649,161 @@ class MicrophoneDispatcher:
             "microphone_type": payload.get("microphone_type"),
             "pps_locked": payload.get("pps_locked"),
             "pps_state": payload.get("pps_state", {}),
-            "tdoa_request_id": payload.get("tdoa_request_id"),
+            "tdoa_request_id": payload.get(
+                "tdoa_request_id"
+            ),
+
+            "guarded_wav_path": payload.get(
+                "guarded_wav_path"
+            ),
+
+            "frame_count": payload.get(
+                "frame_count"
+            ),
+
+            "guarded_duration_sec": payload.get(
+                "guarded_duration_sec"
+            ),
+
+            "guarded_frame_count": payload.get(
+                "guarded_frame_count"
+            ),
+
+            "timing_quality": {
+                "schema_version": 1,
+
+                "raw_timing_quality": payload.get(
+                    "raw_timing_quality",
+                    "UNKNOWN"
+                ),
+
+                "timing_issues": payload.get(
+                    "timing_issues",
+                    []
+                ),
+
+                "clock_fit_eligible": bool(
+                    payload.get(
+                        "clock_fit_eligible",
+                        False
+                    )
+                ),
+
+                "corrected_tdoa_eligible": bool(
+                    payload.get(
+                        "corrected_tdoa_eligible",
+                        False
+                    )
+                )
+            },
+
+            "timing_evidence": {
+                "schema_version": 1,
+
+                "recording_engine": payload.get(
+                    "recording_engine"
+                ),
+
+                "continuous_stream": payload.get(
+                    "continuous_stream",
+                    False
+                ),
+
+                "timing_state": payload.get(
+                    "timing_state"
+                ),
+
+                "boundary": {
+                    "utc": payload.get(
+                        "boundary_utc"
+                    ),
+
+                    "epoch": payload.get(
+                        "boundary_epoch"
+                    ),
+
+                    "second": payload.get(
+                        "boundary_second"
+                    ),
+
+                    "sample": payload.get(
+                        "boundary_sample"
+                    ),
+
+                    "snapshot_error_ms": payload.get(
+                        "boundary_snapshot_error_ms"
+                    ),
+
+                    "snapshot": payload.get(
+                        "boundary_snapshot"
+                    )
+                },
+
+                "core_sample_range": {
+                    "start_sample": payload.get(
+                        "stream_start_sample"
+                    ),
+
+                    "end_sample_exclusive": payload.get(
+                        "stream_end_sample_exclusive"
+                    ),
+
+                    "frame_count": payload.get(
+                        "frame_count"
+                    ),
+
+                    "duration_sec": payload.get(
+                        "duration_sec"
+                    )
+                },
+
+                "guarded_sample_range": {
+                    "start_sample": payload.get(
+                        "guarded_stream_start_sample"
+                    ),
+
+                    "end_sample_exclusive": payload.get(
+                        "guarded_stream_end_sample_exclusive"
+                    ),
+
+                    "frame_count": payload.get(
+                        "guarded_frame_count"
+                    ),
+
+                    "duration_sec": payload.get(
+                        "guarded_duration_sec"
+                    )
+                },
+
+                "guards": {
+                    "pre_roll_frames": payload.get(
+                        "pre_roll_frames"
+                    ),
+
+                    "post_roll_frames": payload.get(
+                        "post_roll_frames"
+                    ),
+
+                    "pre_roll_seconds": payload.get(
+                        "pre_roll_seconds"
+                    ),
+
+                    "post_roll_seconds": payload.get(
+                        "post_roll_seconds"
+                    )
+                },
+
+                "stream_status_events": payload.get(
+                    "stream_status_events",
+                    []
+                ),
+
+                "stream_status_event_count": payload.get(
+                    "stream_status_event_count",
+                    0
+                )
+            },
+
             "preserve": False,
             "species_detected": False,
             "retention_days": self.config[
