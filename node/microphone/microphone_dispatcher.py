@@ -105,6 +105,14 @@ class MicrophoneDispatcher:
             channels=self.config["channels"],
             device=self.config.get("device"),
             spectrogram_config=self.get_spectrogram_config(),
+            recording_engine=self.config.get(
+                "recording_engine",
+                "scheduled_start_stop"
+            ),
+            continuous_capture_config=self.config.get(
+                "continuous_capture",
+                {}
+            ),
             debug=self.debug
         )
 
@@ -237,7 +245,13 @@ class MicrophoneDispatcher:
             f"Starting microphone subsystem type={self.microphone_type} "
             f"device={self.config.get('device')}"
         )
+
         self.register_subscriptions()
+
+        if self.microphone_enabled:
+
+            self.loop.start_continuous()
+
         self.running = True
         self.run()
 

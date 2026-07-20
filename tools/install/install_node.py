@@ -92,6 +92,12 @@ DEFAULT_MIC_DEVICE = 2
 DEFAULT_RECORDING_DURATION_SEC = 14.0
 DEFAULT_RECORDING_INTERVAL_SEC = 15
 DEFAULT_RECORDING_GUARD_SEC = 1.0
+DEFAULT_RECORDING_ENGINE = "continuous_pps"
+
+DEFAULT_MIC_BLOCK_FRAMES = 1024
+DEFAULT_MIC_CHUNK_SECONDS = 60.0
+DEFAULT_MIC_LATENCY = "high"
+DEFAULT_MIC_QUEUE_BLOCKS = 512
 
 DEFAULT_PPS_GPIO_BCM = 4
 DEFAULT_PPS_PHYSICAL_PIN = 7
@@ -168,6 +174,15 @@ DEFAULT_MICROPHONE_CONFIG = {
     "device": DEFAULT_MIC_DEVICE,
     "sample_rate": DEFAULT_MIC_SAMPLE_RATE,
     "channels": DEFAULT_MIC_CHANNELS,
+    "recording_engine": DEFAULT_RECORDING_ENGINE,
+
+    "continuous_capture": {
+        "open_stream_on_start": True,
+        "block_frames": DEFAULT_MIC_BLOCK_FRAMES,
+        "chunk_seconds": DEFAULT_MIC_CHUNK_SECONDS,
+        "latency": DEFAULT_MIC_LATENCY,
+        "queue_blocks": DEFAULT_MIC_QUEUE_BLOCKS,
+    },
     "microphones": {
         "USB": {
             "enabled": True,
@@ -1019,6 +1034,15 @@ def build_microphone_config(
     config["sample_rate"] = DEFAULT_MIC_SAMPLE_RATE
     config["channels"] = DEFAULT_MIC_CHANNELS
     config["debug"] = answers["debug"]
+    config["recording_engine"] = DEFAULT_RECORDING_ENGINE
+
+    config["continuous_capture"] = {
+        "open_stream_on_start": True,
+        "block_frames": DEFAULT_MIC_BLOCK_FRAMES,
+        "chunk_seconds": DEFAULT_MIC_CHUNK_SECONDS,
+        "latency": DEFAULT_MIC_LATENCY,
+        "queue_blocks": DEFAULT_MIC_QUEUE_BLOCKS,
+    }
 
     config["recording_duration_sec"] = DEFAULT_RECORDING_DURATION_SEC
     config["recording_interval_sec"] = DEFAULT_RECORDING_INTERVAL_SEC

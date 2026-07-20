@@ -51,10 +51,13 @@ from __future__ import annotations
 import time
 import uuid
 import wave
+import threading
+
 
 from pathlib import Path
 from datetime import datetime
 from datetime import timezone
+from collections import deque
 
 import numpy as np
 import sounddevice as sd
@@ -69,6 +72,8 @@ class MicrophoneLoop:
         channels=1,
         device=None,
         spectrogram_config=None,
+        recording_engine="scheduled_start_stop",
+        continuous_capture_config=None,
         debug=True
     ):
 
@@ -76,6 +81,49 @@ class MicrophoneLoop:
         self.sample_rate = int(sample_rate)
         self.channels = int(channels)
         self.device = device
+        self.recording_engine = str(
+            recording_engine or "scheduled_start_stop"
+        ).strip().lower()
+
+        self.continuous_capture_config = (
+            continuous_capture_config
+            if isinstance(continuous_capture_config, dict)
+            else {}
+        )
+
+        self.block_frames = int(
+            self.continuous_capture_config.get(
+                "block_frames",
+                1024
+            )
+        )
+
+        self.stream_latency = self.continuous_capture_config.get(
+            "latency",
+            "high"
+        )
+
+        self.buffer_seconds = float(
+            self.continuous_capture_config.get(
+                "buffer_seconds",
+                120.0
+            )
+        )
+
+        self.buffer_frames = max(
+            self.block_frames,
+            int(round(self.buffer_seconds * self.sample_rate))
+        )
+
+        self._stream = None
+        self._stream_condition = threading.Condition()
+        self._stream_blocks = deque()
+        self._stream_sample_counter = 0
+        self._stream_callback_count = 0
+        self._stream_status_count = 0
+        self._stream_started_monotonic_ns = None
+        self._stream_started_realtime_ns = None
+
         self.spectrogram_config = spectrogram_config or {}
         self.write_file_spectrogram = bool(
             self.spectrogram_config.get(
@@ -126,6 +174,346 @@ class MicrophoneLoop:
                 f"Device query failed: {error}"
             )
             return False
+
+    # --------------------------------------------------
+    # Continuous Stream
+    # --------------------------------------------------
+
+    def start_continuous(self):
+
+        if self.recording_engine != "continuous_pps":
+            return False
+
+        if self._stream is not None:
+            return True
+
+        device_info = sd.query_devices(
+            self.device,
+            "input"
+        )
+
+        self.log(
+            (
+                "Opening continuous microphone stream: "
+                f"device={device_info['name']} "
+                f"sample_rate={self.sample_rate} "
+                f"channels={self.channels} "
+                f"block_frames={self.block_frames} "
+                f"latency={self.stream_latency}"
+            )
+        )
+
+        with self._stream_condition:
+
+            self._stream_blocks.clear()
+            self._stream_sample_counter = 0
+            self._stream_callback_count = 0
+            self._stream_status_count = 0
+
+        self._stream = sd.InputStream(
+            device=self.device,
+            samplerate=self.sample_rate,
+            channels=self.channels,
+            dtype="int16",
+            blocksize=self.block_frames,
+            latency=self.stream_latency,
+            callback=self._continuous_audio_callback
+        )
+
+        self._stream.start()
+
+        self._stream_started_monotonic_ns = time.monotonic_ns()
+        self._stream_started_realtime_ns = time.time_ns()
+
+        self.log(
+            "Continuous microphone stream started"
+        )
+
+        return True
+
+    def stop_continuous(self):
+
+        stream = self._stream
+        self._stream = None
+
+        if stream is None:
+            return
+
+        self.log(
+            "Stopping continuous microphone stream"
+        )
+
+        try:
+            stream.stop()
+
+        finally:
+            stream.close()
+
+        with self._stream_condition:
+            self._stream_condition.notify_all()
+
+        self.log(
+            "Continuous microphone stream stopped"
+        )
+
+    def continuous_stream_active(self):
+
+        return bool(
+            self._stream is not None
+            and self._stream.active
+        )
+
+    def _continuous_audio_callback(
+        self,
+        indata,
+        frames,
+        time_info,
+        status
+    ):
+
+        callback_monotonic_ns = time.monotonic_ns()
+        callback_realtime_ns = time.time_ns()
+
+        input_buffer_adc_time = float(
+            time_info.inputBufferAdcTime
+        )
+
+        current_time = float(
+            time_info.currentTime
+        )
+
+        estimated_adc_monotonic_ns = int(
+            round(
+                callback_monotonic_ns
+                +
+                (
+                    input_buffer_adc_time
+                    -
+                    current_time
+                )
+                *
+                1e9
+            )
+        )
+
+        status_text = str(status) if status else ""
+
+        with self._stream_condition:
+
+            first_sample = self._stream_sample_counter
+
+            self._stream_sample_counter += int(
+                frames
+            )
+
+            self._stream_callback_count += 1
+
+            if status:
+                self._stream_status_count += 1
+
+            self._stream_blocks.append(
+                {
+                    "first_sample": first_sample,
+                    "end_sample_exclusive": (
+                        first_sample
+                        +
+                        int(frames)
+                    ),
+                    "frame_count": int(frames),
+                    "data": indata.copy(),
+                    "input_buffer_adc_time": (
+                        input_buffer_adc_time
+                    ),
+                    "current_time": current_time,
+                    "callback_monotonic_ns": (
+                        callback_monotonic_ns
+                    ),
+                    "callback_realtime_ns": (
+                        callback_realtime_ns
+                    ),
+                    "estimated_adc_monotonic_ns": (
+                        estimated_adc_monotonic_ns
+                    ),
+                    "status": status_text
+                }
+            )
+
+            minimum_retained_sample = max(
+                0,
+                self._stream_sample_counter
+                -
+                self.buffer_frames
+            )
+
+            while self._stream_blocks:
+
+                oldest = self._stream_blocks[0]
+
+                if (
+                    oldest["end_sample_exclusive"]
+                    >
+                    minimum_retained_sample
+                ):
+                    break
+
+                self._stream_blocks.popleft()
+
+            self._stream_condition.notify_all()
+
+    def _wait_for_continuous_samples(
+        self,
+        end_sample_exclusive,
+        timeout_seconds
+    ):
+
+        deadline = time.monotonic() + float(
+            timeout_seconds
+        )
+
+        with self._stream_condition:
+
+            while (
+                self._stream_sample_counter
+                <
+                end_sample_exclusive
+            ):
+
+                if not self.continuous_stream_active():
+                    return False
+
+                remaining = deadline - time.monotonic()
+
+                if remaining <= 0:
+                    return False
+
+                self._stream_condition.wait(
+                    timeout=min(remaining, 0.25)
+                )
+
+        return True
+
+    def _read_continuous_samples(
+        self,
+        start_sample,
+        end_sample_exclusive
+    ):
+
+        frame_count = int(
+            end_sample_exclusive
+            -
+            start_sample
+        )
+
+        if frame_count <= 0:
+            raise ValueError(
+                "Continuous sample range must be positive"
+            )
+
+        output = np.zeros(
+            (
+                frame_count,
+                self.channels
+            ),
+            dtype=np.int16
+        )
+
+        covered = np.zeros(
+            frame_count,
+            dtype=bool
+        )
+
+        status_events = []
+
+        with self._stream_condition:
+
+            blocks = list(
+                self._stream_blocks
+            )
+
+        for block in blocks:
+
+            block_start = int(
+                block["first_sample"]
+            )
+
+            block_stop = int(
+                block["end_sample_exclusive"]
+            )
+
+            overlap_start = max(
+                start_sample,
+                block_start
+            )
+
+            overlap_stop = min(
+                end_sample_exclusive,
+                block_stop
+            )
+
+            if overlap_stop <= overlap_start:
+                continue
+
+            source_start = (
+                overlap_start
+                -
+                block_start
+            )
+
+            source_stop = (
+                overlap_stop
+                -
+                block_start
+            )
+
+            destination_start = (
+                overlap_start
+                -
+                start_sample
+            )
+
+            destination_stop = (
+                overlap_stop
+                -
+                start_sample
+            )
+
+            output[
+                destination_start:
+                destination_stop
+            ] = block["data"][
+                source_start:
+                source_stop
+            ]
+
+            covered[
+                destination_start:
+                destination_stop
+            ] = True
+
+            if block.get("status"):
+                status_events.append(
+                    {
+                        "first_sample": block_start,
+                        "status": block["status"]
+                    }
+                )
+
+        if not np.all(covered):
+
+            missing_frames = int(
+                np.count_nonzero(
+                    ~covered
+                )
+            )
+
+            raise RuntimeError(
+                (
+                    "Continuous buffer does not contain "
+                    f"{missing_frames} requested frames"
+                )
+            )
+
+        return output, status_events
 
     # --------------------------------------------------
     # Time Helpers
@@ -332,7 +720,7 @@ class MicrophoneLoop:
     # Recording
     # --------------------------------------------------
 
-    def record(
+    def record_from_continuous_stream(
         self,
         duration_sec,
         recording_type="recording",
@@ -344,6 +732,213 @@ class MicrophoneLoop:
         window_second=None
     ):
 
+        if not self.continuous_stream_active():
+            raise RuntimeError(
+                "Continuous microphone stream is not active"
+            )
+
+        duration_sec = float(
+            duration_sec
+        )
+
+        frame_count = int(
+            round(
+                duration_sec
+                *
+                self.sample_rate
+            )
+        )
+
+        if (
+            scheduled_start_epoch is not None
+            and scheduled_start_utc is None
+        ):
+            scheduled_start_utc = (
+                self.epoch_to_utc_timestamp(
+                    scheduled_start_epoch
+                )
+            )
+
+        paths = self.build_recording_path(
+            recording_type=recording_type,
+            scheduled_start_epoch=scheduled_start_epoch,
+            scheduled_start_utc=scheduled_start_utc
+        )
+
+        recording_started_monotonic = time.monotonic()
+        recording_epoch = time.time()
+        recording_utc = self.get_utc_timestamp()
+
+        with self._stream_condition:
+
+            start_sample = int(
+                self._stream_sample_counter
+            )
+
+        end_sample_exclusive = (
+            start_sample
+            +
+            frame_count
+        )
+
+        self.log(
+            (
+                f"Extracting {duration_sec:.3f}s from "
+                f"continuous stream: "
+                f"samples={start_sample}:"
+                f"{end_sample_exclusive}"
+            )
+        )
+
+        available = self._wait_for_continuous_samples(
+            end_sample_exclusive=end_sample_exclusive,
+            timeout_seconds=duration_sec + 5.0
+        )
+
+        if not available:
+            raise RuntimeError(
+                "Timed out waiting for continuous audio samples"
+            )
+
+        audio, status_events = (
+            self._read_continuous_samples(
+                start_sample=start_sample,
+                end_sample_exclusive=(
+                    end_sample_exclusive
+                )
+            )
+        )
+
+        recording_finished_monotonic = time.monotonic()
+
+        self.write_wav(
+            paths["wav_path"],
+            audio
+        )
+
+        spectrogram_path = None
+
+        if self.write_file_spectrogram:
+
+            spectrogram_path = self.generate_spectrogram(
+                wav_path=paths["wav_path"],
+                spectrogram_path=paths[
+                    "spectrogram_path"
+                ],
+                audio=audio
+            )
+
+        actual_duration_sec = (
+            recording_finished_monotonic
+            -
+            recording_started_monotonic
+        )
+
+        start_error_ms = None
+
+        if scheduled_start_epoch is not None:
+
+            try:
+
+                start_error_ms = (
+                    recording_epoch
+                    -
+                    float(
+                        scheduled_start_epoch
+                    )
+                ) * 1000.0
+
+            except Exception:
+
+                start_error_ms = None
+
+        return {
+            "recording_id": paths["recording_id"],
+            "recording_utc": recording_utc,
+            "recording_epoch": recording_epoch,
+            "scheduled_start_utc": scheduled_start_utc,
+            "scheduled_start_epoch": scheduled_start_epoch,
+            "window_utc": scheduled_start_utc,
+            "window_epoch": scheduled_start_epoch,
+            "window_second": window_second,
+            "wav_path": paths["wav_path"],
+            "metadata_path": paths["metadata_path"],
+            "spectrogram_path": spectrogram_path,
+            "sample_rate": self.sample_rate,
+            "channels": self.channels,
+            "duration_sec": duration_sec,
+            "frame_count": frame_count,
+            "recording_type": recording_type,
+            "request_id": request_id,
+            "sync_source": sync_source,
+            "pps_state": pps_state or {},
+            "started_monotonic": (
+                recording_started_monotonic
+            ),
+            "finished_monotonic": (
+                recording_finished_monotonic
+            ),
+            "actual_duration_sec": (
+                actual_duration_sec
+            ),
+            "start_error_ms": start_error_ms,
+            "device": self.device,
+
+            "recording_engine": (
+                "continuous_pps"
+            ),
+            "continuous_stream": True,
+            "stream_start_sample": start_sample,
+            "stream_end_sample_exclusive": (
+                end_sample_exclusive
+            ),
+            "stream_status_events": status_events,
+            "stream_status_event_count": len(
+                status_events
+            ),
+            "stream_callback_count": (
+                self._stream_callback_count
+            ),
+            "stream_sample_counter": (
+                self._stream_sample_counter
+            ),
+            "stream_started_monotonic_ns": (
+                self._stream_started_monotonic_ns
+            ),
+            "stream_started_realtime_ns": (
+                self._stream_started_realtime_ns
+            )
+        }
+
+    def record(
+        self,
+        duration_sec,
+        recording_type="recording",
+        request_id=None,
+        pps_state=None,
+        sync_source="local_clock",
+        scheduled_start_epoch=None,
+        scheduled_start_utc=None,
+        window_second=None
+    ):
+        
+        if self.recording_engine == "continuous_pps":
+
+            return self.record_from_continuous_stream(
+                duration_sec=duration_sec,
+                recording_type=recording_type,
+                request_id=request_id,
+                pps_state=pps_state,
+                sync_source=sync_source,
+                scheduled_start_epoch=(
+                    scheduled_start_epoch
+                ),
+                scheduled_start_utc=(
+                    scheduled_start_utc
+                ),
+                window_second=window_second
+            )
+        
         duration_sec = float(duration_sec)
         frame_count = int(duration_sec * self.sample_rate)
 
