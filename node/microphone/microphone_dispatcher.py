@@ -248,18 +248,28 @@ class MicrophoneDispatcher:
 
         self.register_subscriptions()
 
-        if self.microphone_enabled:
-
-            self.loop.start_continuous()
-
         self.running = True
-        self.run()
+
+        try:
+
+            if self.microphone_enabled:
+
+                self.loop.start_continuous()
+
+            self.run()
+
+        finally:
+
+            self.running = False
+            self.loop.stop_continuous()
 
     def stop(self):
 
         self.log("Stopping microphone subsystem")
         self.running = False
-
+        
+        self.loop.stop_continuous()
+        
     # --------------------------------------------------
     # Subscriptions
     # --------------------------------------------------
