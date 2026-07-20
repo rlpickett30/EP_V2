@@ -247,7 +247,6 @@ class MicrophoneDispatcher:
         )
 
         self.register_subscriptions()
-
         self.running = True
 
         try:
@@ -268,7 +267,6 @@ class MicrophoneDispatcher:
         self.log("Stopping microphone subsystem")
         self.running = False
         
-        self.loop.stop_continuous()
         
     # --------------------------------------------------
     # Subscriptions
@@ -814,6 +812,22 @@ class MicrophoneDispatcher:
         scheduled_start_utc=None
     ):
 
+        if recording.get(
+            "recording_engine"
+        ) == "continuous_pps":
+
+            self.consecutive_synced_windows = 0
+
+            self.log(
+                (
+                    "MICROPHONE_SYNCED withheld: "
+                    "continuous sample clock has not yet "
+                    "been fitted to PPS"
+                )
+            )
+
+            return None
+
         sync_error_ms = self.calculate_microphone_sync_error_ms(
             recording=recording,
             scheduled_start_epoch=scheduled_start_epoch
@@ -964,7 +978,268 @@ class MicrophoneDispatcher:
             return max_duration
 
         return configured_duration
+    
+    def uses_completed_boundary_windows(self):
 
+        return bool(
+            self.loop.recording_engine
+            ==
+            "continuous_pps"
+            and
+            self.config.get(
+                "align_recordings_to_pps_boundary",
+                True
+            )
+        )
+    
+    def make_completed_boundary_recording(
+        self,
+        sync_source,
+        boundary_epoch,
+        boundary_utc,
+        boundary_second,
+        pps_state
+    ):
+
+        operation_started_monotonic = time.monotonic()
+
+        boundary_snapshot = (
+            self.loop.snapshot_stream_position()
+        )
+
+        core_duration_sec = (
+            self.get_min_window_spacing_seconds()
+        )
+
+        window_start_epoch = (
+            float(boundary_epoch)
+            -
+            core_duration_sec
+        )
+
+        window_start_utc = (
+            self.epoch_to_utc_timestamp(
+                window_start_epoch
+            )
+        )
+
+        window_start_second = (
+            datetime.fromtimestamp(
+                window_start_epoch,
+                timezone.utc
+            ).second
+        )
+
+        try:
+
+            window = (
+                self.loop
+                .read_guarded_window_from_boundary(
+                    boundary_snapshot=(
+                        boundary_snapshot
+                    ),
+                    core_duration_sec=(
+                        core_duration_sec
+                    )
+                )
+            )
+
+        except RuntimeError as error:
+
+            self.log(
+                (
+                    "Completed boundary window skipped: "
+                    f"{error}"
+                )
+            )
+
+            return None
+
+        paths = self.loop.build_recording_path(
+            recording_type="recording",
+            scheduled_start_epoch=(
+                window_start_epoch
+            ),
+            scheduled_start_utc=(
+                window_start_utc
+            )
+        )
+
+        file_result = (
+            self.loop.write_boundary_window_files(
+                paths=paths,
+                window=window
+            )
+        )
+
+        operation_finished_monotonic = (
+            time.monotonic()
+        )
+
+        boundary_snapshot_epoch = (
+            boundary_snapshot[
+                "snapshot_realtime_ns"
+            ]
+            /
+            1e9
+        )
+
+        boundary_snapshot_error_ms = (
+            boundary_snapshot_epoch
+            -
+            float(boundary_epoch)
+        ) * 1000.0
+
+        self.log(
+            (
+                "Completed boundary window written: "
+                f"core={window_start_utc}"
+                f"->{boundary_utc} "
+                f"core_samples="
+                f"{window['core_start_sample']}:"
+                f"{window['core_end_sample_exclusive']} "
+                f"guarded_samples="
+                f"{window['guarded_start_sample']}:"
+                f"{window['guarded_end_sample_exclusive']}"
+            )
+        )
+
+        return {
+            "recording_id": paths[
+                "recording_id"
+            ],
+
+            "recording_utc": window_start_utc,
+            "recording_epoch": window_start_epoch,
+
+            "scheduled_start_utc": (
+                window_start_utc
+            ),
+            "scheduled_start_epoch": (
+                window_start_epoch
+            ),
+
+            "window_utc": window_start_utc,
+            "window_epoch": window_start_epoch,
+            "window_second": window_start_second,
+
+            "boundary_utc": boundary_utc,
+            "boundary_epoch": boundary_epoch,
+            "boundary_second": boundary_second,
+
+            "wav_path": file_result[
+                "wav_path"
+            ],
+            "guarded_wav_path": file_result[
+                "guarded_wav_path"
+            ],
+            "metadata_path": paths[
+                "metadata_path"
+            ],
+            "spectrogram_path": None,
+
+            "sample_rate": self.loop.sample_rate,
+            "channels": self.loop.channels,
+
+            "duration_sec": file_result[
+                "core_duration_sec"
+            ],
+            "frame_count": file_result[
+                "core_frame_count"
+            ],
+
+            "guarded_duration_sec": file_result[
+                "guarded_duration_sec"
+            ],
+            "guarded_frame_count": file_result[
+                "guarded_frame_count"
+            ],
+
+            "recording_type": "recording",
+            "request_id": None,
+
+            "sync_source": sync_source,
+            "pps_state": pps_state or {},
+
+            "started_monotonic": (
+                operation_started_monotonic
+            ),
+            "finished_monotonic": (
+                operation_finished_monotonic
+            ),
+            "actual_duration_sec": (
+                operation_finished_monotonic
+                -
+                operation_started_monotonic
+            ),
+
+            "start_error_ms": None,
+            "boundary_snapshot_error_ms": (
+                boundary_snapshot_error_ms
+            ),
+
+            "device": self.config.get(
+                "device"
+            ),
+
+            "recording_engine": (
+                "continuous_pps"
+            ),
+            "continuous_stream": True,
+
+            "timing_state": (
+                "boundary_candidate_unmodeled"
+            ),
+
+            "boundary_snapshot": (
+                boundary_snapshot
+            ),
+            "boundary_sample": window[
+                "boundary_sample"
+            ],
+
+            "stream_start_sample": window[
+                "core_start_sample"
+            ],
+            "stream_end_sample_exclusive": (
+                window[
+                    "core_end_sample_exclusive"
+                ]
+            ),
+
+            "guarded_stream_start_sample": (
+                window[
+                    "guarded_start_sample"
+                ]
+            ),
+            "guarded_stream_end_sample_exclusive": (
+                window[
+                    "guarded_end_sample_exclusive"
+                ]
+            ),
+
+            "pre_roll_frames": window[
+                "pre_roll_frames"
+            ],
+            "post_roll_frames": window[
+                "post_roll_frames"
+            ],
+            "pre_roll_seconds": window[
+                "pre_roll_seconds"
+            ],
+            "post_roll_seconds": window[
+                "post_roll_seconds"
+            ],
+
+            "stream_status_events": window[
+                "stream_status_events"
+            ],
+            "stream_status_event_count": (
+                window[
+                    "stream_status_event_count"
+                ]
+            )
+        }
     # --------------------------------------------------
     # Normal Recording
     # --------------------------------------------------
@@ -992,15 +1267,39 @@ class MicrophoneDispatcher:
 
         pps_state = self.get_pps_state_snapshot()
 
-        recording = self.loop.record(
-            duration_sec=self.get_effective_recording_duration_sec(),
-            recording_type="recording",
-            pps_state=pps_state,
-            sync_source=sync_source,
-            scheduled_start_epoch=scheduled_start_epoch,
-            scheduled_start_utc=scheduled_start_utc,
-            window_second=window_second
-        )
+        if self.uses_completed_boundary_windows():
+
+            recording = (
+                self.make_completed_boundary_recording(
+                    sync_source=sync_source,
+                    boundary_epoch=(
+                        scheduled_start_epoch
+                    ),
+                    boundary_utc=(
+                        scheduled_start_utc
+                    ),
+                    boundary_second=window_second,
+                    pps_state=pps_state
+                )
+            )
+
+        else:
+
+            recording = self.loop.record(
+                duration_sec=(
+                    self.get_effective_recording_duration_sec()
+                ),
+                recording_type="recording",
+                pps_state=pps_state,
+                sync_source=sync_source,
+                scheduled_start_epoch=(
+                    scheduled_start_epoch
+                ),
+                scheduled_start_utc=(
+                    scheduled_start_utc
+                ),
+                window_second=window_second
+            )
 
         if recording is None:
             self.log(

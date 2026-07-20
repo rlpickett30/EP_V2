@@ -125,6 +125,19 @@ class MicrophoneManager:
             "recording_epoch": recording.get("recording_epoch"),
             "recording_path": str(recording.get("wav_path")),
             "wav_path": str(recording.get("wav_path")),
+
+            "guarded_wav_path": (
+                str(
+                    recording.get(
+                        "guarded_wav_path"
+                    )
+                )
+                if recording.get(
+                    "guarded_wav_path"
+                )
+                else None
+            ),
+
             "metadata_path": str(recording.get("metadata_path")),
             "spectrogram_path": (
                 str(recording.get("spectrogram_path"))
@@ -135,6 +148,14 @@ class MicrophoneManager:
             "channels": recording.get("channels"),
             "duration_sec": recording.get("duration_sec"),
             "frame_count": recording.get("frame_count"),
+
+            "guarded_duration_sec": recording.get(
+                "guarded_duration_sec"
+            ),
+            "guarded_frame_count": recording.get(
+                "guarded_frame_count"
+            ),
+
             "recording_type": recording.get("recording_type"),
             "sync_source": sync_source,
             "pps_locked": bool(pps_state.get("pps_locked", False)),
@@ -148,6 +169,72 @@ class MicrophoneManager:
             "actual_duration_sec": recording.get("actual_duration_sec"),
             "device": recording.get("device"),
             "microphone_type": recording.get("microphone_type"),
+
+            "recording_engine": recording.get(
+                "recording_engine"
+            ),
+            "continuous_stream": recording.get(
+                "continuous_stream",
+                False
+            ),
+            "timing_state": recording.get(
+                "timing_state"
+            ),
+
+            "boundary_utc": recording.get(
+                "boundary_utc"
+            ),
+            "boundary_epoch": recording.get(
+                "boundary_epoch"
+            ),
+            "boundary_second": recording.get(
+                "boundary_second"
+            ),
+            "boundary_sample": recording.get(
+                "boundary_sample"
+            ),
+            "boundary_snapshot_error_ms": recording.get(
+                "boundary_snapshot_error_ms"
+            ),
+            "boundary_snapshot": recording.get(
+                "boundary_snapshot"
+            ),
+
+            "stream_start_sample": recording.get(
+                "stream_start_sample"
+            ),
+            "stream_end_sample_exclusive": recording.get(
+                "stream_end_sample_exclusive"
+            ),
+
+            "guarded_stream_start_sample": recording.get(
+                "guarded_stream_start_sample"
+            ),
+            "guarded_stream_end_sample_exclusive": recording.get(
+                "guarded_stream_end_sample_exclusive"
+            ),
+
+            "pre_roll_frames": recording.get(
+                "pre_roll_frames"
+            ),
+            "post_roll_frames": recording.get(
+                "post_roll_frames"
+            ),
+            "pre_roll_seconds": recording.get(
+                "pre_roll_seconds"
+            ),
+            "post_roll_seconds": recording.get(
+                "post_roll_seconds"
+            ),
+
+            "stream_status_events": recording.get(
+                "stream_status_events",
+                []
+            ),
+            "stream_status_event_count": recording.get(
+                "stream_status_event_count",
+                0
+            ),
         }
 
         return payload

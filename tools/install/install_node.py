@@ -87,6 +87,14 @@ DEFAULT_SEND_PORT = 5005
 
 DEFAULT_MICROPHONE_TYPE = "USB"
 DEFAULT_MIC_SAMPLE_RATE = 48000
+USB_MIC_SAMPLE_RATE_OPTIONS = [
+    44100,
+    48000,
+    88200,
+    96000,
+    176400,
+    192000,
+]
 DEFAULT_MIC_CHANNELS = 1
 DEFAULT_MIC_DEVICE = 2
 DEFAULT_RECORDING_DURATION_SEC = 14.0
@@ -99,6 +107,9 @@ DEFAULT_MIC_CHUNK_SECONDS = 60.0
 DEFAULT_MIC_LATENCY = "high"
 DEFAULT_MIC_QUEUE_BLOCKS = 512
 DEFAULT_MIC_BUFFER_SECONDS = 120.0
+DEFAULT_MIC_WINDOW_PRE_ROLL_SECONDS = 0.5
+DEFAULT_MIC_WINDOW_POST_ROLL_SECONDS = 0.5
+DEFAULT_MIC_WRITE_GUARDED_RAW_WINDOW = True
 
 DEFAULT_PPS_GPIO_BCM = 4
 DEFAULT_PPS_PHYSICAL_PIN = 7
@@ -182,9 +193,19 @@ DEFAULT_MICROPHONE_CONFIG = {
         "block_frames": DEFAULT_MIC_BLOCK_FRAMES,
         "chunk_seconds": DEFAULT_MIC_CHUNK_SECONDS,
         "buffer_seconds": DEFAULT_MIC_BUFFER_SECONDS,
+        "window_pre_roll_seconds": (
+            DEFAULT_MIC_WINDOW_PRE_ROLL_SECONDS
+        ),
+        "window_post_roll_seconds": (
+            DEFAULT_MIC_WINDOW_POST_ROLL_SECONDS
+        ),
+        "write_guarded_raw_window": (
+            DEFAULT_MIC_WRITE_GUARDED_RAW_WINDOW
+        ),
         "latency": DEFAULT_MIC_LATENCY,
         "queue_blocks": DEFAULT_MIC_QUEUE_BLOCKS,
     },
+    
     "microphones": {
         "USB": {
             "enabled": True,
@@ -548,6 +569,65 @@ def prompt_microphone_type(default: str) -> str:
 
         print("Choose 1, 2, or 3.")
 
+def prompt_usb_sample_rate(
+    default: int = DEFAULT_MIC_SAMPLE_RATE,
+) -> int:
+
+    try:
+        default = int(default)
+
+    except Exception:
+        default = DEFAULT_MIC_SAMPLE_RATE
+
+    if default not in USB_MIC_SAMPLE_RATE_OPTIONS:
+        default = DEFAULT_MIC_SAMPLE_RATE
+
+    default_selection = (
+        USB_MIC_SAMPLE_RATE_OPTIONS.index(default)
+        +
+        1
+    )
+
+    print()
+    print("USB microphone sample rate:")
+
+    for index, sample_rate in enumerate(
+        USB_MIC_SAMPLE_RATE_OPTIONS,
+        start=1,
+    ):
+
+        sample_rate_khz = (
+            sample_rate
+            /
+            1000.0
+        )
+
+        default_label = (
+            " (default)"
+            if sample_rate
+            ==
+            DEFAULT_MIC_SAMPLE_RATE
+            else ""
+        )
+
+        print(
+            f"  {index} = "
+            f"{sample_rate_khz:g} kHz"
+            f"{default_label}"
+        )
+
+    selection = prompt_int(
+        label="Selection",
+        default=default_selection,
+        minimum=1,
+        maximum=len(
+            USB_MIC_SAMPLE_RATE_OPTIONS
+        ),
+    )
+
+    return USB_MIC_SAMPLE_RATE_OPTIONS[
+        selection - 1
+    ]
 
 def prompt_csv_list(
     label: str,
@@ -790,7 +870,25 @@ def collect_existing_defaults(
             )
             or DEFAULT_MIC_DEVICE
         ),
-        "sample_rate": DEFAULT_MIC_SAMPLE_RATE,
+        "sample_rate": int(
+            get_microphone_section(
+                microphone_config,
+                normalized_microphone_type(
+                    microphone_config.get(
+                        "microphone_type",
+                        DEFAULT_MICROPHONE_TYPE,
+                    )
+                ),
+            ).get(
+                "sample_rate",
+                microphone_config.get(
+                    "sample_rate",
+                    DEFAULT_MIC_SAMPLE_RATE,
+                ),
+            )
+            or
+            DEFAULT_MIC_SAMPLE_RATE
+        ),
         "channels": DEFAULT_MIC_CHANNELS,
         "base_node_ids": list(
             rtk_section.get(
@@ -860,11 +958,30 @@ def run_wizard(
     send_port = DEFAULT_SEND_PORT
 
     microphone_type = prompt_microphone_type(
-        default=defaults.get("microphone_type", DEFAULT_MICROPHONE_TYPE),
+        default=defaults.get(
+            "microphone_type",
+            DEFAULT_MICROPHONE_TYPE,
+        ),
     )
 
-    device = defaults.get("device", DEFAULT_MIC_DEVICE)
-    sample_rate = DEFAULT_MIC_SAMPLE_RATE
+    device = defaults.get(
+        "device",
+        DEFAULT_MIC_DEVICE,
+    )
+
+    if microphone_type == "USB":
+
+        sample_rate = prompt_usb_sample_rate(
+            default=defaults.get(
+                "sample_rate",
+                DEFAULT_MIC_SAMPLE_RATE,
+            )
+        )
+
+    else:
+
+        sample_rate = DEFAULT_MIC_SAMPLE_RATE
+
     channels = DEFAULT_MIC_CHANNELS
     pps_gpio_bcm = DEFAULT_PPS_GPIO_BCM
     pps_physical_pin = DEFAULT_PPS_PHYSICAL_PIN
@@ -944,6 +1061,9 @@ def build_node_config(
             "pps_active_edge": "rising",
             "microphone_type": answers["microphone_type"],
             "microphone_device": answers["device"],
+            "microphone_sample_rate": answers[
+                "sample_rate"
+            ],
         },
         "subsystems": deepcopy(DEFAULT_SUBSYSTEMS),
         "register": {
@@ -1033,7 +1153,7 @@ def build_microphone_config(
     config["microphone_type"] = microphone_type
     config["recordings_root"] = "recordings"
     config["device"] = answers["device"]
-    config["sample_rate"] = DEFAULT_MIC_SAMPLE_RATE
+    config["sample_rate"] = answers["sample_rate"]
     config["channels"] = DEFAULT_MIC_CHANNELS
     config["debug"] = answers["debug"]
     config["recording_engine"] = DEFAULT_RECORDING_ENGINE
@@ -1042,6 +1162,16 @@ def build_microphone_config(
         "open_stream_on_start": True,
         "block_frames": DEFAULT_MIC_BLOCK_FRAMES,
         "chunk_seconds": DEFAULT_MIC_CHUNK_SECONDS,
+        "buffer_seconds": DEFAULT_MIC_BUFFER_SECONDS,
+        "window_pre_roll_seconds": (
+            DEFAULT_MIC_WINDOW_PRE_ROLL_SECONDS
+        ),
+        "window_post_roll_seconds": (
+            DEFAULT_MIC_WINDOW_POST_ROLL_SECONDS
+        ),
+        "write_guarded_raw_window": (
+            DEFAULT_MIC_WRITE_GUARDED_RAW_WINDOW
+        ),
         "latency": DEFAULT_MIC_LATENCY,
         "queue_blocks": DEFAULT_MIC_QUEUE_BLOCKS,
     }
@@ -1085,7 +1215,7 @@ def build_microphone_config(
         "USB": {
             "enabled": microphone_type == "USB",
             "device": answers["device"],
-            "sample_rate": DEFAULT_MIC_SAMPLE_RATE,
+            "sample_rate": answers["sample_rate"],
             "channels": DEFAULT_MIC_CHANNELS,
         },
         "SPH0645": {

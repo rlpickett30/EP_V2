@@ -114,7 +114,26 @@ class MicrophoneLoop:
             self.block_frames,
             int(round(self.buffer_seconds * self.sample_rate))
         )
+        self.window_pre_roll_seconds = float(
+            self.continuous_capture_config.get(
+                "window_pre_roll_seconds",
+                0.5
+            )
+        )
 
+        self.window_post_roll_seconds = float(
+            self.continuous_capture_config.get(
+                "window_post_roll_seconds",
+                0.5
+            )
+        )
+
+        self.write_guarded_raw_window = bool(
+            self.continuous_capture_config.get(
+                "write_guarded_raw_window",
+                True
+            )
+        )
         self._stream = None
         self._stream_condition = threading.Condition()
         self._stream_blocks = deque()
@@ -262,7 +281,269 @@ class MicrophoneLoop:
             self._stream is not None
             and self._stream.active
         )
+    
+    def snapshot_stream_position(self):
 
+        if not self.continuous_stream_active():
+            raise RuntimeError(
+                "Continuous microphone stream is not active"
+            )
+
+        snapshot_monotonic_ns = time.monotonic_ns()
+        snapshot_realtime_ns = time.time_ns()
+
+        with self._stream_condition:
+
+            latest_block = (
+                self._stream_blocks[-1]
+                if self._stream_blocks
+                else None
+            )
+
+            oldest_block = (
+                self._stream_blocks[0]
+                if self._stream_blocks
+                else None
+            )
+
+            return {
+                "sample_index": int(
+                    self._stream_sample_counter
+                ),
+                "callback_count": int(
+                    self._stream_callback_count
+                ),
+                "status_count": int(
+                    self._stream_status_count
+                ),
+                "snapshot_monotonic_ns": (
+                    snapshot_monotonic_ns
+                ),
+                "snapshot_realtime_ns": (
+                    snapshot_realtime_ns
+                ),
+                "oldest_retained_sample": (
+                    int(
+                        oldest_block[
+                            "first_sample"
+                        ]
+                    )
+                    if oldest_block
+                    else None
+                ),
+                "latest_block_first_sample": (
+                    int(
+                        latest_block[
+                            "first_sample"
+                        ]
+                    )
+                    if latest_block
+                    else None
+                ),
+                "latest_block_end_sample_exclusive": (
+                    int(
+                        latest_block[
+                            "end_sample_exclusive"
+                        ]
+                    )
+                    if latest_block
+                    else None
+                ),
+                "latest_block_adc_monotonic_ns": (
+                    int(
+                        latest_block[
+                            "estimated_adc_monotonic_ns"
+                        ]
+                    )
+                    if latest_block
+                    else None
+                ),
+                "latest_block_status": (
+                    latest_block.get(
+                        "status",
+                        ""
+                    )
+                    if latest_block
+                    else ""
+                )
+            }
+   
+    def read_guarded_window_from_boundary(
+        self,
+        boundary_snapshot,
+        core_duration_sec
+    ):
+
+        if not isinstance(boundary_snapshot, dict):
+            raise TypeError(
+                "boundary_snapshot must be a dictionary"
+            )
+
+        boundary_sample = int(
+            boundary_snapshot["sample_index"]
+        )
+
+        core_duration_sec = float(
+            core_duration_sec
+        )
+
+        if core_duration_sec <= 0:
+            raise ValueError(
+                "core_duration_sec must be positive"
+            )
+
+        pre_roll_frames = int(
+            round(
+                self.window_pre_roll_seconds
+                *
+                self.sample_rate
+            )
+        )
+
+        core_frames = int(
+            round(
+                core_duration_sec
+                *
+                self.sample_rate
+            )
+        )
+
+        post_roll_frames = int(
+            round(
+                self.window_post_roll_seconds
+                *
+                self.sample_rate
+            )
+        )
+
+        core_start_sample = (
+            boundary_sample
+            -
+            core_frames
+        )
+
+        core_end_sample_exclusive = (
+            boundary_sample
+        )
+
+        guarded_start_sample = (
+            core_start_sample
+            -
+            pre_roll_frames
+        )
+
+        guarded_end_sample_exclusive = (
+            core_end_sample_exclusive
+            +
+            post_roll_frames
+        )
+
+        if guarded_start_sample < 0:
+            raise RuntimeError(
+                (
+                    "The continuous stream does not yet "
+                    "contain enough history for the "
+                    "requested guarded window"
+                )
+            )
+
+        available = self._wait_for_continuous_samples(
+            end_sample_exclusive=(
+                guarded_end_sample_exclusive
+            ),
+            timeout_seconds=(
+                self.window_post_roll_seconds
+                +
+                5.0
+            )
+        )
+
+        if not available:
+            raise RuntimeError(
+                (
+                    "Timed out waiting for guarded "
+                    "window post-roll samples"
+                )
+            )
+
+        guarded_audio, status_events = (
+            self._read_continuous_samples(
+                start_sample=guarded_start_sample,
+                end_sample_exclusive=(
+                    guarded_end_sample_exclusive
+                )
+            )
+        )
+
+        core_offset_start = pre_roll_frames
+
+        core_offset_stop = (
+            core_offset_start
+            +
+            core_frames
+        )
+
+        core_audio = guarded_audio[
+            core_offset_start:
+            core_offset_stop
+        ]
+
+        return {
+            "boundary_snapshot": dict(
+                boundary_snapshot
+            ),
+
+            "boundary_sample": boundary_sample,
+
+            "guarded_start_sample": (
+                guarded_start_sample
+            ),
+            "guarded_end_sample_exclusive": (
+                guarded_end_sample_exclusive
+            ),
+            "guarded_frame_count": int(
+                len(guarded_audio)
+            ),
+            "guarded_duration_sec": (
+                len(guarded_audio)
+                /
+                self.sample_rate
+            ),
+
+            "core_start_sample": (
+                core_start_sample
+            ),
+            "core_end_sample_exclusive": (
+                core_end_sample_exclusive
+            ),
+            "core_frame_count": int(
+                len(core_audio)
+            ),
+            "core_duration_sec": (
+                len(core_audio)
+                /
+                self.sample_rate
+            ),
+
+            "pre_roll_frames": pre_roll_frames,
+            "post_roll_frames": post_roll_frames,
+
+            "pre_roll_seconds": (
+                self.window_pre_roll_seconds
+            ),
+            "post_roll_seconds": (
+                self.window_post_roll_seconds
+            ),
+
+            "guarded_audio": guarded_audio,
+            "core_audio": core_audio,
+
+            "stream_status_events": status_events,
+            "stream_status_event_count": len(
+                status_events
+            )
+        }
+    
     def _continuous_audio_callback(
         self,
         indata,
@@ -598,12 +879,20 @@ class MicrophoneLoop:
         )
 
         wav_path = recording_dir / f"{recording_id}.wav"
+
+        guarded_wav_path = (
+            recording_dir
+            /
+            f"{recording_id}_guarded_raw.wav"
+        )
+
         metadata_path = recording_dir / f"{recording_id}.json"
         spectrogram_path = recording_dir / f"{recording_id}.png"
 
         return {
             "recording_id": recording_id,
             "wav_path": wav_path,
+            "guarded_wav_path": guarded_wav_path,
             "metadata_path": metadata_path,
             "spectrogram_path": spectrogram_path
         }
@@ -637,7 +926,81 @@ class MicrophoneLoop:
             wav_file.setsampwidth(2)
             wav_file.setframerate(self.sample_rate)
             wav_file.writeframes(output.tobytes())
+            
+    def write_boundary_window_files(
+        self,
+        paths,
+        window
+    ):
 
+        if not isinstance(paths, dict):
+            raise TypeError(
+                "paths must be a dictionary"
+            )
+
+        if not isinstance(window, dict):
+            raise TypeError(
+                "window must be a dictionary"
+            )
+
+        core_audio = window.get(
+            "core_audio"
+        )
+
+        guarded_audio = window.get(
+            "guarded_audio"
+        )
+
+        if core_audio is None:
+            raise ValueError(
+                "window does not contain core_audio"
+            )
+
+        if guarded_audio is None:
+            raise ValueError(
+                "window does not contain guarded_audio"
+            )
+
+        core_wav_path = paths["wav_path"]
+
+        self.write_wav(
+            core_wav_path,
+            core_audio
+        )
+
+        guarded_wav_path = None
+
+        if self.write_guarded_raw_window:
+
+            guarded_wav_path = paths[
+                "guarded_wav_path"
+            ]
+
+            self.write_wav(
+                guarded_wav_path,
+                guarded_audio
+            )
+
+        return {
+            "wav_path": core_wav_path,
+            "guarded_wav_path": guarded_wav_path,
+            "core_frame_count": int(
+                len(core_audio)
+            ),
+            "guarded_frame_count": int(
+                len(guarded_audio)
+            ),
+            "core_duration_sec": (
+                len(core_audio)
+                /
+                self.sample_rate
+            ),
+            "guarded_duration_sec": (
+                len(guarded_audio)
+                /
+                self.sample_rate
+            )
+        }
     # --------------------------------------------------
     # Spectrogram
     # --------------------------------------------------
