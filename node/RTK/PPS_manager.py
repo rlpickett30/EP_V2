@@ -25,6 +25,9 @@
 #   - Detect whether PPS is online and recently valid
 #   - Track PPS sequence changes
 #   - Report latest PPS kernel timestamp
+#   - Preserve integer-nanosecond realtime evidence
+#   - Estimate each PPS edge in the monotonic clock domain
+#   - Serialize snapshot reads across RTK worker threads
 #   - Build PPS snapshots for RTKDispatcher
 #
 # Does NOT:
@@ -43,6 +46,7 @@
 from __future__ import annotations
 
 import re
+import threading
 import time
 
 from pathlib import Path
@@ -69,7 +73,26 @@ class PPSManager:
 
         self.debug = debug
         self.pps_device = pps_device
-        self.max_age_sec = max_age_sec
+
+        configured_timeout = kwargs.get(
+            "pps_timeout_sec",
+            max_age_sec
+        )
+
+        try:
+            self.max_age_sec = float(
+                configured_timeout
+            )
+
+        except (
+            TypeError,
+            ValueError,
+        ):
+            self.max_age_sec = float(
+                max_age_sec
+            )
+
+        self.snapshot_lock = threading.Lock()
 
         self.pps_dir = Path("/sys/class/pps") / self.pps_device
         self.assert_path = self.pps_dir / "assert"
@@ -170,12 +193,75 @@ class PPSManager:
                 )
             )
 
-            now_wall = time.time()
-            now_monotonic = time.monotonic()
+            # Capture the realtime/monotonic relationship immediately
+            # after reading the kernel PPS timestamp. LinuxPPS reports the
+            # edge in CLOCK_REALTIME, while microphone callback evidence uses
+            # CLOCK_MONOTONIC. The midpoint of this short clock-pair read gives
+            # us a bridge between those clock domains.
+            clock_pair_monotonic_before_ns = (
+                time.monotonic_ns()
+            )
+
+            read_realtime_ns = (
+                time.time_ns()
+            )
+
+            clock_pair_monotonic_after_ns = (
+                time.monotonic_ns()
+            )
+
+            read_monotonic_ns = int(
+                (
+                    clock_pair_monotonic_before_ns
+                    +
+                    clock_pair_monotonic_after_ns
+                )
+                //
+                2
+            )
+
+            clock_pair_span_ns = int(
+                clock_pair_monotonic_after_ns
+                -
+                clock_pair_monotonic_before_ns
+            )
+
+            pps_kernel_realtime_ns = int(
+                sec
+                *
+                1_000_000_000
+                +
+                nsec
+            )
+
+            realtime_minus_monotonic_ns = int(
+                read_realtime_ns
+                -
+                read_monotonic_ns
+            )
+
+            pps_edge_monotonic_ns = int(
+                pps_kernel_realtime_ns
+                -
+                realtime_minus_monotonic_ns
+            )
+
+            now_wall = (
+                read_realtime_ns
+                /
+                1_000_000_000.0
+            )
+
+            now_monotonic = (
+                read_monotonic_ns
+                /
+                1_000_000_000.0
+            )
 
             pps_age_sec = (
                 now_wall
-                - kernel_time
+                -
+                kernel_time
             )
 
             seq_changed = (
@@ -213,6 +299,35 @@ class PPSManager:
                 "last_pps_kernel_time": kernel_time,
                 "last_pps_kernel_time_sec": sec,
                 "last_pps_kernel_time_nsec": nsec,
+
+                "pps_kernel_realtime_ns": (
+                    pps_kernel_realtime_ns
+                ),
+
+                "pps_edge_monotonic_ns": (
+                    pps_edge_monotonic_ns
+                ),
+
+                "read_realtime_ns": (
+                    read_realtime_ns
+                ),
+
+                "read_monotonic_ns": (
+                    read_monotonic_ns
+                ),
+
+                "realtime_minus_monotonic_ns": (
+                    realtime_minus_monotonic_ns
+                ),
+
+                "clock_pair_span_ns": (
+                    clock_pair_span_ns
+                ),
+
+                "monotonic_conversion_method": (
+                    "realtime_offset_at_sysfs_read"
+                ),
+
                 "pps_age_sec": pps_age_sec,
                 "raw_assert": raw_assert,
                 "last_error": None,
@@ -263,19 +378,37 @@ class PPSManager:
         self
     ) -> Dict[str, Any]:
 
-        pps_data = self.read_kernel_pps()
+        # RTKDispatcher has a normal health loop and a dedicated PPS-edge
+        # monitor. Serialize reads so sequence bookkeeping remains coherent
+        # when both threads inspect LinuxPPS.
+        with self.snapshot_lock:
 
-        event_utc = int(
-            time.time()
-        )
+            pps_data = self.read_kernel_pps()
 
-        snapshot = {
-            "event_id": f"PPS_{event_utc}",
-            "event_utc": event_utc,
-            **pps_data,
-        }
+            event_utc = int(
+                time.time()
+            )
 
-        return snapshot
+            snapshot = {
+                "event_id": f"PPS_{event_utc}",
+                "event_utc": event_utc,
+                **pps_data,
+            }
+
+            return snapshot
+
+    # --------------------------------------------------
+    # Lifecycle
+    # --------------------------------------------------
+
+    def close(
+        self
+    ) -> None:
+
+        # LinuxPPS is read through sysfs. PPSManager owns no persistent file
+        # descriptor, but RTKDispatcher calls close() during uniform subsystem
+        # shutdown. Keep that lifecycle contract explicit.
+        return None
 
 
 if __name__ == "__main__":

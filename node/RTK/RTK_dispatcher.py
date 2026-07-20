@@ -33,6 +33,7 @@
 #   - Publish RTK_STATE events through RTKEventServices
 #   - Publish GPS_STATE events through RTKEventServices
 #   - Publish PPS_STATE events through RTKEventServices
+#   - Publish one local PPS_EDGE event for each observed LinuxPPS sequence
 #   - Publish GPS_COORD events through RTKEventServices
 #   - Publish periodic state heartbeats
 #
@@ -55,6 +56,7 @@ from __future__ import annotations
 import json
 import re
 import socket
+import threading
 import time
 
 from datetime import datetime
@@ -188,6 +190,14 @@ class RTKDispatcher:
 
         self.last_coord_publish = 0.0
         self.last_state_publish = 0.0
+
+        # PPS_STATE remains a health/state heartbeat. PPS_EDGE is produced by
+        # a separate fast worker so the normal RTK loop never has to run at
+        # audio-timing cadence. This interval is intentionally code-owned for
+        # this first timing pass; generated deployment config remains unchanged.
+        self.pps_edge_poll_interval_sec = 0.02
+        self.last_published_pps_edge_seq: Optional[int] = None
+        self.pps_edge_thread: Optional[threading.Thread] = None
 
         self.running = False
 
@@ -394,7 +404,36 @@ class RTKDispatcher:
         if self.rover_manager:
             self.rover_manager.start()
 
+        self.start_pps_edge_monitor()
+
         self.run()
+
+    def start_pps_edge_monitor(
+        self
+    ) -> None:
+
+        if (
+            self.pps_edge_thread is not None
+            and
+            self.pps_edge_thread.is_alive()
+        ):
+            return
+
+        self.pps_edge_thread = threading.Thread(
+            target=self.run_pps_edge_monitor,
+            name="rtk-pps-edge-monitor",
+            daemon=True,
+        )
+
+        self.pps_edge_thread.start()
+
+        self.log(
+            (
+                "PPS edge monitor started: "
+                f"poll_interval="
+                f"{self.pps_edge_poll_interval_sec:.3f}s"
+            )
+        )
 
     def stop(
         self
@@ -405,6 +444,20 @@ class RTKDispatcher:
         )
 
         self.running = False
+
+        pps_edge_thread = self.pps_edge_thread
+
+        if (
+            pps_edge_thread is not None
+            and
+            pps_edge_thread.is_alive()
+            and
+            pps_edge_thread is not threading.current_thread()
+        ):
+
+            pps_edge_thread.join(
+                timeout=1.0
+            )
 
         try:
             if self.base_manager:
@@ -473,6 +526,116 @@ class RTKDispatcher:
 
             time.sleep(
                 self.loop_delay_sec
+            )
+
+    # --------------------------------------------------
+    # PPS Edge Monitor
+    # --------------------------------------------------
+
+    def run_pps_edge_monitor(
+        self
+    ) -> None:
+
+        while self.running:
+
+            try:
+
+                snapshot = self.get_pps_snapshot()
+
+                pps_seq = snapshot.get(
+                    "pps_seq"
+                )
+
+                if pps_seq is None:
+
+                    time.sleep(
+                        self.pps_edge_poll_interval_sec
+                    )
+
+                    continue
+
+                try:
+                    pps_seq = int(
+                        pps_seq
+                    )
+
+                except (
+                    TypeError,
+                    ValueError,
+                ):
+
+                    time.sleep(
+                        self.pps_edge_poll_interval_sec
+                    )
+
+                    continue
+
+                previous_pps_seq = (
+                    self.last_published_pps_edge_seq
+                )
+
+                # The sysfs assert file contains the most recent historical
+                # edge when this worker starts. Arm from that sequence rather
+                # than falsely publishing a pulse that predates the process.
+                if previous_pps_seq is None:
+
+                    self.last_published_pps_edge_seq = (
+                        pps_seq
+                    )
+
+                    self.log(
+                        (
+                            "PPS edge monitor armed: "
+                            f"initial_seq={pps_seq}"
+                        )
+                    )
+
+                    time.sleep(
+                        self.pps_edge_poll_interval_sec
+                    )
+
+                    continue
+
+                if pps_seq == previous_pps_seq:
+
+                    time.sleep(
+                        self.pps_edge_poll_interval_sec
+                    )
+
+                    continue
+
+                self.last_published_pps_edge_seq = (
+                    pps_seq
+                )
+
+                event = self.build_pps_edge_event(
+                    pps_snapshot=snapshot,
+                    previous_pps_seq=previous_pps_seq,
+                )
+
+                self.event_services.publish_pps_edge(
+                    event
+                )
+
+                self.log(
+                    (
+                        "Published PPS_EDGE: "
+                        f"seq={pps_seq} "
+                        f"gap="
+                        f"{event['payload']['sequence_gap']} "
+                        f"age_ms="
+                        f"{event['payload']['pps_age_ms_at_read']}"
+                    )
+                )
+
+            except Exception as error:
+
+                self.log(
+                    f"PPS edge monitor error: {error}"
+                )
+
+            time.sleep(
+                self.pps_edge_poll_interval_sec
             )
 
     # --------------------------------------------------
@@ -698,6 +861,163 @@ class RTKDispatcher:
             event_type="PPS_STATE",
             payload=payload,
         )
+
+    def build_pps_edge_event(
+        self,
+        pps_snapshot: Dict[str, Any],
+        previous_pps_seq: int,
+    ) -> Dict[str, Any]:
+
+        pps_seq = int(
+            pps_snapshot["pps_seq"]
+        )
+
+        sequence_gap = int(
+            pps_seq
+            -
+            previous_pps_seq
+        )
+
+        sequence_reset = bool(
+            sequence_gap <= 0
+        )
+
+        missed_edge_count = (
+            max(
+                0,
+                sequence_gap - 1
+            )
+            if not sequence_reset
+            else 0
+        )
+
+        pps_age_sec = pps_snapshot.get(
+            "pps_age_sec"
+        )
+
+        try:
+
+            pps_age_ms_at_read = (
+                float(pps_age_sec)
+                *
+                1000.0
+            )
+
+        except (
+            TypeError,
+            ValueError,
+        ):
+
+            pps_age_ms_at_read = None
+
+        payload = {
+            "node_id": self.node_id,
+            "node_name": self.node_name,
+            "subsystem": "rtk",
+
+            "pps_seq": pps_seq,
+            "previous_pps_seq": previous_pps_seq,
+            "sequence_gap": sequence_gap,
+            "sequence_reset": sequence_reset,
+            "missed_edge_count": missed_edge_count,
+
+            "pps_valid": bool(
+                pps_snapshot.get(
+                    "pps_valid",
+                    False
+                )
+            ),
+
+            "pps_source": pps_snapshot.get(
+                "pps_source"
+            ),
+
+            "pps_device": pps_snapshot.get(
+                "pps_device"
+            ),
+
+            "pps_name": pps_snapshot.get(
+                "pps_name"
+            ),
+
+            "pps_kernel_time": pps_snapshot.get(
+                "last_pps_kernel_time"
+            ),
+
+            "pps_kernel_time_sec": pps_snapshot.get(
+                "last_pps_kernel_time_sec"
+            ),
+
+            "pps_kernel_time_nsec": pps_snapshot.get(
+                "last_pps_kernel_time_nsec"
+            ),
+
+            "pps_kernel_realtime_ns": (
+                pps_snapshot.get(
+                    "pps_kernel_realtime_ns"
+                )
+            ),
+
+            "pps_edge_monotonic_ns": (
+                pps_snapshot.get(
+                    "pps_edge_monotonic_ns"
+                )
+            ),
+
+            "read_realtime_ns": pps_snapshot.get(
+                "read_realtime_ns"
+            ),
+
+            "read_monotonic_ns": pps_snapshot.get(
+                "read_monotonic_ns"
+            ),
+
+            "realtime_minus_monotonic_ns": (
+                pps_snapshot.get(
+                    "realtime_minus_monotonic_ns"
+                )
+            ),
+
+            "clock_pair_span_ns": (
+                pps_snapshot.get(
+                    "clock_pair_span_ns"
+                )
+            ),
+
+            "monotonic_conversion_method": (
+                pps_snapshot.get(
+                    "monotonic_conversion_method"
+                )
+            ),
+
+            "pps_age_sec_at_read": pps_age_sec,
+            "pps_age_ms_at_read": pps_age_ms_at_read,
+
+            # The kernel timestamp is valid timing evidence, but this pass has
+            # not yet paired the edge with a GNSS RMC/ZDA UTC label.
+            "utc_label_state": (
+                "kernel_realtime_unpaired_gnss"
+            ),
+
+            "snapshot": dict(
+                pps_snapshot
+            ),
+        }
+
+        event = self.build_event(
+            event_type="PPS_EDGE",
+            payload=payload,
+        )
+
+        # PPS_EDGE is currently node-local timing evidence for the microphone
+        # subsystem. Communication does not need to transmit every 1 Hz pulse.
+        event["target"] = "microphone"
+
+        event["event_id"] = (
+            f"PPS_EDGE_{self.node_id}_{pps_seq}"
+        )
+
+        return event
 
     # --------------------------------------------------
     # RTK State

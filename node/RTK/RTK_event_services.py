@@ -23,6 +23,7 @@
 #   - Publish RTK_STATE events
 #   - Publish GPS_STATE events
 #   - Publish PPS_STATE events
+#   - Publish PPS_EDGE events
 #   - Publish GPS_COORD events
 #   - Provide a thin communication layer between RTK and the event bus
 #
@@ -115,6 +116,15 @@ class RTKEventServices:
         )
 
     def publish_pps_state(
+        self,
+        event
+    ):
+
+        self.publish(
+            event
+        )
+
+    def publish_pps_edge(
         self,
         event
     ):
