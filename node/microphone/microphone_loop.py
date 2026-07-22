@@ -142,6 +142,8 @@ class MicrophoneLoop:
         self._stream_status_count = 0
         self._stream_started_monotonic_ns = None
         self._stream_started_realtime_ns = None
+        self._stream_instance_id = None
+        self._stream_timing_segment_id = 0
 
         self.spectrogram_config = spectrogram_config or {}
         self.write_file_spectrogram = bool(
@@ -228,6 +230,8 @@ class MicrophoneLoop:
             self._stream_sample_counter = 0
             self._stream_callback_count = 0
             self._stream_status_count = 0
+            self._stream_instance_id = uuid.uuid4().hex
+            self._stream_timing_segment_id = 0
 
         self._stream = sd.InputStream(
             device=self.device,
@@ -307,6 +311,12 @@ class MicrophoneLoop:
             )
 
             return {
+                "stream_instance_id": (
+                    self._stream_instance_id
+                ),
+                "timing_segment_id": int(
+                    self._stream_timing_segment_id
+                ),
                 "sample_index": int(
                     self._stream_sample_counter
                 ),
@@ -329,6 +339,24 @@ class MicrophoneLoop:
                         ]
                     )
                     if oldest_block
+                    else None
+                ),
+                "latest_block_callback_index": (
+                    int(
+                        latest_block[
+                            "callback_index"
+                        ]
+                    )
+                    if latest_block
+                    else None
+                ),
+                "latest_block_timing_segment_id": (
+                    int(
+                        latest_block[
+                            "timing_segment_id"
+                        ]
+                    )
+                    if latest_block
                     else None
                 ),
                 "latest_block_first_sample": (
@@ -578,22 +606,44 @@ class MicrophoneLoop:
         )
 
         status_text = str(status) if status else ""
+        normalized_status = status_text.strip().lower()
+
+        timing_discontinuity = bool(
+            "overflow" in normalized_status
+            or
+            "underflow" in normalized_status
+        )
 
         with self._stream_condition:
 
             first_sample = self._stream_sample_counter
+            callback_index = self._stream_callback_count + 1
+
+            if timing_discontinuity:
+                self._stream_timing_segment_id += 1
+
+            timing_segment_id = (
+                self._stream_timing_segment_id
+            )
 
             self._stream_sample_counter += int(
                 frames
             )
 
-            self._stream_callback_count += 1
+            self._stream_callback_count = callback_index
 
             if status:
                 self._stream_status_count += 1
 
             self._stream_blocks.append(
                 {
+                    "stream_instance_id": (
+                        self._stream_instance_id
+                    ),
+                    "callback_index": callback_index,
+                    "timing_segment_id": (
+                        timing_segment_id
+                    ),
                     "first_sample": first_sample,
                     "end_sample_exclusive": (
                         first_sample

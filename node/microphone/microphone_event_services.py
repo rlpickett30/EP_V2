@@ -21,6 +21,7 @@
 # Does:
 #   - Subscribe microphone dispatcher callbacks to microphone input events
 #   - Subscribe to PPS_STATE events
+#   - Subscribe to PPS_EDGE events
 #   - Subscribe to GPS_STATE events
 #   - Subscribe to TDOA_REQUEST events
 #   - Publish RECORDING_AVAILABLE events
@@ -51,6 +52,7 @@ TDOA_RECORDING = "TDOA_RECORDING"
 MICROPHONE_SYNCED = "MICROPHONE_SYNCED"
 
 PPS_STATE = "PPS_STATE"
+PPS_EDGE = "PPS_EDGE"
 GPS_STATE = "GPS_STATE"
 TDOA_REQUEST = "TDOA_REQUEST"
 
@@ -140,6 +142,13 @@ class MicrophoneEventServices:
 
         self.subscribe(
             PPS_STATE,
+            callback
+        )
+
+    def subscribe_pps_edge(self, callback):
+
+        self.subscribe(
+            PPS_EDGE,
             callback
         )
 
