@@ -395,7 +395,659 @@ class MicrophoneLoop:
                     else ""
                 )
             }
-   
+        
+    def lookup_sample_position_at_monotonic_ns(
+        self,
+        target_monotonic_ns,
+        max_extrapolation_blocks=1.5,
+        minimum_rate_ratio=0.90,
+        maximum_rate_ratio=1.10
+    ):
+        """
+        Map one monotonic timestamp to the continuous sample timeline.
+
+        This is a read-only lookup. It does not fit a clock model, alter
+        recording boundaries, or declare the microphone synchronized.
+        """
+
+        try:
+            target_ns = int(target_monotonic_ns)
+
+        except (TypeError, ValueError):
+            return {
+                "accepted": False,
+                "lookup_method": "rejected",
+                "quality_reasons": [
+                    "invalid_target_monotonic_ns"
+                ],
+                "target_monotonic_ns": None,
+                "reference_blocks": {}
+            }
+
+        if target_ns <= 0:
+            return {
+                "accepted": False,
+                "lookup_method": "rejected",
+                "quality_reasons": [
+                    "invalid_target_monotonic_ns"
+                ],
+                "target_monotonic_ns": target_ns,
+                "reference_blocks": {}
+            }
+
+        max_extrapolation_blocks = float(
+            max_extrapolation_blocks
+        )
+
+        minimum_rate_ratio = float(
+            minimum_rate_ratio
+        )
+
+        maximum_rate_ratio = float(
+            maximum_rate_ratio
+        )
+
+        if max_extrapolation_blocks <= 0:
+            raise ValueError(
+                "max_extrapolation_blocks must be positive"
+            )
+
+        if not (
+            0
+            <
+            minimum_rate_ratio
+            <
+            maximum_rate_ratio
+        ):
+            raise ValueError(
+                "Rate-ratio limits must be positive and ordered"
+            )
+
+        lookup_monotonic_ns = time.monotonic_ns()
+        lookup_realtime_ns = time.time_ns()
+
+        with self._stream_condition:
+
+            stream_active = bool(
+                self._stream is not None
+                and
+                self._stream.active
+            )
+
+            blocks = tuple(
+                self._stream_blocks
+            )
+
+            stream_instance_id = (
+                self._stream_instance_id
+            )
+
+            callback_count = int(
+                self._stream_callback_count
+            )
+
+            sample_counter = int(
+                self._stream_sample_counter
+            )
+
+            status_count = int(
+                self._stream_status_count
+            )
+
+        def evidence(block):
+
+            if block is None:
+                return None
+
+            keys = (
+                "stream_instance_id",
+                "callback_index",
+                "timing_segment_id",
+                "first_sample",
+                "end_sample_exclusive",
+                "frame_count",
+                "input_buffer_adc_time",
+                "current_time",
+                "callback_monotonic_ns",
+                "callback_realtime_ns",
+                "estimated_adc_monotonic_ns",
+                "status"
+            )
+
+            return {
+                key: block.get(key)
+                for key in keys
+            }
+
+        base = {
+            "accepted": False,
+            "lookup_method": "rejected",
+            "quality_reasons": [],
+            "target_monotonic_ns": target_ns,
+            "lookup_monotonic_ns": (
+                lookup_monotonic_ns
+            ),
+            "lookup_realtime_ns": (
+                lookup_realtime_ns
+            ),
+            "stream_active_at_lookup": (
+                stream_active
+            ),
+            "stream_instance_id": (
+                stream_instance_id
+            ),
+            "timing_segment_id": None,
+            "stream_callback_count_at_lookup": (
+                callback_count
+            ),
+            "stream_sample_counter_at_lookup": (
+                sample_counter
+            ),
+            "stream_status_count_at_lookup": (
+                status_count
+            ),
+            "retained_callback_count": len(
+                blocks
+            ),
+            "nominal_sample_rate_hz": float(
+                self.sample_rate
+            ),
+            "sample_position_fractional": None,
+            "sample_position_rounded": None,
+            "rounding_delta_samples": None,
+            "local_rate_hz": None,
+            "interpolation_fraction": None,
+            "extrapolation_distance_ns": None,
+            "extrapolation_limit_ns": None,
+            "reference_time_span_ns": None,
+            "reference_sample_span": None,
+            "reference_blocks": {}
+        }
+
+        def reject(
+            reasons,
+            left=None,
+            right=None,
+            **extra
+        ):
+
+            if isinstance(reasons, str):
+                reasons = [reasons]
+
+            result = dict(base)
+
+            result["quality_reasons"] = list(
+                dict.fromkeys(reasons)
+            )
+
+            if (
+                left is not None
+                or
+                right is not None
+            ):
+                result["reference_blocks"] = {
+                    "left": evidence(left),
+                    "right": evidence(right)
+                }
+
+            result.update(extra)
+
+            return result
+
+        if not stream_active:
+            return reject(
+                "continuous_stream_inactive"
+            )
+
+        if len(blocks) < 2:
+            return reject(
+                "insufficient_callback_history"
+            )
+
+        left = None
+        right = None
+        method = None
+
+        for index in range(
+            len(blocks) - 1
+        ):
+
+            candidate_left = blocks[index]
+
+            candidate_right = blocks[
+                index + 1
+            ]
+
+            try:
+                left_ns = int(
+                    candidate_left[
+                        "estimated_adc_monotonic_ns"
+                    ]
+                )
+
+                right_ns = int(
+                    candidate_right[
+                        "estimated_adc_monotonic_ns"
+                    ]
+                )
+
+            except (
+                KeyError,
+                TypeError,
+                ValueError
+            ):
+                continue
+
+            if (
+                left_ns
+                <=
+                target_ns
+                <=
+                right_ns
+            ):
+                left = candidate_left
+                right = candidate_right
+
+                method = (
+                    "callback_pair_interpolation"
+                )
+
+                break
+
+        if left is None:
+
+            try:
+                oldest_ns = int(
+                    blocks[0][
+                        "estimated_adc_monotonic_ns"
+                    ]
+                )
+
+                latest_ns = int(
+                    blocks[-1][
+                        "estimated_adc_monotonic_ns"
+                    ]
+                )
+
+            except (
+                KeyError,
+                TypeError,
+                ValueError
+            ):
+                return reject(
+                    "retained_callback_times_missing"
+                )
+
+            if target_ns < oldest_ns:
+                return reject(
+                    (
+                        "target_precedes_retained_"
+                        "callback_history"
+                    ),
+                    blocks[0],
+                    blocks[1]
+                )
+
+            if target_ns > latest_ns:
+
+                left = blocks[-2]
+                right = blocks[-1]
+
+                method = (
+                    "callback_pair_extrapolation"
+                )
+
+            else:
+                return reject(
+                    "no_bracketing_callback_pair"
+                )
+
+        reasons = []
+
+        if not (
+            left.get("stream_instance_id")
+            ==
+            right.get("stream_instance_id")
+            ==
+            stream_instance_id
+        ):
+            reasons.append(
+                "reference_stream_instance_mismatch"
+            )
+
+        try:
+
+            if (
+                int(
+                    right["callback_index"]
+                )
+                !=
+                int(
+                    left["callback_index"]
+                )
+                +
+                1
+            ):
+                reasons.append(
+                    (
+                        "reference_callbacks_"
+                        "not_consecutive"
+                    )
+                )
+
+        except (
+            KeyError,
+            TypeError,
+            ValueError
+        ):
+            reasons.append(
+                "reference_callback_index_missing"
+            )
+
+        try:
+
+            if (
+                int(
+                    left[
+                        "end_sample_exclusive"
+                    ]
+                )
+                !=
+                int(
+                    right["first_sample"]
+                )
+            ):
+                reasons.append(
+                    (
+                        "reference_sample_ranges_"
+                        "not_contiguous"
+                    )
+                )
+
+        except (
+            KeyError,
+            TypeError,
+            ValueError
+        ):
+            reasons.append(
+                "reference_sample_range_missing"
+            )
+
+        left_segment = left.get(
+            "timing_segment_id"
+        )
+
+        right_segment = right.get(
+            "timing_segment_id"
+        )
+
+        if (
+            left_segment is None
+            or
+            left_segment != right_segment
+        ):
+            reasons.append(
+                (
+                    "reference_timing_segment_"
+                    "mismatch"
+                )
+            )
+
+        left_status = str(
+            left.get("status", "")
+        ).strip()
+
+        right_status = str(
+            right.get("status", "")
+        ).strip()
+
+        if left_status or right_status:
+            reasons.append(
+                "reference_block_contains_status"
+            )
+
+        try:
+            left_ns = int(
+                left[
+                    "estimated_adc_monotonic_ns"
+                ]
+            )
+
+            right_ns = int(
+                right[
+                    "estimated_adc_monotonic_ns"
+                ]
+            )
+
+            left_sample = int(
+                left["first_sample"]
+            )
+
+            right_sample = int(
+                right["first_sample"]
+            )
+
+        except (
+            KeyError,
+            TypeError,
+            ValueError
+        ):
+            return reject(
+                reasons
+                +
+                [
+                    (
+                        "reference_timing_"
+                        "evidence_missing"
+                    )
+                ],
+                left,
+                right
+            )
+
+        time_span_ns = (
+            right_ns
+            -
+            left_ns
+        )
+
+        sample_span = (
+            right_sample
+            -
+            left_sample
+        )
+
+        if time_span_ns <= 0:
+            reasons.append(
+                (
+                    "reference_adc_time_"
+                    "not_increasing"
+                )
+            )
+
+        if sample_span <= 0:
+            reasons.append(
+                (
+                    "reference_sample_position_"
+                    "not_increasing"
+                )
+            )
+
+        local_rate_hz = None
+
+        if (
+            time_span_ns > 0
+            and
+            sample_span > 0
+        ):
+            local_rate_hz = (
+                sample_span
+                *
+                1e9
+                /
+                time_span_ns
+            )
+
+            minimum_rate_hz = (
+                self.sample_rate
+                *
+                minimum_rate_ratio
+            )
+
+            maximum_rate_hz = (
+                self.sample_rate
+                *
+                maximum_rate_ratio
+            )
+
+            if not (
+                minimum_rate_hz
+                <=
+                local_rate_hz
+                <=
+                maximum_rate_hz
+            ):
+                reasons.append(
+                    (
+                        "local_rate_outside_"
+                        "sanity_range"
+                    )
+                )
+
+        extrapolation_distance_ns = 0
+
+        extrapolation_limit_ns = int(
+            round(
+                max_extrapolation_blocks
+                *
+                max(
+                    time_span_ns,
+                    0
+                )
+            )
+        )
+
+        if (
+            method
+            ==
+            "callback_pair_extrapolation"
+        ):
+            extrapolation_distance_ns = (
+                target_ns
+                -
+                right_ns
+            )
+
+            if extrapolation_distance_ns < 0:
+                reasons.append(
+                    "invalid_extrapolation_direction"
+                )
+
+            if (
+                extrapolation_distance_ns
+                >
+                extrapolation_limit_ns
+            ):
+                reasons.append(
+                    (
+                        "extrapolation_distance_"
+                        "exceeded"
+                    )
+                )
+
+        if reasons:
+            return reject(
+                reasons,
+                left,
+                right,
+                timing_segment_id=left_segment,
+                local_rate_hz=local_rate_hz,
+                extrapolation_distance_ns=(
+                    extrapolation_distance_ns
+                ),
+                extrapolation_limit_ns=(
+                    extrapolation_limit_ns
+                ),
+                reference_time_span_ns=(
+                    time_span_ns
+                ),
+                reference_sample_span=(
+                    sample_span
+                )
+            )
+
+        fraction = (
+            target_ns
+            -
+            left_ns
+        ) / time_span_ns
+
+        fractional_sample = (
+            left_sample
+            +
+            fraction
+            *
+            sample_span
+        )
+
+        rounded_sample = int(
+            round(
+                fractional_sample
+            )
+        )
+
+        result = dict(base)
+
+        result.update(
+            {
+                "accepted": True,
+                "lookup_method": method,
+                "quality_reasons": [],
+                "stream_instance_id": (
+                    left.get(
+                        "stream_instance_id"
+                    )
+                ),
+                "timing_segment_id": (
+                    left_segment
+                ),
+                "sample_position_fractional": (
+                    fractional_sample
+                ),
+                "sample_position_rounded": (
+                    rounded_sample
+                ),
+                "rounding_delta_samples": (
+                    rounded_sample
+                    -
+                    fractional_sample
+                ),
+                "local_rate_hz": (
+                    local_rate_hz
+                ),
+                "interpolation_fraction": (
+                    fraction
+                ),
+                "extrapolation_distance_ns": (
+                    extrapolation_distance_ns
+                ),
+                "extrapolation_limit_ns": (
+                    extrapolation_limit_ns
+                ),
+                "reference_time_span_ns": (
+                    time_span_ns
+                ),
+                "reference_sample_span": (
+                    sample_span
+                ),
+                "reference_blocks": {
+                    "left": evidence(left),
+                    "right": evidence(right)
+                }
+            }
+        )
+
+        return result   
     def read_guarded_window_from_boundary(
         self,
         boundary_snapshot,

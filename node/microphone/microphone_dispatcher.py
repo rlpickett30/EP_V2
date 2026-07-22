@@ -28,6 +28,8 @@
 #   - Own Recycler
 #   - Own MicrophoneEventServices
 #   - Subscribe to PPS_STATE events through MicrophoneEventServices
+#   - Subscribe to PPS_EDGE events through MicrophoneEventServices
+#   - Build local PPS/sample lookup records without declaring sync
 #   - Subscribe to GPS_STATE events through MicrophoneEventServices
 #   - Subscribe to TDOA_REQUEST events through MicrophoneEventServices
 #   - Track PPS lock state
@@ -60,6 +62,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import math
 import time
@@ -138,6 +141,13 @@ class MicrophoneDispatcher:
         self.pps_locked = False
         self.last_pps_state = {}
         self.last_pps_event_monotonic = None
+
+        # Local PPS/sample lookup diagnostics. These records are not
+        # clock fits and are not published or persisted yet.
+        self.latest_pps_sample_anchor = None
+        self.pps_anchor_attempt_count = 0
+        self.pps_anchor_accepted_count = 0
+        self.pps_anchor_rejected_count = 0
 
         self.gps_locked = False
         self.last_gps_state = {}
@@ -276,6 +286,10 @@ class MicrophoneDispatcher:
 
         self.event_services.subscribe_pps_state(
             self.handle_pps_state
+        )
+
+        self.event_services.subscribe_pps_edge(
+            self.handle_pps_edge
         )
 
         self.event_services.subscribe_gps_state(
@@ -423,6 +437,183 @@ class MicrophoneDispatcher:
         self.log(
             f"PPS state updated: {self.last_pps_state['state']}"
         )
+
+    # --------------------------------------------------
+    # PPS Sample Lookup
+    # --------------------------------------------------
+
+    def handle_pps_edge(self, event):
+
+        received_monotonic_ns = time.monotonic_ns()
+        received_realtime_ns = time.time_ns()
+
+        payload = self.get_payload(event)
+
+        snapshot = payload.get("snapshot", {})
+        if not isinstance(snapshot, dict):
+            snapshot = {}
+
+        pps_seq = self.get_first_available(
+            payload,
+            [
+                "pps_seq",
+                "sequence",
+                "pps_sequence",
+                "pulse_count"
+            ],
+            default=snapshot.get("pps_seq")
+        )
+
+        pps_edge_monotonic_ns = self.get_first_available(
+            payload,
+            ["pps_edge_monotonic_ns"],
+            default=snapshot.get("pps_edge_monotonic_ns")
+        )
+
+        if pps_edge_monotonic_ns is None:
+
+            lookup_result = {
+                "accepted": False,
+                "lookup_method": "rejected",
+                "quality_reasons": [
+                    "missing_pps_edge_monotonic_ns"
+                ],
+                "target_monotonic_ns": None,
+                "reference_blocks": {}
+            }
+
+        else:
+
+            try:
+                lookup_result = (
+                    self.loop
+                    .lookup_sample_position_at_monotonic_ns(
+                        pps_edge_monotonic_ns
+                    )
+                )
+
+            except Exception as error:
+
+                lookup_result = {
+                    "accepted": False,
+                    "lookup_method": "rejected",
+                    "quality_reasons": [
+                        "sample_lookup_exception"
+                    ],
+                    "target_monotonic_ns": (
+                        pps_edge_monotonic_ns
+                    ),
+                    "exception_type": (
+                        type(error).__name__
+                    ),
+                    "exception_message": str(error),
+                    "reference_blocks": {}
+                }
+
+        accepted = bool(
+            lookup_result.get("accepted", False)
+        )
+
+        self.pps_anchor_attempt_count += 1
+
+        if accepted:
+            self.pps_anchor_accepted_count += 1
+        else:
+            self.pps_anchor_rejected_count += 1
+
+        anchor_record = {
+            "schema_version": 1,
+            "anchor_state": "sample_lookup_only",
+            "anchor_accepted": accepted,
+            "anchor_quality": (
+                "ACCEPTED"
+                if accepted
+                else "REJECTED"
+            ),
+            "quality_reasons": list(
+                lookup_result.get(
+                    "quality_reasons",
+                    []
+                )
+            ),
+            "created_utc": self.get_utc_timestamp(),
+            "received_monotonic_ns": (
+                received_monotonic_ns
+            ),
+            "received_realtime_ns": (
+                received_realtime_ns
+            ),
+            "node_id": self.node_id,
+            "node_name": self.node_name,
+            "pps_seq": pps_seq,
+            "pps_kernel_realtime_ns": (
+                self.get_first_available(
+                    payload,
+                    ["pps_kernel_realtime_ns"],
+                    default=snapshot.get(
+                        "pps_kernel_realtime_ns"
+                    )
+                )
+            ),
+            "pps_edge_monotonic_ns": (
+                pps_edge_monotonic_ns
+            ),
+            "sequence_gap": self.get_first_available(
+                payload,
+                ["sequence_gap", "pps_sequence_gap"],
+                default=snapshot.get("sequence_gap")
+            ),
+            "missed_edge_count": self.get_first_available(
+                payload,
+                ["missed_edge_count", "missed_edges"],
+                default=snapshot.get(
+                    "missed_edge_count"
+                )
+            ),
+            "sequence_reset": self.get_first_available(
+                payload,
+                ["sequence_reset", "pps_sequence_reset"],
+                default=snapshot.get("sequence_reset")
+            ),
+            "raw_pps_event": copy.deepcopy(event),
+            "sample_lookup": lookup_result,
+            "timing_state": "pps_anchor_candidate_unfitted",
+            "corrected_tdoa_eligible": False,
+            "microphone_synced": False,
+            "attempt_count": self.pps_anchor_attempt_count,
+            "accepted_count": self.pps_anchor_accepted_count,
+            "rejected_count": self.pps_anchor_rejected_count
+        }
+
+        self.latest_pps_sample_anchor = anchor_record
+
+        if accepted:
+
+            self.log(
+                (
+                    "PPS sample lookup accepted: "
+                    f"seq={pps_seq} "
+                    f"method="
+                    f"{lookup_result.get('lookup_method')} "
+                    f"sample="
+                    f"{lookup_result.get('sample_position_fractional')} "
+                    f"segment="
+                    f"{lookup_result.get('timing_segment_id')}"
+                )
+            )
+
+        else:
+
+            self.log(
+                (
+                    "PPS sample lookup rejected: "
+                    f"seq={pps_seq} "
+                    f"reasons="
+                    f"{lookup_result.get('quality_reasons', [])}"
+                )
+            )
+
+        return anchor_record
 
     # --------------------------------------------------
     # GPS State
