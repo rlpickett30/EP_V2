@@ -1,66 +1,204 @@
-# Python
+# ============================================================
+# EnviroPulse V2
+# Repository ignore rules
+# ============================================================
+
+
+# ------------------------------------------------------------
+# Python bytecode and caches
+# ------------------------------------------------------------
+
 __pycache__/
-*.pyc
-*.pyo
+*.py[cod]
 *.pyd
-venv/
+*.so
+*$py.class
+
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pytype/
+.hypothesis/
+.ipynb_checkpoints/
+
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+
+
+# ------------------------------------------------------------
+# Python virtual environments
+# ------------------------------------------------------------
+
 .venv/
+venv/
 env/
 ENV/
 
-# IDE / OS
+
+# ------------------------------------------------------------
+# Python build and packaging artifacts
+# ------------------------------------------------------------
+
+build/
+dist/
+pip-wheel-metadata/
+*.egg
+*.egg-info/
+
+
+# ------------------------------------------------------------
+# Editors and operating systems
+# ------------------------------------------------------------
+
 .vscode/
 .idea/
+
+*.swp
+*.swo
+*~
+
 .DS_Store
 Thumbs.db
+Desktop.ini
 
-# Logs
+
+# ------------------------------------------------------------
+# Logs, crash captures, and runtime queues
+# ------------------------------------------------------------
+
 *.log
 logs/
 
+*_crash_capture.txt
+**/data/send_queue.json
+
+
+# ------------------------------------------------------------
+# GUI runtime repository state
+# ------------------------------------------------------------
+
+GUI/node_repository/data/node_events.json
+GUI/node_repository/data/node_registry.json
+GUI/node_repository/data/node_state.json
+
+
+# ------------------------------------------------------------
 # Local databases
+# ------------------------------------------------------------
+
 *.db
 *.sqlite
 *.sqlite3
 
-# Audio and generated data
+
+# ------------------------------------------------------------
+# Machine- and deployment-specific configuration
+#
+# The installer owns these files. Example configuration files
+# remain eligible for Git tracking.
+# ------------------------------------------------------------
+
+**/*_config.json
+simulator/simulator_config*.json
+
+!**/*.example.json
+
+
+# ------------------------------------------------------------
+# Audio, recordings, and audio-editor sidecars
+# ------------------------------------------------------------
+
 recordings/
+
 *.wav
 *.mp3
 *.flac
+*.reapeaks
 
-# Secrets / credentials
+
+# ------------------------------------------------------------
+# Generated spectrogram experiments
+# ------------------------------------------------------------
+
+/dev_spectrogram_tests/
+/dev_spectrogram_tests.zip
+
+
+# ------------------------------------------------------------
+# Generated repository inventories
+# ------------------------------------------------------------
+
+/EP_V2_tree.txt
+/GUI_tree.txt
+/node_tree.txt
+**/tree.txt
+
+
+# ------------------------------------------------------------
+# Generated output directories
+# ------------------------------------------------------------
+
+output/
+outputs/
+plots/
+spectrograms/
+
+
+# ------------------------------------------------------------
+# Secrets and credentials
+# ------------------------------------------------------------
+
 .env
 .env.*
+
 secrets.json
 credentials.json
 token.json
 
-# Temporary files
+
+# ------------------------------------------------------------
+# Temporary and backup files
+# ------------------------------------------------------------
+
 tmp/
 temp/
+
+*.tmp
 *.bak
 *.old
+*.orig
+*.rej
+*.bkp
 
-# Sandbox / experiments
-sandbox/
-
-# Office temporary lock files
 ~$*
 .$*
 
-# Draw.io backup files
-*.bkp
-# GUI runtime repository state
-GUI/node_repository/data/node_events.json
-GUI/node_repository/data/node_registry.json
-GUI/node_repository/data/node_state.json
 
-# GUI diagnostic logs
-GUI/gui_crash_capture.txt
-GUI/node_repository/data/node_events.json
-GUI/node_repository/data/node_registry.json
-GUI/node_repository/data/node_state.json
+# ------------------------------------------------------------
+# Archives and packaged artifacts
+# ------------------------------------------------------------
 
-# GUI diagnostic logs
-GUI/gui_crash_capture.txt
+*.zip
+*.7z
+*.tar
+*.tar.gz
+*.tgz
+
+
+# ------------------------------------------------------------
+# Sandbox and abandoned experiments
+# ------------------------------------------------------------
+
+sandbox/
+
+
+# ------------------------------------------------------------
+# Accidental terminal-output files currently at repository root
+# ------------------------------------------------------------
+
+/b-timed-candidate-stable -? v2.1-usb-timed-candidate-stable
+/ed 0 (delta 0), pack-reused 0 (from 0)
+/v2.1-usb-timed-candidate-stable
