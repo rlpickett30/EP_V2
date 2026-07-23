@@ -27,9 +27,11 @@
 #   - Own MicrophoneManager
 #   - Own Recycler
 #   - Own MicrophoneEventServices
+#   - Own PPSAnchorJournal
 #   - Subscribe to PPS_STATE events through MicrophoneEventServices
 #   - Subscribe to PPS_EDGE events through MicrophoneEventServices
 #   - Build local PPS/sample lookup records without declaring sync
+#   - Persist finalized PPS/sample anchor evidence without declaring sync
 #   - Subscribe to GPS_STATE events through MicrophoneEventServices
 #   - Subscribe to TDOA_REQUEST events through MicrophoneEventServices
 #   - Track PPS lock state
@@ -78,6 +80,7 @@ from queue import Queue
 from microphone.microphone_loop import MicrophoneLoop
 from microphone.microphone_manager import MicrophoneManager
 from microphone.microphone_event_services import MicrophoneEventServices
+from microphone.pps_anchor_journal import PPSAnchorJournal
 from microphone.recycler import Recycler
 
 
@@ -142,12 +145,19 @@ class MicrophoneDispatcher:
             debug=self.debug
         )
 
+        self.pps_anchor_journal = PPSAnchorJournal(
+            recordings_root=self.config["recordings_root"],
+            node_id=self.node_id,
+            debug=self.debug
+        )
+
         self.pps_locked = False
         self.last_pps_state = {}
         self.last_pps_event_monotonic = None
 
-        # Local PPS/sample lookup diagnostics. These records are not
-        # clock fits and are not published or persisted yet.
+        # Local PPS/sample lookup evidence. These records are not clock
+        # fits and are not published. Finalized records are persisted
+        # asynchronously by PPSAnchorJournal.
         self.latest_pps_sample_anchor = None
         self.pps_anchor_attempt_count = 0
         self.pps_anchor_accepted_count = 0
@@ -285,6 +295,7 @@ class MicrophoneDispatcher:
 
                 self.loop.start_continuous()
 
+            self.pps_anchor_journal.start()
             self.start_pps_anchor_resolver()
             self.run()
 
@@ -292,6 +303,7 @@ class MicrophoneDispatcher:
 
             self.running = False
             self.stop_pps_anchor_resolver()
+            self.pps_anchor_journal.stop()
             self.loop.stop_continuous()
 
     def stop(self):
@@ -1507,6 +1519,10 @@ class MicrophoneDispatcher:
             self.latest_pps_sample_anchor = (
                 anchor_record
             )
+
+        self.pps_anchor_journal.enqueue(
+            anchor_record
+        )
 
         if accepted:
 
