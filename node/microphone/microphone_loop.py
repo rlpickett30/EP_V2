@@ -396,6 +396,62 @@ class MicrophoneLoop:
                 )
             }
         
+    def wait_for_callback_after_index(
+        self,
+        callback_index,
+        timeout_seconds
+    ):
+        """
+        Wait until the continuous stream delivers a callback newer than
+        callback_index, the stream stops, or the timeout expires.
+
+        This is a low-level condition wait only. It does not inspect PPS
+        events, resolve anchors, or make synchronization decisions.
+        """
+
+        try:
+            callback_index = int(callback_index)
+
+        except (TypeError, ValueError):
+            raise ValueError(
+                "callback_index must be an integer"
+            )
+
+        timeout_seconds = float(
+            timeout_seconds
+        )
+
+        if timeout_seconds < 0:
+            raise ValueError(
+                "timeout_seconds must not be negative"
+            )
+
+        deadline = time.monotonic() + timeout_seconds
+
+        with self._stream_condition:
+
+            while (
+                self._stream_callback_count
+                <=
+                callback_index
+            ):
+
+                stream = self._stream
+
+                if stream is None or not stream.active:
+                    return False
+
+                remaining = deadline - time.monotonic()
+
+                if remaining <= 0:
+                    return False
+
+                self._stream_condition.wait(
+                    timeout=remaining
+                )
+
+            return True
+
     def lookup_sample_position_at_monotonic_ns(
         self,
         target_monotonic_ns,

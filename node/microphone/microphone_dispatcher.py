@@ -65,11 +65,15 @@ from __future__ import annotations
 import copy
 import json
 import math
+import threading
 import time
 
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
+from queue import Empty
+from queue import Full
+from queue import Queue
 
 from microphone.microphone_loop import MicrophoneLoop
 from microphone.microphone_manager import MicrophoneManager
@@ -148,6 +152,22 @@ class MicrophoneDispatcher:
         self.pps_anchor_attempt_count = 0
         self.pps_anchor_accepted_count = 0
         self.pps_anchor_rejected_count = 0
+
+        # PPS edges arrive before PortAudio necessarily delivers the
+        # callback block following the edge. Keep the event callback quick
+        # and resolve the sample position from a bounded dispatcher-owned
+        # queue after callback evidence becomes available.
+        self.pps_pending_queue_capacity = 4
+        self.pps_resolution_timeout_seconds = 0.25
+        self.pps_resolution_max_attempts = 16
+        self.pps_resolution_wait_slice_seconds = 0.05
+
+        self._pending_pps_edges = Queue(
+            maxsize=self.pps_pending_queue_capacity
+        )
+        self._pps_resolver_stop_event = threading.Event()
+        self._pps_resolver_thread = None
+        self._pps_anchor_lock = threading.Lock()
 
         self.gps_locked = False
         self.last_gps_state = {}
@@ -265,19 +285,68 @@ class MicrophoneDispatcher:
 
                 self.loop.start_continuous()
 
+            self.start_pps_anchor_resolver()
             self.run()
 
         finally:
 
             self.running = False
+            self.stop_pps_anchor_resolver()
             self.loop.stop_continuous()
 
     def stop(self):
 
         self.log("Stopping microphone subsystem")
         self.running = False
-        
-        
+        self._pps_resolver_stop_event.set()
+
+    def start_pps_anchor_resolver(self):
+
+        thread = self._pps_resolver_thread
+
+        if thread is not None and thread.is_alive():
+            return
+
+        self._pps_resolver_stop_event.clear()
+
+        self._pps_resolver_thread = threading.Thread(
+            target=self._pps_anchor_resolver_worker,
+            name="MicrophonePPSResolver",
+            daemon=True
+        )
+
+        self._pps_resolver_thread.start()
+
+        self.log(
+            (
+                "PPS anchor resolver started: "
+                f"queue_capacity={self.pps_pending_queue_capacity} "
+                f"timeout_seconds="
+                f"{self.pps_resolution_timeout_seconds:.3f}"
+            )
+        )
+
+    def stop_pps_anchor_resolver(self):
+
+        self._pps_resolver_stop_event.set()
+
+        thread = self._pps_resolver_thread
+
+        if thread is None:
+            return
+
+        thread.join(timeout=2.0)
+
+        if thread.is_alive():
+            self.log(
+                "PPS anchor resolver did not stop within 2 seconds"
+            )
+        else:
+            self.log("PPS anchor resolver stopped")
+
+        self._pps_resolver_thread = None
+
+
     # --------------------------------------------------
     # Subscriptions
     # --------------------------------------------------
@@ -442,106 +511,110 @@ class MicrophoneDispatcher:
     # PPS Sample Lookup
     # --------------------------------------------------
 
-    def handle_pps_edge(self, event):
+    def _make_rejected_lookup(
+        self,
+        target_monotonic_ns,
+        reasons,
+        candidate_lookup=None,
+        **extra
+    ):
 
-        received_monotonic_ns = time.monotonic_ns()
-        received_realtime_ns = time.time_ns()
+        if isinstance(reasons, str):
+            reasons = [reasons]
 
-        payload = self.get_payload(event)
-
-        snapshot = payload.get("snapshot", {})
-        if not isinstance(snapshot, dict):
-            snapshot = {}
-
-        pps_seq = self.get_first_available(
-            payload,
-            [
-                "pps_seq",
-                "sequence",
-                "pps_sequence",
-                "pulse_count"
-            ],
-            default=snapshot.get("pps_seq")
-        )
-
-        pps_edge_monotonic_ns = self.get_first_available(
-            payload,
-            ["pps_edge_monotonic_ns"],
-            default=snapshot.get("pps_edge_monotonic_ns")
-        )
-
-        if pps_edge_monotonic_ns is None:
-
-            lookup_result = {
-                "accepted": False,
-                "lookup_method": "rejected",
-                "quality_reasons": [
-                    "missing_pps_edge_monotonic_ns"
-                ],
-                "target_monotonic_ns": None,
-                "reference_blocks": {}
-            }
-
-        else:
-
-            try:
-                lookup_result = (
-                    self.loop
-                    .lookup_sample_position_at_monotonic_ns(
-                        pps_edge_monotonic_ns
-                    )
-                )
-
-            except Exception as error:
-
-                lookup_result = {
-                    "accepted": False,
-                    "lookup_method": "rejected",
-                    "quality_reasons": [
-                        "sample_lookup_exception"
-                    ],
-                    "target_monotonic_ns": (
-                        pps_edge_monotonic_ns
-                    ),
-                    "exception_type": (
-                        type(error).__name__
-                    ),
-                    "exception_message": str(error),
-                    "reference_blocks": {}
-                }
-
-        accepted = bool(
-            lookup_result.get("accepted", False)
-        )
-
-        self.pps_anchor_attempt_count += 1
-
-        if accepted:
-            self.pps_anchor_accepted_count += 1
-        else:
-            self.pps_anchor_rejected_count += 1
-
-        anchor_record = {
-            "schema_version": 1,
-            "anchor_state": "sample_lookup_only",
-            "anchor_accepted": accepted,
-            "anchor_quality": (
-                "ACCEPTED"
-                if accepted
-                else "REJECTED"
-            ),
+        result = {
+            "accepted": False,
+            "lookup_method": "rejected",
             "quality_reasons": list(
-                lookup_result.get(
+                dict.fromkeys(reasons)
+            ),
+            "target_monotonic_ns": (
+                target_monotonic_ns
+            ),
+            "reference_blocks": {}
+        }
+
+        if isinstance(candidate_lookup, dict):
+
+            result.update(
+                copy.deepcopy(candidate_lookup)
+            )
+
+            candidate_method = result.get(
+                "lookup_method"
+            )
+
+            candidate_reasons = list(
+                result.get(
                     "quality_reasons",
                     []
                 )
-            ),
-            "created_utc": self.get_utc_timestamp(),
+            )
+
+            result["accepted"] = False
+            result["lookup_method"] = "rejected"
+            result["candidate_lookup_method"] = (
+                candidate_method
+            )
+            result["quality_reasons"] = list(
+                dict.fromkeys(
+                    candidate_reasons
+                    +
+                    list(reasons)
+                )
+            )
+
+        result.update(extra)
+
+        return result
+
+    def _capture_stream_snapshot_for_pps(self):
+
+        try:
+            return self.loop.snapshot_stream_position()
+
+        except Exception as error:
+            return {
+                "stream_snapshot_available": False,
+                "exception_type": type(error).__name__,
+                "exception_message": str(error)
+            }
+
+    def _build_pending_pps_edge(
+        self,
+        event,
+        payload,
+        snapshot,
+        pps_seq,
+        pps_edge_monotonic_ns,
+        received_monotonic_ns,
+        received_realtime_ns
+    ):
+
+        enqueued_monotonic_ns = time.monotonic_ns()
+
+        return {
+            "schema_version": 1,
+            "pending_state": "queued",
             "received_monotonic_ns": (
                 received_monotonic_ns
             ),
             "received_realtime_ns": (
                 received_realtime_ns
+            ),
+            "enqueued_monotonic_ns": (
+                enqueued_monotonic_ns
+            ),
+            "resolution_deadline_monotonic_ns": (
+                enqueued_monotonic_ns
+                +
+                int(
+                    round(
+                        self.pps_resolution_timeout_seconds
+                        *
+                        1e9
+                    )
+                )
             ),
             "node_id": self.node_id,
             "node_name": self.node_name,
@@ -576,29 +649,878 @@ class MicrophoneDispatcher:
                 default=snapshot.get("sequence_reset")
             ),
             "raw_pps_event": copy.deepcopy(event),
-            "sample_lookup": lookup_result,
-            "timing_state": "pps_anchor_candidate_unfitted",
-            "corrected_tdoa_eligible": False,
-            "microphone_synced": False,
-            "attempt_count": self.pps_anchor_attempt_count,
-            "accepted_count": self.pps_anchor_accepted_count,
-            "rejected_count": self.pps_anchor_rejected_count
+            "stream_snapshot_at_enqueue": (
+                self._capture_stream_snapshot_for_pps()
+            )
         }
 
-        self.latest_pps_sample_anchor = anchor_record
+    def handle_pps_edge(self, event):
+
+        received_monotonic_ns = time.monotonic_ns()
+        received_realtime_ns = time.time_ns()
+
+        payload = self.get_payload(event)
+
+        snapshot = payload.get("snapshot", {})
+        if not isinstance(snapshot, dict):
+            snapshot = {}
+
+        pps_seq = self.get_first_available(
+            payload,
+            [
+                "pps_seq",
+                "sequence",
+                "pps_sequence",
+                "pulse_count"
+            ],
+            default=snapshot.get("pps_seq")
+        )
+
+        pps_edge_monotonic_ns = self.get_first_available(
+            payload,
+            ["pps_edge_monotonic_ns"],
+            default=snapshot.get("pps_edge_monotonic_ns")
+        )
+
+        pending = self._build_pending_pps_edge(
+            event=event,
+            payload=payload,
+            snapshot=snapshot,
+            pps_seq=pps_seq,
+            pps_edge_monotonic_ns=(
+                pps_edge_monotonic_ns
+            ),
+            received_monotonic_ns=(
+                received_monotonic_ns
+            ),
+            received_realtime_ns=(
+                received_realtime_ns
+            )
+        )
+
+        if pps_edge_monotonic_ns is None:
+
+            lookup_result = self._make_rejected_lookup(
+                target_monotonic_ns=None,
+                reasons=[
+                    "missing_pps_edge_monotonic_ns"
+                ]
+            )
+
+            return self._finalize_pps_anchor(
+                pending=pending,
+                lookup_result=lookup_result,
+                resolver_state="rejected_before_queue",
+                resolution_attempts=[]
+            )
+
+        try:
+            pending["pps_edge_monotonic_ns"] = int(
+                pps_edge_monotonic_ns
+            )
+
+        except (TypeError, ValueError):
+
+            lookup_result = self._make_rejected_lookup(
+                target_monotonic_ns=None,
+                reasons=[
+                    "invalid_pps_edge_monotonic_ns"
+                ]
+            )
+
+            return self._finalize_pps_anchor(
+                pending=pending,
+                lookup_result=lookup_result,
+                resolver_state="rejected_before_queue",
+                resolution_attempts=[]
+            )
+
+        try:
+            self._pending_pps_edges.put_nowait(
+                pending
+            )
+
+        except Full:
+
+            lookup_result = self._make_rejected_lookup(
+                target_monotonic_ns=(
+                    pending["pps_edge_monotonic_ns"]
+                ),
+                reasons=[
+                    "pending_pps_queue_full"
+                ],
+                pending_queue_capacity=(
+                    self.pps_pending_queue_capacity
+                )
+            )
+
+            return self._finalize_pps_anchor(
+                pending=pending,
+                lookup_result=lookup_result,
+                resolver_state="rejected_queue_full",
+                resolution_attempts=[]
+            )
+
+        self.log(
+            (
+                "PPS edge queued for sample resolution: "
+                f"seq={pps_seq} "
+                f"pending={self._pending_pps_edges.qsize()}"
+            )
+        )
+
+        return pending
+
+    def _pps_anchor_resolver_worker(self):
+
+        while True:
+
+            if (
+                self._pps_resolver_stop_event.is_set()
+                and
+                self._pending_pps_edges.empty()
+            ):
+                return
+
+            try:
+                pending = self._pending_pps_edges.get(
+                    timeout=0.05
+                )
+
+            except Empty:
+                continue
+
+            try:
+
+                if self._pps_resolver_stop_event.is_set():
+
+                    lookup_result = self._make_rejected_lookup(
+                        target_monotonic_ns=pending.get(
+                            "pps_edge_monotonic_ns"
+                        ),
+                        reasons=[
+                            "pps_resolver_stopped"
+                        ]
+                    )
+
+                    self._finalize_pps_anchor(
+                        pending=pending,
+                        lookup_result=lookup_result,
+                        resolver_state="rejected_resolver_stopped",
+                        resolution_attempts=[]
+                    )
+
+                else:
+
+                    self._resolve_pending_pps_edge(
+                        pending
+                    )
+
+            except Exception as error:
+
+                lookup_result = self._make_rejected_lookup(
+                    target_monotonic_ns=pending.get(
+                        "pps_edge_monotonic_ns"
+                    ),
+                    reasons=[
+                        "pps_resolver_exception"
+                    ],
+                    exception_type=type(error).__name__,
+                    exception_message=str(error)
+                )
+
+                self._finalize_pps_anchor(
+                    pending=pending,
+                    lookup_result=lookup_result,
+                    resolver_state="rejected_resolver_exception",
+                    resolution_attempts=[]
+                )
+
+            finally:
+                self._pending_pps_edges.task_done()
+
+    def _pending_stream_invalidation_reason(
+        self,
+        pending,
+        current_snapshot
+    ):
+
+        enqueue_snapshot = pending.get(
+            "stream_snapshot_at_enqueue",
+            {}
+        )
+
+        if not isinstance(enqueue_snapshot, dict):
+            enqueue_snapshot = {}
+
+        if not isinstance(current_snapshot, dict):
+            return "continuous_stream_inactive"
+
+        enqueue_stream_instance_id = (
+            enqueue_snapshot.get(
+                "stream_instance_id"
+            )
+        )
+
+        current_stream_instance_id = (
+            current_snapshot.get(
+                "stream_instance_id"
+            )
+        )
+
+        if (
+            enqueue_stream_instance_id is None
+            or
+            current_stream_instance_id is None
+        ):
+            return "continuous_stream_inactive"
+
+        if (
+            enqueue_stream_instance_id
+            !=
+            current_stream_instance_id
+        ):
+            return "pending_stream_instance_changed"
+
+        enqueue_timing_segment_id = (
+            enqueue_snapshot.get(
+                "timing_segment_id"
+            )
+        )
+
+        current_timing_segment_id = (
+            current_snapshot.get(
+                "timing_segment_id"
+            )
+        )
+
+        if (
+            enqueue_timing_segment_id is None
+            or
+            current_timing_segment_id is None
+        ):
+            return "pending_timing_segment_unavailable"
+
+        if (
+            int(enqueue_timing_segment_id)
+            !=
+            int(current_timing_segment_id)
+        ):
+            return "pending_timing_segment_changed"
+
+        return None
+
+    def _lookup_invalidation_reason(
+        self,
+        pending,
+        lookup_result
+    ):
+
+        if not isinstance(lookup_result, dict):
+            return "sample_lookup_result_invalid"
+
+        enqueue_snapshot = pending.get(
+            "stream_snapshot_at_enqueue",
+            {}
+        )
+
+        if not isinstance(enqueue_snapshot, dict):
+            enqueue_snapshot = {}
+
+        enqueue_stream_instance_id = (
+            enqueue_snapshot.get(
+                "stream_instance_id"
+            )
+        )
+
+        lookup_stream_instance_id = (
+            lookup_result.get(
+                "stream_instance_id"
+            )
+        )
+
+        if (
+            lookup_stream_instance_id is not None
+            and
+            enqueue_stream_instance_id is not None
+            and
+            lookup_stream_instance_id
+            !=
+            enqueue_stream_instance_id
+        ):
+            return "pending_lookup_stream_instance_mismatch"
+
+        enqueue_timing_segment_id = (
+            enqueue_snapshot.get(
+                "timing_segment_id"
+            )
+        )
+
+        lookup_timing_segment_id = (
+            lookup_result.get(
+                "timing_segment_id"
+            )
+        )
+
+        if (
+            lookup_timing_segment_id is not None
+            and
+            enqueue_timing_segment_id is not None
+            and
+            int(lookup_timing_segment_id)
+            !=
+            int(enqueue_timing_segment_id)
+        ):
+            return "pending_lookup_timing_segment_mismatch"
+
+        return None
+
+    def _lookup_can_improve_after_callback(
+        self,
+        lookup_result
+    ):
+
+        if not isinstance(lookup_result, dict):
+            return False
+
+        if (
+            lookup_result.get("accepted")
+            and
+            lookup_result.get("lookup_method")
+            ==
+            "callback_pair_extrapolation"
+        ):
+            return True
+
+        reasons = set(
+            lookup_result.get(
+                "quality_reasons",
+                []
+            )
+        )
+
+        if not reasons:
+            return False
+
+        transient_reasons = {
+            "insufficient_callback_history",
+            "extrapolation_distance_exceeded",
+            "no_bracketing_callback_pair"
+        }
+
+        if reasons.issubset(transient_reasons):
+            return True
+
+        reference_blocks = lookup_result.get(
+            "reference_blocks",
+            {}
+        )
+
+        if not isinstance(reference_blocks, dict):
+            return False
+
+        right = reference_blocks.get("right")
+
+        if not isinstance(right, dict):
+            return False
+
+        try:
+            target_ns = int(
+                lookup_result["target_monotonic_ns"]
+            )
+            right_ns = int(
+                right["estimated_adc_monotonic_ns"]
+            )
+
+        except (KeyError, TypeError, ValueError):
+            return False
+
+        return bool(
+            target_ns > right_ns
+            and
+            reasons.issubset(
+                transient_reasons
+                |
+                {"local_rate_outside_sanity_range"}
+            )
+        )
+
+    def _resolve_pending_pps_edge(self, pending):
+
+        resolution_started_monotonic_ns = (
+            time.monotonic_ns()
+        )
+
+        deadline_monotonic_ns = int(
+            pending[
+                "resolution_deadline_monotonic_ns"
+            ]
+        )
+
+        target_monotonic_ns = int(
+            pending["pps_edge_monotonic_ns"]
+        )
+
+        resolution_attempts = []
+        last_lookup_result = None
+
+        while True:
+
+            if self._pps_resolver_stop_event.is_set():
+
+                lookup_result = self._make_rejected_lookup(
+                    target_monotonic_ns=(
+                        target_monotonic_ns
+                    ),
+                    reasons=[
+                        "pps_resolver_stopped"
+                    ],
+                    candidate_lookup=(
+                        last_lookup_result
+                    )
+                )
+
+                return self._finalize_pps_anchor(
+                    pending=pending,
+                    lookup_result=lookup_result,
+                    resolver_state="rejected_resolver_stopped",
+                    resolution_attempts=(
+                        resolution_attempts
+                    ),
+                    resolution_started_monotonic_ns=(
+                        resolution_started_monotonic_ns
+                    )
+                )
+
+            current_snapshot = (
+                self._capture_stream_snapshot_for_pps()
+            )
+
+            invalidation_reason = (
+                self._pending_stream_invalidation_reason(
+                    pending=pending,
+                    current_snapshot=current_snapshot
+                )
+            )
+
+            if invalidation_reason:
+
+                lookup_result = self._make_rejected_lookup(
+                    target_monotonic_ns=(
+                        target_monotonic_ns
+                    ),
+                    reasons=[
+                        invalidation_reason
+                    ],
+                    candidate_lookup=(
+                        last_lookup_result
+                    ),
+                    stream_snapshot_at_rejection=(
+                        current_snapshot
+                    )
+                )
+
+                return self._finalize_pps_anchor(
+                    pending=pending,
+                    lookup_result=lookup_result,
+                    resolver_state="rejected_discontinuity",
+                    resolution_attempts=(
+                        resolution_attempts
+                    ),
+                    resolution_started_monotonic_ns=(
+                        resolution_started_monotonic_ns
+                    )
+                )
+
+            now_monotonic_ns = time.monotonic_ns()
+
+            if now_monotonic_ns >= deadline_monotonic_ns:
+
+                lookup_result = self._make_rejected_lookup(
+                    target_monotonic_ns=(
+                        target_monotonic_ns
+                    ),
+                    reasons=[
+                        "pending_resolution_timeout"
+                    ],
+                    candidate_lookup=(
+                        last_lookup_result
+                    )
+                )
+
+                return self._finalize_pps_anchor(
+                    pending=pending,
+                    lookup_result=lookup_result,
+                    resolver_state="rejected_timeout",
+                    resolution_attempts=(
+                        resolution_attempts
+                    ),
+                    resolution_started_monotonic_ns=(
+                        resolution_started_monotonic_ns
+                    )
+                )
+
+            try:
+                lookup_result = (
+                    self.loop
+                    .lookup_sample_position_at_monotonic_ns(
+                        target_monotonic_ns
+                    )
+                )
+
+            except Exception as error:
+
+                lookup_result = self._make_rejected_lookup(
+                    target_monotonic_ns=(
+                        target_monotonic_ns
+                    ),
+                    reasons=[
+                        "sample_lookup_exception"
+                    ],
+                    exception_type=(
+                        type(error).__name__
+                    ),
+                    exception_message=str(error)
+                )
+
+            last_lookup_result = lookup_result
+
+            resolution_attempts.append(
+                copy.deepcopy(lookup_result)
+            )
+
+            lookup_invalidation_reason = (
+                self._lookup_invalidation_reason(
+                    pending=pending,
+                    lookup_result=lookup_result
+                )
+            )
+
+            if lookup_invalidation_reason:
+
+                rejected_lookup = self._make_rejected_lookup(
+                    target_monotonic_ns=(
+                        target_monotonic_ns
+                    ),
+                    reasons=[
+                        lookup_invalidation_reason
+                    ],
+                    candidate_lookup=lookup_result
+                )
+
+                return self._finalize_pps_anchor(
+                    pending=pending,
+                    lookup_result=rejected_lookup,
+                    resolver_state="rejected_discontinuity",
+                    resolution_attempts=(
+                        resolution_attempts
+                    ),
+                    resolution_started_monotonic_ns=(
+                        resolution_started_monotonic_ns
+                    )
+                )
+
+            post_lookup_snapshot = (
+                self._capture_stream_snapshot_for_pps()
+            )
+
+            invalidation_reason = (
+                self._pending_stream_invalidation_reason(
+                    pending=pending,
+                    current_snapshot=(
+                        post_lookup_snapshot
+                    )
+                )
+            )
+
+            if invalidation_reason:
+
+                rejected_lookup = self._make_rejected_lookup(
+                    target_monotonic_ns=(
+                        target_monotonic_ns
+                    ),
+                    reasons=[
+                        invalidation_reason
+                    ],
+                    candidate_lookup=lookup_result,
+                    stream_snapshot_at_rejection=(
+                        post_lookup_snapshot
+                    )
+                )
+
+                return self._finalize_pps_anchor(
+                    pending=pending,
+                    lookup_result=rejected_lookup,
+                    resolver_state="rejected_discontinuity",
+                    resolution_attempts=(
+                        resolution_attempts
+                    ),
+                    resolution_started_monotonic_ns=(
+                        resolution_started_monotonic_ns
+                    )
+                )
+
+            if (
+                lookup_result.get("accepted")
+                and
+                lookup_result.get("lookup_method")
+                ==
+                "callback_pair_interpolation"
+            ):
+
+                return self._finalize_pps_anchor(
+                    pending=pending,
+                    lookup_result=lookup_result,
+                    resolver_state="resolved_interpolation",
+                    resolution_attempts=(
+                        resolution_attempts
+                    ),
+                    resolution_started_monotonic_ns=(
+                        resolution_started_monotonic_ns
+                    )
+                )
+
+            if not self._lookup_can_improve_after_callback(
+                lookup_result
+            ):
+
+                return self._finalize_pps_anchor(
+                    pending=pending,
+                    lookup_result=lookup_result,
+                    resolver_state="rejected_lookup_quality",
+                    resolution_attempts=(
+                        resolution_attempts
+                    ),
+                    resolution_started_monotonic_ns=(
+                        resolution_started_monotonic_ns
+                    )
+                )
+
+            if (
+                len(resolution_attempts)
+                >=
+                self.pps_resolution_max_attempts
+            ):
+
+                rejected_lookup = self._make_rejected_lookup(
+                    target_monotonic_ns=(
+                        target_monotonic_ns
+                    ),
+                    reasons=[
+                        "pending_resolution_attempt_limit"
+                    ],
+                    candidate_lookup=lookup_result
+                )
+
+                return self._finalize_pps_anchor(
+                    pending=pending,
+                    lookup_result=rejected_lookup,
+                    resolver_state="rejected_attempt_limit",
+                    resolution_attempts=(
+                        resolution_attempts
+                    ),
+                    resolution_started_monotonic_ns=(
+                        resolution_started_monotonic_ns
+                    )
+                )
+
+            callback_index = current_snapshot.get(
+                "latest_block_callback_index"
+            )
+
+            if callback_index is None:
+                callback_index = current_snapshot.get(
+                    "callback_count",
+                    0
+                )
+
+            remaining_seconds = max(
+                0.0,
+                (
+                    deadline_monotonic_ns
+                    -
+                    time.monotonic_ns()
+                )
+                /
+                1e9
+            )
+
+            if remaining_seconds <= 0:
+                continue
+
+            self.loop.wait_for_callback_after_index(
+                callback_index=callback_index,
+                timeout_seconds=min(
+                    remaining_seconds,
+                    self.pps_resolution_wait_slice_seconds
+                )
+            )
+
+    def _finalize_pps_anchor(
+        self,
+        pending,
+        lookup_result,
+        resolver_state,
+        resolution_attempts,
+        resolution_started_monotonic_ns=None
+    ):
+
+        resolution_finished_monotonic_ns = (
+            time.monotonic_ns()
+        )
+
+        if resolution_started_monotonic_ns is None:
+            resolution_started_monotonic_ns = (
+                resolution_finished_monotonic_ns
+            )
+
+        accepted = bool(
+            lookup_result.get("accepted", False)
+        )
+
+        if (
+            accepted
+            and
+            lookup_result.get("lookup_method")
+            !=
+            "callback_pair_interpolation"
+        ):
+
+            lookup_result = self._make_rejected_lookup(
+                target_monotonic_ns=pending.get(
+                    "pps_edge_monotonic_ns"
+                ),
+                reasons=[
+                    "non_interpolated_anchor_not_accepted"
+                ],
+                candidate_lookup=lookup_result
+            )
+
+            accepted = False
+            resolver_state = (
+                "rejected_non_interpolated_candidate"
+            )
+
+        with self._pps_anchor_lock:
+
+            self.pps_anchor_attempt_count += 1
+
+            if accepted:
+                self.pps_anchor_accepted_count += 1
+            else:
+                self.pps_anchor_rejected_count += 1
+
+            attempt_count = self.pps_anchor_attempt_count
+            accepted_count = self.pps_anchor_accepted_count
+            rejected_count = self.pps_anchor_rejected_count
+
+            anchor_record = {
+                "schema_version": 1,
+                "anchor_state": "sample_lookup_only",
+                "anchor_accepted": accepted,
+                "anchor_quality": (
+                    "ACCEPTED"
+                    if accepted
+                    else "REJECTED"
+                ),
+                "quality_reasons": list(
+                    lookup_result.get(
+                        "quality_reasons",
+                        []
+                    )
+                ),
+                "created_utc": self.get_utc_timestamp(),
+                "received_monotonic_ns": pending.get(
+                    "received_monotonic_ns"
+                ),
+                "received_realtime_ns": pending.get(
+                    "received_realtime_ns"
+                ),
+                "enqueued_monotonic_ns": pending.get(
+                    "enqueued_monotonic_ns"
+                ),
+                "resolution_started_monotonic_ns": (
+                    resolution_started_monotonic_ns
+                ),
+                "resolution_finished_monotonic_ns": (
+                    resolution_finished_monotonic_ns
+                ),
+                "resolution_elapsed_ms": (
+                    resolution_finished_monotonic_ns
+                    -
+                    pending.get(
+                        "enqueued_monotonic_ns",
+                        resolution_started_monotonic_ns
+                    )
+                )
+                /
+                1e6,
+                "resolver_state": resolver_state,
+                "resolution_attempt_count": len(
+                    resolution_attempts
+                ),
+                "resolution_attempts": copy.deepcopy(
+                    resolution_attempts
+                ),
+                "node_id": self.node_id,
+                "node_name": self.node_name,
+                "pps_seq": pending.get("pps_seq"),
+                "pps_kernel_realtime_ns": pending.get(
+                    "pps_kernel_realtime_ns"
+                ),
+                "pps_edge_monotonic_ns": pending.get(
+                    "pps_edge_monotonic_ns"
+                ),
+                "sequence_gap": pending.get(
+                    "sequence_gap"
+                ),
+                "missed_edge_count": pending.get(
+                    "missed_edge_count"
+                ),
+                "sequence_reset": pending.get(
+                    "sequence_reset"
+                ),
+                "raw_pps_event": copy.deepcopy(
+                    pending.get("raw_pps_event")
+                ),
+                "stream_snapshot_at_enqueue": (
+                    copy.deepcopy(
+                        pending.get(
+                            "stream_snapshot_at_enqueue",
+                            {}
+                        )
+                    )
+                ),
+                "sample_lookup": copy.deepcopy(
+                    lookup_result
+                ),
+                "timing_state": (
+                    "pps_anchor_candidate_unfitted"
+                ),
+                "corrected_tdoa_eligible": False,
+                "microphone_synced": False,
+                "attempt_count": attempt_count,
+                "accepted_count": accepted_count,
+                "rejected_count": rejected_count
+            }
+
+            self.latest_pps_sample_anchor = (
+                anchor_record
+            )
 
         if accepted:
 
             self.log(
                 (
                     "PPS sample lookup accepted: "
-                    f"seq={pps_seq} "
+                    f"seq={pending.get('pps_seq')} "
                     f"method="
                     f"{lookup_result.get('lookup_method')} "
                     f"sample="
                     f"{lookup_result.get('sample_position_fractional')} "
                     f"segment="
-                    f"{lookup_result.get('timing_segment_id')}"
+                    f"{lookup_result.get('timing_segment_id')} "
+                    f"attempts={len(resolution_attempts)}"
                 )
             )
 
@@ -607,7 +1529,8 @@ class MicrophoneDispatcher:
             self.log(
                 (
                     "PPS sample lookup rejected: "
-                    f"seq={pps_seq} "
+                    f"seq={pending.get('pps_seq')} "
+                    f"resolver_state={resolver_state} "
                     f"reasons="
                     f"{lookup_result.get('quality_reasons', [])}"
                 )
