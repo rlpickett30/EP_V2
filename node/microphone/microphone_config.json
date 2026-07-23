@@ -1,0 +1,30 @@
+{
+    "node_id": "node_01",
+    "node_name": "node_01",
+    "recordings_root": "recordings",
+    "sample_rate": 48000,
+    "channels": 1,
+    "recording_duration_sec": 15,
+    "recording_interval_sec": 15,
+    "recording_window_seconds": [
+        0,
+        15,
+        30,
+        45
+    ],
+    "tdoa_recording_duration_sec": 15,
+    "tdoa_pps_lead_seconds": 1.0,
+    "align_tdoa_to_pps_boundary": true,
+    "align_recordings_to_pps_boundary": true,
+    "microphone_pps_lead_seconds": 0.05,
+    "microphone_sync_window_ms": 250.0,
+    "storage_retention_days": 7,
+    "bird_recording_retention_days": 30,
+    "recycler_interval_sec": 3600,
+    "require_pps_lock": true,
+    "require_gps_lock": true,
+    "require_pps_lock_for_tdoa": true,
+    "require_gps_lock_for_tdoa": true,
+    "check_microphone_available_before_recording": false,
+    "debug": true
+}

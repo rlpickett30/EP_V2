@@ -1,0 +1,33 @@
+{
+    "node_id": "node_04",
+    "node_name": "EnviroPulse Node 04",
+    "node_role": "rover",
+
+    "server": {
+        "host": "10.27.4.178",
+        "listen_port": 5006,
+        "send_port": 5005
+    },
+
+    "hardware": {
+        "pps_gpio_bcm": 4,
+        "pps_physical_pin": 7,
+        "microphone_type": "SPH0645"
+    },
+
+    "subsystems": {
+        "journal": true,
+        "rtk": true,
+        "environmental": true,
+        "microphone": true,
+        "birdnet": true,
+        "communication": true,
+        "node_register": true
+    },
+
+    "register": {
+        "heartbeat_sec": 300
+    },
+
+    "debug": true
+}

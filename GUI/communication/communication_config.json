@@ -1,0 +1,23 @@
+{
+    "wifi_enabled": true,
+    "lora_enabled": false,
+
+    "udp": {
+        "enabled": true,
+        "listen_host": "0.0.0.0",
+        "listen_port": 5006,
+        "send_host": "127.0.0.1",
+        "send_port": 5005,
+        "max_packet_size": 4096
+    },
+
+    "queue": {
+        "enabled": true,
+        "queue_file": "communication/data/send_queue.json"
+    },
+
+    "network": {
+        "heartbeat_timeout_seconds": 30,
+        "network_check_interval_seconds": 5
+    }
+}

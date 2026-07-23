@@ -101,11 +101,6 @@ GUI/node_repository/data/node_state.json
 # remain eligible for Git tracking.
 # ------------------------------------------------------------
 
-**/*_config.json
-simulator/simulator_config*.json
-
-!**/*.example.json
-
 
 # ------------------------------------------------------------
 # Audio, recordings, and audio-editor sidecars
