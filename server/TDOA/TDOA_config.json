@@ -1,7 +1,7 @@
 {
     "tdoa_subsystem": {
         "minimum_tdoa_nodes": 4,
-        "default_sample_rate_hz": 96000
+        "default_sample_rate_hz": 48000
     },
 
     "tdoa_dispatcher": {
@@ -22,7 +22,7 @@
         "debug_event_solver": false,
         "debug_solver_consensus": false,
         "max_recordings_stored": 250,
-        "default_sample_rate_hz": 96000,
+        "default_sample_rate_hz": 48000,
         "solver_mode": "default",
         "minimum_solver_nodes": 4
     },
@@ -95,7 +95,7 @@
     },
 
     "TDOA_event_solver": {
-        "sample_rate_hz": 96000,
+        "sample_rate_hz": 48000,
         "speed_of_sound_mps": 340.0,
         "minimum_channels_required": 4,
         "solver_method": "least_squares",

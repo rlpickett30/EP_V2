@@ -168,6 +168,7 @@
             "publish_only_on_change": true,
             "require_rtk": true,
             "require_enviro": true,
+            "require_microphone_sync": false,
             "minimum_requirements": {
                 "pps_locked": true,
                 "gps_locked": true,
