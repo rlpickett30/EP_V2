@@ -38,8 +38,9 @@
 #   - Track GPS lock state
 #   - Control normal recording timing
 #   - Align normal recordings to configured PPS windows when available
-#   - Control TDOA request recording
-#   - Align TDOA recordings to requested PPS boundaries when available
+#   - Resolve TDOA requests against the exact indexed recording_id
+#   - Select the indexed 16-second guarded WAV through MicrophoneManager
+#   - Return explicit TDOA success or failure responses
 #   - Publish RECORDING_AVAILABLE events through MicrophoneEventServices
 #   - Publish TDOA_RECORDING events through MicrophoneEventServices
 #   - Publish MICROPHONE_SYNCED events through MicrophoneEventServices
@@ -54,6 +55,8 @@
 #   - Subscribe directly to the event bus
 #   - Own BirdNET analysis
 #   - Own sender transport
+#   - Transfer TDOA WAV files to the server
+#   - Create replacement recordings for TDOA requests
 #   - Own platform registry state
 #   - Own node registration
 #
@@ -2585,16 +2588,20 @@ class MicrophoneDispatcher:
 
         target_node_id = request_payload.get("target_node_id")
         target_nodes = request_payload.get("target_nodes")
+        request_items = request_payload.get("request_items")
         target = request_payload.get("target")
+
+        if isinstance(target_nodes, list):
+            return self.node_id in target_nodes
+
+        if isinstance(request_items, dict):
+            return self.node_id in request_items
 
         if target_node_id in ["all", "broadcast"]:
             return True
 
         if self.node_id and target_node_id == self.node_id:
             return True
-
-        if isinstance(target_nodes, list):
-            return self.node_id in target_nodes
 
         if target in [None, "microphone", "node", "all", "broadcast"]:
             return True
@@ -2632,6 +2639,40 @@ class MicrophoneDispatcher:
 
         return merged_payload
 
+    def publish_tdoa_recording_failure(
+        self,
+        request_payload,
+        failure_reason,
+        failure_detail=None,
+        recording=None
+    ):
+
+        tdoa_event = (
+            self.manager.build_tdoa_recording_failure_event(
+                request_payload=request_payload,
+                failure_reason=failure_reason,
+                failure_detail=failure_detail,
+                recording=recording
+            )
+        )
+
+        self.event_services.publish_tdoa_recording(
+            tdoa_event
+        )
+
+        self.log(
+            (
+                "Published TDOA_RECORDING failure: "
+                f"request_id="
+                f"{tdoa_event.get('tdoa_request_id')} "
+                f"recording_id="
+                f"{tdoa_event.get('recording_id')} "
+                f"reason={failure_reason}"
+            )
+        )
+
+        return tdoa_event
+
     def handle_tdoa_request(self, event):
 
         request_payload = self.get_payload(event)
@@ -2644,109 +2685,122 @@ class MicrophoneDispatcher:
             request_payload
         )
 
+        request_id = self.manager.get_tdoa_request_id(
+            request_payload
+        )
+
+        if request_id is None:
+            return self.publish_tdoa_recording_failure(
+                request_payload=request_payload,
+                failure_reason="request_id_missing",
+                failure_detail=(
+                    "TDOA_REQUEST did not contain a request identifier."
+                )
+            )
+
         recording_id = self.get_first_available(
             request_payload,
             ["recording_id", "source_recording_id"]
         )
 
-        pps_state = self.get_pps_state_snapshot()
+        if recording_id is None:
+            return self.publish_tdoa_recording_failure(
+                request_payload=request_payload,
+                failure_reason="recording_id_missing",
+                failure_detail=(
+                    "TDOA_REQUEST did not identify an existing recording."
+                )
+            )
 
-        if recording_id and recording_id in self.recording_index:
-            recording_event = self.recording_index[recording_id]
+        recording_event = self.recording_index.get(
+            recording_id
+        )
 
-            tdoa_event = self.manager.build_tdoa_recording_event(
-                recording=recording_event["payload"],
+        if recording_event is None:
+            return self.publish_tdoa_recording_failure(
+                request_payload=request_payload,
+                failure_reason="recording_not_found",
+                failure_detail=(
+                    "The requested recording_id was not present "
+                    "in the microphone recording index."
+                )
+            )
+
+        if not isinstance(recording_event, dict):
+            return self.publish_tdoa_recording_failure(
+                request_payload=request_payload,
+                failure_reason="recording_event_invalid",
+                failure_detail=(
+                    "The indexed recording event was not a dictionary."
+                )
+            )
+
+        recording_payload = recording_event.get(
+            "payload"
+        )
+
+        if not isinstance(recording_payload, dict):
+            return self.publish_tdoa_recording_failure(
+                request_payload=request_payload,
+                failure_reason="recording_payload_invalid",
+                failure_detail=(
+                    "The indexed recording event had no payload dictionary."
+                )
+            )
+
+        selection = self.manager.prepare_tdoa_recording(
+            recording=recording_payload,
+            requested_recording_id=recording_id
+        )
+
+        if not selection.get("success", False):
+            return self.publish_tdoa_recording_failure(
+                request_payload=request_payload,
+                failure_reason=selection.get(
+                    "failure_reason",
+                    "recording_unavailable"
+                ),
+                failure_detail=selection.get(
+                    "failure_detail"
+                ),
+                recording=recording_payload
+            )
+
+        selected_recording = selection[
+            "recording"
+        ]
+        pps_state = selected_recording.get(
+            "pps_state",
+            self.get_pps_state_snapshot()
+        )
+
+        tdoa_event = (
+            self.manager.build_tdoa_recording_success_event(
+                recording=selected_recording,
                 request_payload=request_payload,
                 pps_state=pps_state,
-                sync_source=recording_event["payload"].get(
+                sync_source=selected_recording.get(
                     "sync_source",
                     "local_clock"
                 )
             )
-
-            self.event_services.publish_tdoa_recording(tdoa_event)
-
-            self.log(
-                f"Published TDOA_RECORDING pointer: {recording_id}"
-            )
-
-            return
-
-        if not self.recording_allowed(for_tdoa=True):
-            self.log(
-                "TDOA_REQUEST received but PPS/GPS lock is not available"
-            )
-            return
-
-        duration_sec = self.get_first_available(
-            request_payload,
-            ["duration_sec", "tdoa_duration_sec"],
-            default=self.config["tdoa_recording_duration_sec"]
         )
 
-        (
-            sync_source,
-            scheduled_start_epoch,
-            scheduled_start_utc,
-            window_second
-        ) = self.wait_for_pps_boundary_if_available(
-            request_payload
-        )
-
-        if scheduled_start_epoch is None:
-            self.log(
-                "TDOA_REQUEST skipped because no synchronized start was available"
-            )
-            return
-
-        recording = self.loop.record(
-            duration_sec=duration_sec,
-            recording_type="tdoa",
-            request_id=self.get_first_available(
-                request_payload,
-                ["tdoa_request_id", "request_id", "event_id"]
-            ),
-            pps_state=pps_state,
-            sync_source=sync_source,
-            scheduled_start_epoch=scheduled_start_epoch,
-            scheduled_start_utc=scheduled_start_utc,
-            window_second=window_second
-        )
-
-        if recording is None:
-            self.log("TDOA recording failed")
-            return
-
-        recording = self.attach_recording_context(
-            recording
-        )
-
-        recording = self.attach_timing_quality(
-            recording
-        )
-
-        tdoa_event = self.manager.build_tdoa_recording_event(
-            recording=recording,
-            request_payload=request_payload,
-            pps_state=pps_state,
-            sync_source=sync_source
-        )
-
-        self.recording_index[tdoa_event["recording_id"]] = tdoa_event
-        self.write_initial_metadata(tdoa_event)
-        self.event_services.publish_tdoa_recording(tdoa_event)
-
-        self.maybe_publish_microphone_synced(
-            recording=recording,
-            pps_state=pps_state,
-            sync_source=sync_source,
-            scheduled_start_epoch=scheduled_start_epoch,
-            scheduled_start_utc=scheduled_start_utc
+        self.event_services.publish_tdoa_recording(
+            tdoa_event
         )
 
         self.log(
-            f"Published TDOA_RECORDING: {tdoa_event['recording_id']}"
+            (
+                "Published TDOA_RECORDING success: "
+                f"request_id={request_id} "
+                f"recording_id={recording_id} "
+                f"guarded_wav="
+                f"{tdoa_event.get('guarded_wav_path')}"
+            )
         )
+
+        return tdoa_event
 
     # --------------------------------------------------
     # Metadata

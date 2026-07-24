@@ -22,12 +22,13 @@
 # Does:
 #   - Build shared microphone event payload fields
 #   - Build RECORDING_AVAILABLE events
-#   - Build TDOA_RECORDING events
+#   - Validate and select guarded WAVs for TDOA transfer
+#   - Build TDOA_RECORDING success and failure events
 #   - Build MICROPHONE_SYNCED events
 #   - Preserve recording lineage
 #   - Preserve PPS state context in recording events
 #   - Preserve scheduled window timing metadata
-#   - Preserve TDOA request metadata when available
+#   - Preserve TDOA request and candidate lineage
 #
 # Does NOT:
 #   - Record audio
@@ -36,6 +37,8 @@
 #   - Subscribe to the event bus
 #   - Own timing decisions
 #   - Own TDOA request targeting
+#   - Create replacement recordings for TDOA requests
+#   - Transfer WAV files to the server
 #   - Own BirdNET analysis
 #   - Own recycling policies
 #
@@ -48,6 +51,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from datetime import timezone
+from pathlib import Path
 
 
 class MicrophoneManager:
@@ -95,6 +99,94 @@ class MicrophoneManager:
                 return value
 
         return default
+
+    def get_tdoa_request_id(self, request_payload):
+
+        request_payload = request_payload or {}
+
+        return self.get_first_available(
+            request_payload,
+            [
+                "tdoa_request_id",
+                "request_id",
+                "event_id",
+                "recording_request_id"
+            ]
+        )
+
+    def get_tdoa_request_lineage(self, request_payload):
+
+        request_payload = request_payload or {}
+        request_id = self.get_tdoa_request_id(
+            request_payload
+        )
+
+        candidate_key = self.get_first_available(
+            request_payload,
+            ["candidate_key", "candidate_id"]
+        )
+
+        candidate_id = self.get_first_available(
+            request_payload,
+            ["candidate_id", "candidate_key", "avis_lite_id"]
+        )
+
+        recording_id = self.get_first_available(
+            request_payload,
+            ["recording_id", "source_recording_id"]
+        )
+
+        return {
+            "tdoa_request_id": request_id,
+            "request_id": request_id,
+            "candidate_id": candidate_id,
+            "candidate_key": candidate_key,
+            "avis_lite_id": request_payload.get(
+                "avis_lite_id"
+            ),
+            "birdnet_event_id": request_payload.get(
+                "birdnet_event_id"
+            ),
+            "requested_recording_id": recording_id,
+            "source_recording_id": self.get_first_available(
+                request_payload,
+                ["source_recording_id", "recording_id"]
+            ),
+            "request_timestamp": self.get_first_available(
+                request_payload,
+                ["request_timestamp", "timestamp"]
+            ),
+            "requested_start_utc": self.get_first_available(
+                request_payload,
+                [
+                    "requested_start_utc",
+                    "start_time_utc",
+                    "scheduled_start_utc"
+                ]
+            ),
+            "requested_duration_sec": self.get_first_available(
+                request_payload,
+                ["duration_sec", "tdoa_duration_sec"]
+            )
+        }
+
+    def build_tdoa_response_id(
+        self,
+        request_id,
+        recording_id,
+        node_id,
+        timestamp
+    ):
+
+        identity_parts = [
+            request_id or recording_id or timestamp,
+            node_id or "unknown_node"
+        ]
+
+        return "TDOA_RECORDING_" + "_".join(
+            str(part)
+            for part in identity_parts
+        )
 
     def build_base_payload(
         self,
@@ -368,7 +460,92 @@ class MicrophoneManager:
     # TDOA_RECORDING
     # --------------------------------------------------
 
-    def build_tdoa_recording_event(
+    def prepare_tdoa_recording(
+        self,
+        recording,
+        requested_recording_id
+    ):
+
+        result = {
+            "success": False,
+            "recording": None,
+            "failure_reason": None,
+            "failure_detail": None
+        }
+
+        if not isinstance(recording, dict):
+            result["failure_reason"] = "recording_payload_invalid"
+            result["failure_detail"] = (
+                "Indexed recording payload was not a dictionary."
+            )
+            return result
+
+        recording_id = recording.get("recording_id")
+
+        if recording_id != requested_recording_id:
+            result["failure_reason"] = "recording_id_mismatch"
+            result["failure_detail"] = (
+                f"Requested {requested_recording_id!r}, "
+                f"indexed {recording_id!r}."
+            )
+            return result
+
+        guarded_wav_path = recording.get(
+            "guarded_wav_path"
+        )
+
+        if not guarded_wav_path:
+            result["failure_reason"] = "guarded_wav_path_missing"
+            result["failure_detail"] = (
+                "The indexed recording has no guarded_wav_path."
+            )
+            return result
+
+        guarded_path = Path(
+            str(guarded_wav_path)
+        )
+
+        if not guarded_path.is_file():
+            result["failure_reason"] = "guarded_wav_not_found"
+            result["failure_detail"] = str(guarded_path)
+            return result
+
+        selected_recording = dict(recording)
+
+        core_wav_path = self.get_first_available(
+            recording,
+            ["core_wav_path", "wav_path", "recording_path"]
+        )
+
+        selected_recording.update({
+            "core_wav_path": (
+                str(core_wav_path)
+                if core_wav_path
+                else None
+            ),
+            "recording_path": str(guarded_path),
+            "wav_path": str(guarded_path),
+            "guarded_wav_path": str(guarded_path),
+            "selected_wav_path": str(guarded_path),
+            "tdoa_window_type": "guarded_raw",
+            "duration_sec": self.get_first_available(
+                recording,
+                ["guarded_duration_sec", "duration_sec"]
+            ),
+            "frame_count": self.get_first_available(
+                recording,
+                ["guarded_frame_count", "frame_count"]
+            )
+        })
+
+        result.update({
+            "success": True,
+            "recording": selected_recording
+        })
+
+        return result
+
+    def build_tdoa_recording_success_event(
         self,
         recording,
         request_payload=None,
@@ -379,14 +556,8 @@ class MicrophoneManager:
         timestamp = self.get_utc_timestamp()
         request_payload = request_payload or {}
 
-        request_id = self.get_first_available(
-            request_payload,
-            [
-                "tdoa_request_id",
-                "request_id",
-                "event_id",
-                "recording_request_id"
-            ]
+        lineage = self.get_tdoa_request_lineage(
+            request_payload
         )
 
         payload = self.build_base_payload(
@@ -396,26 +567,148 @@ class MicrophoneManager:
             sync_source=sync_source
         )
 
+        payload.update(lineage)
         payload.update({
-            "tdoa_request_id": request_id,
-            "avis_lite_id": self.get_first_available(
-                request_payload,
-                ["avis_lite_id", "species_code", "species_common"]
+            "status": "success",
+            "failure_reason": None,
+            "failure_detail": None,
+            "core_wav_path": recording.get(
+                "core_wav_path"
             ),
-            "request_id": request_id,
-            "request_timestamp": self.get_first_available(
-                request_payload,
-                ["request_timestamp", "timestamp"]
+            "selected_wav_path": recording.get(
+                "selected_wav_path",
+                recording.get("guarded_wav_path")
             ),
-            "requested_start_utc": self.get_first_available(
-                request_payload,
-                ["requested_start_utc", "start_time_utc", "scheduled_start_utc"]
-            ),
-            "requested_duration_sec": self.get_first_available(
-                request_payload,
-                ["duration_sec", "tdoa_duration_sec"]
+            "tdoa_window_type": recording.get(
+                "tdoa_window_type",
+                "guarded_raw"
             )
         })
+
+        return self.build_tdoa_recording_envelope(
+            payload=payload,
+            timestamp=timestamp
+        )
+
+    def build_tdoa_recording_failure_event(
+        self,
+        request_payload,
+        failure_reason,
+        failure_detail=None,
+        recording=None
+    ):
+
+        timestamp = self.get_utc_timestamp()
+        request_payload = request_payload or {}
+        recording = (
+            recording
+            if isinstance(recording, dict)
+            else {}
+        )
+
+        lineage = self.get_tdoa_request_lineage(
+            request_payload
+        )
+
+        payload = {
+            "node_id": self.get_first_available(
+                request_payload,
+                ["node_id", "target_node_id"],
+                default=self.node_id
+            ),
+            "node_name": self.get_first_available(
+                request_payload,
+                ["node_name", "target_node_name"],
+                default=self.node_name
+            ),
+            "recording_id": lineage[
+                "requested_recording_id"
+            ],
+            "recording_utc": recording.get(
+                "recording_utc",
+                request_payload.get("recording_utc")
+            ),
+            "recording_epoch": recording.get(
+                "recording_epoch"
+            ),
+            "recording_path": None,
+            "wav_path": None,
+            "guarded_wav_path": None,
+            "selected_wav_path": None,
+            "metadata_path": recording.get(
+                "metadata_path"
+            ),
+            "sample_rate": recording.get(
+                "sample_rate"
+            ),
+            "channels": recording.get(
+                "channels"
+            ),
+            "duration_sec": recording.get(
+                "guarded_duration_sec",
+                recording.get("duration_sec")
+            ),
+            "frame_count": recording.get(
+                "guarded_frame_count",
+                recording.get("frame_count")
+            ),
+            "guarded_duration_sec": recording.get(
+                "guarded_duration_sec"
+            ),
+            "guarded_frame_count": recording.get(
+                "guarded_frame_count"
+            ),
+            "recording_type": recording.get(
+                "recording_type"
+            ),
+            "window_utc": recording.get(
+                "window_utc"
+            ),
+            "window_epoch": recording.get(
+                "window_epoch"
+            ),
+            "window_second": recording.get(
+                "window_second"
+            ),
+            "timing_state": recording.get(
+                "timing_state"
+            ),
+            "raw_timing_quality": recording.get(
+                "raw_timing_quality",
+                "UNKNOWN"
+            ),
+            "timing_issues": recording.get(
+                "timing_issues",
+                []
+            ),
+            "status": "failure",
+            "failure_reason": str(failure_reason),
+            "failure_detail": failure_detail
+        }
+
+        payload.update(lineage)
+
+        return self.build_tdoa_recording_envelope(
+            payload=payload,
+            timestamp=timestamp
+        )
+
+    def build_tdoa_recording_envelope(
+        self,
+        payload,
+        timestamp
+    ):
+
+        request_id = payload.get(
+            "tdoa_request_id"
+        )
+
+        response_id = self.build_tdoa_response_id(
+            request_id=request_id,
+            recording_id=payload.get("recording_id"),
+            node_id=payload.get("node_id"),
+            timestamp=timestamp
+        )
 
         event = {
             "event_type": "TDOA_RECORDING",
@@ -423,14 +716,40 @@ class MicrophoneManager:
             "target": "sender",
             "timestamp": timestamp,
             "payload": payload,
-            "event_id": payload["recording_id"],
+            "event_id": response_id,
+            "status": payload.get("status"),
+            "failure_reason": payload.get(
+                "failure_reason"
+            ),
             "tdoa_request_id": request_id,
             "request_id": request_id,
-            "recording_id": payload["recording_id"],
-            "recording_utc": payload["recording_utc"],
-            "recording_path": payload["recording_path"],
-            "wav_path": payload["wav_path"],
-            "metadata_path": payload["metadata_path"],
+            "candidate_id": payload.get(
+                "candidate_id"
+            ),
+            "candidate_key": payload.get(
+                "candidate_key"
+            ),
+            "recording_id": payload.get(
+                "recording_id"
+            ),
+            "recording_utc": payload.get(
+                "recording_utc"
+            ),
+            "recording_path": payload.get(
+                "recording_path"
+            ),
+            "wav_path": payload.get(
+                "wav_path"
+            ),
+            "guarded_wav_path": payload.get(
+                "guarded_wav_path"
+            ),
+            "selected_wav_path": payload.get(
+                "selected_wav_path"
+            ),
+            "metadata_path": payload.get(
+                "metadata_path"
+            ),
             "spectrogram_path": payload.get("spectrogram_path"),
             "window_utc": payload.get("window_utc"),
             "window_epoch": payload.get("window_epoch"),

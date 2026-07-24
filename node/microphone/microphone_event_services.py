@@ -25,13 +25,15 @@
 #   - Subscribe to GPS_STATE events
 #   - Subscribe to TDOA_REQUEST events
 #   - Publish RECORDING_AVAILABLE events
-#   - Publish TDOA_RECORDING events
+#   - Publish TDOA_RECORDING success and failure response events
 #   - Publish MICROPHONE_SYNCED events
 #   - Provide a thin communication layer between Microphone and the event bus
 #
 # Does NOT:
 #   - Record audio
 #   - Inspect event payloads
+#   - Decide whether a TDOA response is successful
+#   - Select or validate recording files
 #   - Track PPS or GPS state
 #   - Make workflow decisions
 #   - Handle recording timing
