@@ -11,8 +11,9 @@
 #
 # Purpose:
 #   Own outbound sender work for the Communication subsystem. Build prepared
-#   outbound messages, send them through UDPSender, and manage the persistent
-#   outbound queue through SenderDatabase.
+#   outbound messages, send ordinary messages through UDPSender, upload guarded
+#   TDOA recordings through TDOAUploadClient, and manage the persistent
+#   outbound UDP queue through SenderDatabase.
 #
 # Expected config source:
 #   communication_config.json
@@ -23,8 +24,10 @@
 # Does:
 #   - Create and own UDPSender
 #   - Create and own SenderDatabase
+#   - Create and own TDOAUploadClient
 #   - Build outbound messages
 #   - Send prepared messages over UDP
+#   - Upload guarded TDOA WAVs and event metadata through binary HTTP
 #   - Store queued messages
 #   - Retrieve queued messages
 #   - Remove sent messages from the queue
@@ -41,6 +44,8 @@
 #   - Manage Communication state
 #   - Switch Wi-Fi or LoRa modes
 #   - Receive inbound messages
+#   - Decide whether TDOA_RECORDING uses HTTP or UDP
+#   - Cache TDOA upload instructions
 #
 # Owner:
 #   communication_dispatcher.py
@@ -57,6 +62,10 @@ from communication.udp_sender import (
 
 from communication.sender_database import (
     SenderDatabase
+)
+
+from communication.tdoa_upload_client import (
+    TDOAUploadClient
 )
 
 # ============================================================
@@ -108,6 +117,8 @@ class SenderManager:
             )
         )
 
+        self.tdoa_upload_client = TDOAUploadClient()
+
     # ========================================================
     # BUILD MESSAGE
     # ========================================================
@@ -132,6 +143,23 @@ class SenderManager:
 
         return self.udp_sender.send(
             message
+        )
+
+    # ========================================================
+    # UPLOAD TDOA RECORDING
+    # ========================================================
+
+    def upload_tdoa_recording(
+        self,
+        event_metadata: Dict,
+        wav_path,
+        upload_instructions: Dict
+    ) -> Dict:
+
+        return self.tdoa_upload_client.upload(
+            event_metadata=event_metadata,
+            wav_path=wav_path,
+            upload_instructions=upload_instructions
         )
 
     # ========================================================

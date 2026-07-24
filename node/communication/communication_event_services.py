@@ -29,6 +29,7 @@
 #   - Store Listener publication groups
 #   - Register approved local bus subscriptions
 #   - Publish approved local bus events
+#   - Forward TDOA_RECORDING events to CommunicationDispatcher
 #   - Publish NETWORK_CONNECTED events
 #   - Publish NETWORK_DISCONNECTED events
 #   - Publish EVENT_SENT events
@@ -42,6 +43,9 @@
 #   - Change Wi-Fi or LoRa modes
 #   - Queue messages
 #   - Inspect payload contents
+#   - Select HTTP or UDP transport for TDOA_RECORDING
+#   - Cache TDOA_REQUEST upload instructions
+#   - Upload WAV files
 #   - Make workflow decisions
 #   - Manage Communication state
 #   - Perform Event Bus delivery logic
@@ -74,6 +78,9 @@ GPS_STATE = "GPS_STATE"
 # Sender Event Subscriptions
 # ----------------------------
 
+# Event Services forwards every TDOA_RECORDING to the dispatcher unchanged.
+# The dispatcher sends status=success with guarded WAV bytes over HTTP and
+# sends status=failure over the established UDP sender.
 TDOA_RECORDING = "TDOA_RECORDING"
 AVIS_LITE = "AVIS_LITE"
 NODE_REGISTER = "NODE_REGISTER"
@@ -84,6 +91,9 @@ MICROPHONE_SYNCED = "MICROPHONE_SYNCED"
 # Listener Event Publications
 # ----------------------------
 
+# The dispatcher caches payload.upload before Event Services publishes the
+# request locally, preventing a synchronous microphone response from racing
+# ahead of its request-scoped upload ticket.
 TDOA_REQUEST = "TDOA_REQUEST"
 
 # ----------------------------

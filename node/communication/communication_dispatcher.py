@@ -33,7 +33,11 @@
 #   - Queue outbound messages when active transport cannot send
 #   - Flush queued messages when transport becomes available
 #   - Handle inbound listener events from the server
+#   - Cache request-scoped upload instructions from inbound TDOA_REQUEST
 #   - Publish inbound TDOA_REQUEST messages to the node bus
+#   - Route successful TDOA_RECORDING responses through binary HTTP
+#   - Route recording and upload failures through the existing UDP path
+#   - Require a validated server receipt for successful binary delivery
 #   - Publish inbound SEND_NODE_CHANGE_MODE messages to the node bus
 #   - Publish EVENT_SENT after successful sends
 #   - Track NETWORK_CONNECTED and NETWORK_DISCONNECTED state
@@ -47,9 +51,13 @@
 #   - Send UDP packets directly
 #   - Receive UDP packets directly
 #   - Decode raw UDP bytes directly
+#   - Build multipart HTTP bodies directly
+#   - Open HTTP connections directly
 #   - Publish directly to the event bus
 #   - Subscribe directly to the event bus
 #   - Analyze recordings
+#   - Validate TDOA timing quality
+#   - Decide whether the server has a complete recording set
 #   - Own node registration contents
 #   - Own platform registry state
 #   - Perform Event Bus delivery logic
@@ -204,6 +212,9 @@ DEFAULT_CONFIG = {
     }
 }
 
+TDOA_UPLOAD_CACHE_TTL_SECONDS = 10 * 60
+TDOA_UPLOAD_CACHE_MAX_ENTRIES = 256
+
 
 # ============================================================
 # CLASS DEFINITIONS
@@ -299,6 +310,9 @@ class CommunicationDispatcher:
         self.send_stagger_config = self._build_send_stagger_config()
         self.last_stagger_send_monotonic = 0.0
         self.stagger_lock = threading.Lock()
+
+        self.tdoa_upload_instructions = {}
+        self.tdoa_upload_lock = threading.Lock()
 
         self.outbound_send_events = set(
             OUTBOUND_SEND_EVENTS
@@ -524,6 +538,19 @@ class CommunicationDispatcher:
 
                 return
 
+            if event_type == TDOA_RECORDING:
+
+                outbound_event = self._build_outbound_event(
+                    event_type=event_type,
+                    event=normalized_event
+                )
+
+                self._handle_tdoa_recording_transaction(
+                    outbound_event
+                )
+
+                return
+
             if event_type in self.outbound_send_events:
 
                 outbound_event = self._build_outbound_event(
@@ -644,6 +671,12 @@ class CommunicationDispatcher:
                 listener_event=listener_event
             )
 
+            if event_type == TDOA_REQUEST:
+
+                self._cache_tdoa_upload_instructions(
+                    normalized_event
+                )
+
             publish_method = self.inbound_publish_map.get(
                 event_type
             )
@@ -670,6 +703,625 @@ class CommunicationDispatcher:
             logging.exception(
                 "[Communication] Inbound dispatcher error: %s",
                 error
+            )
+
+    # ========================================================
+    # TDOA BINARY UPLOAD WORKFLOW
+    # ========================================================
+
+    def _cache_tdoa_upload_instructions(
+        self,
+        request_event: dict
+    ) -> bool:
+        """
+        Cache the upload ticket before publishing TDOA_REQUEST locally.
+
+        Event Bus publication is synchronous. Microphone can answer during
+        that publication, so this cache write must occur first.
+        """
+
+        request_id = self._get_tdoa_request_id(
+            request_event
+        )
+
+        if not request_id:
+
+            logging.warning(
+                "[Communication] TDOA_REQUEST missing request ID; "
+                "upload instructions were not cached."
+            )
+
+            return False
+
+        payload = self._get_payload(
+            request_event
+        )
+
+        raw_instructions = payload.get(
+            "upload"
+        )
+
+        if not isinstance(
+            raw_instructions,
+            dict
+        ):
+
+            raw_instructions = payload.get(
+                "upload_instructions"
+            )
+
+        explicit_top_level_fields = any(
+            payload.get(field_name) is not None
+            for field_name in (
+                "upload_port",
+                "upload_path",
+                "request_token",
+                "upload_token"
+            )
+        )
+
+        if (
+            not isinstance(raw_instructions, dict)
+            and not explicit_top_level_fields
+        ):
+
+            logging.warning(
+                "[Communication] TDOA_REQUEST has no binary upload "
+                "instructions: request_id=%s",
+                request_id
+            )
+
+            return False
+
+        if not isinstance(
+            raw_instructions,
+            dict
+        ):
+
+            raw_instructions = {}
+
+        communication_metadata = payload.get(
+            "_communication",
+            {}
+        )
+
+        if not isinstance(
+            communication_metadata,
+            dict
+        ):
+
+            communication_metadata = {}
+
+        instructions = {
+            "scheme": raw_instructions.get(
+                "scheme",
+                "http"
+            ),
+            "host": (
+                raw_instructions.get("host")
+                or raw_instructions.get("upload_host")
+                or payload.get("upload_host")
+                or communication_metadata.get("source_ip")
+            ),
+            "port": (
+                raw_instructions.get("port")
+                if raw_instructions.get("port") is not None
+                else raw_instructions.get(
+                    "upload_port",
+                    payload.get("upload_port")
+                )
+            ),
+            "path": (
+                raw_instructions.get("path")
+                or raw_instructions.get("upload_path")
+                or payload.get("upload_path")
+            ),
+            "token": (
+                raw_instructions.get("token")
+                or raw_instructions.get("request_token")
+                or raw_instructions.get("upload_token")
+                or payload.get("request_token")
+                or payload.get("upload_token")
+            ),
+            "timeout_seconds": raw_instructions.get(
+                "timeout_seconds",
+                raw_instructions.get(
+                    "upload_timeout_seconds",
+                    30.0
+                )
+            )
+        }
+
+        self._ensure_tdoa_upload_cache()
+
+        with self.tdoa_upload_lock:
+
+            self._prune_tdoa_upload_cache_locked()
+
+            self.tdoa_upload_instructions[
+                str(request_id)
+            ] = {
+                "instructions": instructions,
+                "cached_monotonic": time.monotonic()
+            }
+
+            self._enforce_tdoa_upload_cache_limit_locked()
+
+        logging.info(
+            "[Communication] Cached TDOA upload instructions: "
+            "request_id=%s server=%s:%s path=%s",
+            request_id,
+            instructions.get("host"),
+            instructions.get("port"),
+            instructions.get("path")
+        )
+
+        return True
+
+    def _handle_tdoa_recording_transaction(
+        self,
+        recording_event: dict
+    ) -> bool:
+        """
+        Route success through HTTP and failures through existing UDP.
+        """
+
+        status = self._get_tdoa_recording_status(
+            recording_event
+        )
+
+        if status != "success":
+
+            return bool(
+                self.send_event(
+                    recording_event
+                )
+            )
+
+        request_id = self._get_tdoa_request_id(
+            recording_event
+        )
+
+        instructions = self._get_cached_tdoa_upload_instructions(
+            request_id
+        )
+
+        if instructions is None:
+
+            upload_result = {
+                "success": False,
+                "accepted": False,
+                "failure_reason": "upload_instructions_missing",
+                "failure_detail": (
+                    "No cached upload instructions exist for "
+                    f"request {request_id!r}."
+                ),
+                "http_status": None,
+                "http_reason": None,
+                "receipt": None
+            }
+
+        else:
+
+            upload_result = self._upload_tdoa_recording(
+                recording_event=recording_event,
+                upload_instructions=instructions
+            )
+
+        if upload_result.get(
+            "success",
+            False
+        ):
+
+            self._record_tdoa_upload_success(
+                recording_event=recording_event,
+                upload_result=upload_result
+            )
+
+            return True
+
+        self._increment_state_counter(
+            "tx_errors"
+        )
+
+        failure_event = self._build_tdoa_upload_failure_event(
+            recording_event=recording_event,
+            upload_result=upload_result
+        )
+
+        logging.warning(
+            "[Communication] TDOA upload failed; sending explicit UDP "
+            "failure: request_id=%s reason=%s detail=%s",
+            request_id,
+            upload_result.get("failure_reason"),
+            upload_result.get("failure_detail")
+        )
+
+        return bool(
+            self.send_event(
+                failure_event
+            )
+        )
+
+    def _upload_tdoa_recording(
+        self,
+        recording_event: dict,
+        upload_instructions: dict
+    ) -> dict:
+
+        if self.sender_manager is None:
+
+            return {
+                "success": False,
+                "accepted": False,
+                "failure_reason": "upload_sender_unavailable",
+                "failure_detail": "SenderManager is unavailable.",
+                "http_status": None,
+                "http_reason": None,
+                "receipt": None
+            }
+
+        upload_method = getattr(
+            self.sender_manager,
+            "upload_tdoa_recording",
+            None
+        )
+
+        if upload_method is None:
+
+            return {
+                "success": False,
+                "accepted": False,
+                "failure_reason": "upload_sender_unavailable",
+                "failure_detail": (
+                    "SenderManager has no TDOA upload method."
+                ),
+                "http_status": None,
+                "http_reason": None,
+                "receipt": None
+            }
+
+        wav_path = self._get_guarded_wav_path(
+            recording_event
+        )
+
+        try:
+
+            result = upload_method(
+                event_metadata=recording_event,
+                wav_path=wav_path,
+                upload_instructions=upload_instructions
+            )
+
+        except Exception as error:
+
+            logging.exception(
+                "[Communication] SenderManager TDOA upload crashed."
+            )
+
+            return {
+                "success": False,
+                "accepted": False,
+                "failure_reason": "upload_failed",
+                "failure_detail": str(error),
+                "http_status": None,
+                "http_reason": None,
+                "receipt": None
+            }
+
+        if not isinstance(
+            result,
+            dict
+        ):
+
+            return {
+                "success": False,
+                "accepted": False,
+                "failure_reason": "upload_result_invalid",
+                "failure_detail": (
+                    "SenderManager returned a non-dictionary upload result."
+                ),
+                "http_status": None,
+                "http_reason": None,
+                "receipt": None
+            }
+
+        return result
+
+    def _record_tdoa_upload_success(
+        self,
+        recording_event: dict,
+        upload_result: dict
+    ):
+
+        self._increment_state_counter(
+            "tx_count"
+        )
+
+        sent_timestamp = self._utc_now()
+
+        self._set_state_value(
+            "last_tx_time",
+            sent_timestamp
+        )
+
+        event_sent = self._build_event_sent_event(
+            message=recording_event,
+            queued=False
+        )
+
+        event_sent_payload = event_sent.get(
+            "payload",
+            {}
+        )
+
+        event_sent_payload.update({
+            "transport": "http_binary",
+            "upload_receipt": upload_result.get(
+                "receipt"
+            ),
+            "wav_byte_count": upload_result.get(
+                "wav_byte_count"
+            ),
+            "wav_sha256": upload_result.get(
+                "wav_sha256"
+            )
+        })
+
+        event_sent["payload"] = event_sent_payload
+
+        self.event_services.publish_event_sent(
+            event_sent
+        )
+
+        payload = self._get_payload(
+            recording_event
+        )
+
+        logging.info(
+            "[Communication] TDOA upload accepted: "
+            "request_id=%s node_id=%s recording_id=%s "
+            "bytes=%s sha256=%s",
+            self._get_tdoa_request_id(recording_event),
+            payload.get("node_id"),
+            payload.get("recording_id"),
+            upload_result.get("wav_byte_count"),
+            upload_result.get("wav_sha256")
+        )
+
+    def _build_tdoa_upload_failure_event(
+        self,
+        recording_event: dict,
+        upload_result: dict
+    ) -> dict:
+
+        failure_event = deepcopy(
+            recording_event
+        )
+
+        payload = self._get_payload(
+            failure_event
+        )
+
+        local_wav_path = self._get_guarded_wav_path(
+            recording_event
+        )
+
+        payload.update({
+            "status": "failure",
+            "failure_reason": upload_result.get(
+                "failure_reason",
+                "upload_failed"
+            ),
+            "failure_detail": upload_result.get(
+                "failure_detail"
+            ),
+            "recording_path": None,
+            "wav_path": None,
+            "guarded_wav_path": None,
+            "selected_wav_path": None,
+            "local_wav_available": bool(
+                local_wav_path
+            ),
+            "upload_attempted": True,
+            "upload_transport": "http_binary",
+            "upload_http_status": upload_result.get(
+                "http_status"
+            ),
+            "upload_http_reason": upload_result.get(
+                "http_reason"
+            ),
+            "upload_receipt": upload_result.get(
+                "receipt"
+            )
+        })
+
+        failure_event.update({
+            "source": "communication",
+            "target": "server",
+            "timestamp": self._utc_now(),
+            "status": "failure",
+            "failure_reason": payload.get(
+                "failure_reason"
+            ),
+            "recording_path": None,
+            "wav_path": None,
+            "guarded_wav_path": None,
+            "selected_wav_path": None,
+            "payload": payload
+        })
+
+        return failure_event
+
+    def _get_tdoa_recording_status(
+        self,
+        recording_event: dict
+    ) -> str:
+
+        payload = self._get_payload(
+            recording_event
+        )
+
+        status = (
+            payload.get("status")
+            or recording_event.get("status")
+            or ""
+        )
+
+        return str(
+            status
+        ).strip().lower()
+
+    def _get_guarded_wav_path(
+        self,
+        recording_event: dict
+    ):
+
+        payload = self._get_payload(
+            recording_event
+        )
+
+        return (
+            payload.get("guarded_wav_path")
+            or recording_event.get("guarded_wav_path")
+            or payload.get("selected_wav_path")
+            or recording_event.get("selected_wav_path")
+        )
+
+    def _get_tdoa_request_id(
+        self,
+        event: dict
+    ):
+
+        payload = self._get_payload(
+            event
+        )
+
+        return (
+            payload.get("tdoa_request_id")
+            or payload.get("request_id")
+            or event.get("tdoa_request_id")
+            or event.get("request_id")
+        )
+
+    # ========================================================
+    # TDOA UPLOAD CACHE
+    # ========================================================
+
+    def _ensure_tdoa_upload_cache(
+        self
+    ):
+
+        if not hasattr(
+            self,
+            "tdoa_upload_instructions"
+        ):
+
+            self.tdoa_upload_instructions = {}
+
+        if not hasattr(
+            self,
+            "tdoa_upload_lock"
+        ):
+
+            self.tdoa_upload_lock = threading.Lock()
+
+    def _get_cached_tdoa_upload_instructions(
+        self,
+        request_id
+    ):
+
+        if request_id in (
+            None,
+            ""
+        ):
+
+            return None
+
+        self._ensure_tdoa_upload_cache()
+
+        with self.tdoa_upload_lock:
+
+            self._prune_tdoa_upload_cache_locked()
+
+            cached = self.tdoa_upload_instructions.get(
+                str(request_id)
+            )
+
+            if not isinstance(
+                cached,
+                dict
+            ):
+
+                return None
+
+            instructions = cached.get(
+                "instructions"
+            )
+
+            if not isinstance(
+                instructions,
+                dict
+            ):
+
+                return None
+
+            return dict(
+                instructions
+            )
+
+    def _prune_tdoa_upload_cache_locked(
+        self
+    ):
+
+        cutoff = (
+            time.monotonic()
+            -
+            TDOA_UPLOAD_CACHE_TTL_SECONDS
+        )
+
+        expired_request_ids = [
+            request_id
+            for request_id, cached
+            in self.tdoa_upload_instructions.items()
+            if (
+                not isinstance(cached, dict)
+                or cached.get("cached_monotonic", 0.0) < cutoff
+            )
+        ]
+
+        for request_id in expired_request_ids:
+
+            self.tdoa_upload_instructions.pop(
+                request_id,
+                None
+            )
+
+    def _enforce_tdoa_upload_cache_limit_locked(
+        self
+    ):
+
+        while (
+            len(self.tdoa_upload_instructions)
+            >
+            TDOA_UPLOAD_CACHE_MAX_ENTRIES
+        ):
+
+            oldest_request_id = min(
+                self.tdoa_upload_instructions,
+                key=lambda request_id: (
+                    self.tdoa_upload_instructions[
+                        request_id
+                    ].get(
+                        "cached_monotonic",
+                        0.0
+                    )
+                )
+            )
+
+            self.tdoa_upload_instructions.pop(
+                oldest_request_id,
+                None
             )
 
     # ========================================================
@@ -2130,6 +2782,16 @@ class CommunicationDispatcher:
         self
     ) -> dict:
 
+        self._ensure_tdoa_upload_cache()
+
+        with self.tdoa_upload_lock:
+
+            self._prune_tdoa_upload_cache_locked()
+
+            cached_tdoa_upload_requests = len(
+                self.tdoa_upload_instructions
+            )
+
         state_status = (
             self.state.get_status()
             if hasattr(self.state, "get_status")
@@ -2144,6 +2806,7 @@ class CommunicationDispatcher:
             "udp_enabled": self.udp_enabled,
             "queue_enabled": self.queue_enabled,
             "queue_size": self._queue_size(),
+            "cached_tdoa_upload_requests": cached_tdoa_upload_requests,
             "running": self.running
         }
 
