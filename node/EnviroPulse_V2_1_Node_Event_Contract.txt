@@ -65,7 +65,8 @@ TDOA_REQUEST
 ------------
 
 Purpose:
-Server command requesting a synchronized TDOA recording from one or more nodes.
+Server command requesting the exact preserved recording identified by a
+matched AVIS_LITE event.
 
 Direction:
 Server -> Node local bus.
@@ -83,7 +84,9 @@ Node subscribers:
 Expected result:
 TDOA_REQUEST
 -> Microphone
--> TDOA_RECORDING
+-> Exact recording_id lookup
+-> Guarded WAV selection
+-> TDOA_RECORDING status = success or failure
 -> Communication
 -> Server
 
@@ -99,6 +102,8 @@ target_node_id
 target_nodes
 target
 request_items
+candidate_id
+candidate_key
 recording_id
 source_recording_id
 duration_sec
@@ -129,7 +134,16 @@ payload["_communication"]["rx_count"]
 payload["_communication"]["rx_errors"]
 
 Notes:
-If recording_id points to an existing normal recording in the microphone recording index, Microphone can publish a TDOA_RECORDING pointer instead of creating a fresh recording.
+target_nodes and request_items are authoritative when present. A node that is
+not listed must ignore the broadcast request.
+
+Each targeted node selects its node-specific request_items entry, retrieves
+that exact recording_id from the microphone recording index, and selects the
+recording's 16-second guarded_wav_path.
+
+TDOA_REQUEST never starts a replacement recording. If the exact recording or
+guarded WAV is unavailable, Microphone publishes TDOA_RECORDING with
+status = "failure" and a machine-readable failure_reason.
 
 
 SEND_NODE_CHANGE_MODE
@@ -656,7 +670,8 @@ TDOA_RECORDING
 --------------
 
 Purpose:
-Node response to a TDOA_REQUEST, containing recording identity, local file path, timing metadata, and request lineage.
+One node response to one TDOA_REQUEST. The response reports either that the
+exact guarded recording is available or that the node could not supply it.
 
 Direction:
 Node -> Server.
@@ -675,12 +690,18 @@ target = "sender"
 timestamp
 payload
 event_id
+status = "success" or "failure"
+failure_reason
 tdoa_request_id
 request_id
+candidate_id
+candidate_key
 recording_id
 recording_utc
 recording_path
 wav_path
+guarded_wav_path
+selected_wav_path
 metadata_path
 window_utc
 window_epoch
@@ -689,38 +710,88 @@ window_second
 Required payload fields:
 node_id
 node_name
+status
+failure_reason
+tdoa_request_id
+request_id
+candidate_id
+candidate_key
+avis_lite_id
+birdnet_event_id
+requested_recording_id
+source_recording_id
+request_timestamp
 recording_id
 recording_utc
 recording_epoch
 recording_path
 wav_path
+guarded_wav_path
+selected_wav_path
 metadata_path
+window_utc
+window_epoch
+window_second
+
+Optional payload fields:
+spectrogram_path
+requested_start_utc
+requested_duration_sec
+failure_detail
+
+Success-only required payload fields:
 sample_rate
 channels
 duration_sec
 frame_count
+guarded_duration_sec
+guarded_frame_count
 recording_type
+tdoa_window_type = "guarded_raw"
 sync_source
 pps_locked
 pps_state
 scheduled_start_utc
 scheduled_start_epoch
-window_utc
-window_epoch
-window_second
 start_error_ms
 actual_duration_sec
 device
 microphone_type
-tdoa_request_id
-request_id
 
-Optional payload fields:
-spectrogram_path
-avis_lite_id
-request_timestamp
-requested_start_utc
-requested_duration_sec
+Success contract:
+status = "success"
+failure_reason = null
+recording_id exactly matches requested_recording_id
+tdoa_window_type = "guarded_raw"
+recording_path = selected_wav_path
+wav_path = selected_wav_path
+guarded_wav_path = selected_wav_path
+selected_wav_path identifies the preserved 16-second guarded raw WAV
+core_wav_path may identify the corresponding 15-second BirdNET WAV
+duration_sec and frame_count describe the selected guarded WAV
+The raw timing evidence from RECORDING_AVAILABLE remains present
+
+Failure contract:
+status = "failure"
+failure_reason is a machine-readable string
+recording_path = null
+wav_path = null
+guarded_wav_path = null
+selected_wav_path = null
+No replacement recording is created
+Available request, candidate, recording, node, and timing lineage remains
+present
+
+Machine-readable failure reasons:
+request_id_missing
+recording_id_missing
+recording_not_found
+recording_event_invalid
+recording_payload_invalid
+recording_id_mismatch
+guarded_wav_path_missing
+guarded_wav_not_found
+recording_unavailable
 
 Expected path:
 TDOA_REQUEST
@@ -730,7 +801,11 @@ TDOA_REQUEST
 -> Server
 
 Atlas note:
-This is currently a recording pointer / metadata / timing package, not embedded audio.
+This event contains metadata and a node-local selected WAV path; it does not
+embed audio. Node Communication owns the later binary upload transaction.
+
+The same guarded WAV may be returned for multiple request IDs. Each response
+retains its own request and candidate lineage.
 
 
 MICROPHONE_SYNCED
