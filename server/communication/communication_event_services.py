@@ -16,6 +16,7 @@
 #   - Document Communication event flow
 #   - Register Communication subscriptions with the Event Bus
 #   - Publish accepted inbound listener events
+#   - Publish validated inbound TDOA upload events
 #   - Publish internal Communication state events
 #   - Keep current GUI and node communication events organized
 #
@@ -54,6 +55,7 @@ class CommunicationEventServices:
 
         "AVIS_LITE",
         "TDOA_RECORDING",
+        "TDOA_VALID_RECORDING",
         "ENVIRO_EVENT",
         "GPS_COORD",
 
@@ -277,6 +279,34 @@ class CommunicationEventServices:
                 event_name,
                 event
             )
+
+    # ========================================================
+    # PUBLISH TDOA RECORDING
+    # ========================================================
+
+    def publish_tdoa_recording(
+        self,
+        event: dict
+    ):
+
+        self.publish_listener_event(
+            event_name="TDOA_RECORDING",
+            event=event
+        )
+
+    # ========================================================
+    # PUBLISH TDOA VALID RECORDING
+    # ========================================================
+
+    def publish_tdoa_valid_recording(
+        self,
+        event: dict
+    ):
+
+        self.publish_listener_event(
+            event_name="TDOA_VALID_RECORDING",
+            event=event
+        )
 
     # ========================================================
     # PUBLISH NETWORK CONNECTED

@@ -31,6 +31,9 @@
 #   - Handle outbound local events
 #   - Convert outbound events to verified server/node/gui events
 #   - Resolve TDOA_REQUEST targets and fan out targeted node unicasts
+#   - Register expected TDOA uploads before transmitting a request
+#   - Start and stop the threaded TDOA HTTP upload receiver
+#   - Publish accepted HTTP uploads and validated recording events
 #   - Decide when messages should be sent
 #   - Decide when messages should be queued
 #   - Flush queued messages when communication becomes available
@@ -44,6 +47,9 @@
 #   - Store queued messages directly
 #   - Persist runtime node IP addresses
 #   - Select nodes for a TDOA request
+#   - Validate multipart metadata or WAV contents directly
+#   - Store uploaded WAV bytes directly
+#   - Count TDOA collection quorum
 #   - Perform Event Bus delivery logic
 #
 # Owner:
@@ -71,8 +77,18 @@ from communication.sender_manager import (
     SenderManager
 )
 
+from communication.tdoa_upload_manager import (
+    TDOAUploadManager
+)
+
+from communication.tdoa_upload_server import (
+    TDOAUploadServer
+)
+
+import copy
 import json
 import logging
+import threading
 
 from datetime import datetime
 from datetime import timezone
@@ -117,6 +133,27 @@ class CommunicationDispatcher:
                 5006
             )
         )
+
+        http_upload_config = self.config.get(
+            "http_upload",
+            {}
+        )
+
+        self.http_upload_enabled = http_upload_config.get(
+            "enabled",
+            True
+        )
+
+        self.tdoa_upload_manager = TDOAUploadManager(
+            config=http_upload_config
+        )
+
+        self.tdoa_upload_server = TDOAUploadServer(
+            dispatcher=self,
+            config=http_upload_config
+        )
+
+        self.tdoa_upload_publish_lock = threading.Lock()
 
         self.wifi_enabled = self.config.get(
             "wifi_enabled",
@@ -178,6 +215,11 @@ class CommunicationDispatcher:
 
         self.running = True
 
+        if self.http_upload_enabled:
+
+            self.tdoa_upload_manager.prepare_storage()
+            self.tdoa_upload_server.start()
+
         if self.udp_enabled:
 
             self.listener_manager.start()
@@ -193,6 +235,8 @@ class CommunicationDispatcher:
     ):
 
         self.running = False
+
+        self.tdoa_upload_server.stop()
 
         self.listener_manager.stop()
 
@@ -413,23 +457,10 @@ class CommunicationDispatcher:
                 self.publish_communication_state()
                 return
 
-            outbound_event = dict(
-                event
-            )
-
-            outbound_event["event_type"] = "TDOA_REQUEST"
-            outbound_event.setdefault(
-                "source",
-                "communication"
-            )
-            outbound_event.setdefault(
-                "target",
-                "node"
-            )
-
             sent_node_ids = []
             missing_node_ids = []
             failed_node_ids = []
+            resolved_routes = {}
 
             for node_id in target_nodes:
 
@@ -451,6 +482,113 @@ class CommunicationDispatcher:
                     )
 
                     continue
+
+                resolved_routes[
+                    node_id
+                ] = route
+
+            if not self.http_upload_enabled:
+
+                self.state.tx_errors += 1
+
+                logging.warning(
+                    "[Communication] TDOA_REQUEST not sent; "
+                    "HTTP upload receiver is disabled: "
+                    f"request_id={request_id}"
+                )
+
+                self.publish_communication_state()
+                return
+
+            if not self.tdoa_upload_server.running:
+
+                self.state.tx_errors += 1
+
+                logging.warning(
+                    "[Communication] TDOA_REQUEST not sent; "
+                    "HTTP upload receiver is not running: "
+                    f"request_id={request_id}"
+                )
+
+                self.publish_communication_state()
+                return
+
+            expected_source_ips = {
+                node_id: route.get(
+                    "host"
+                )
+                for node_id, route in resolved_routes.items()
+            }
+
+            registration = (
+                self.tdoa_upload_manager.register_expected_request(
+                    request_id=request_id,
+                    target_nodes=target_nodes,
+                    request_items=payload.get(
+                        "request_items"
+                    ),
+                    expected_source_ips=expected_source_ips
+                )
+            )
+
+            upload_instructions = (
+                self.tdoa_upload_server.build_upload_instructions(
+                    token=registration["token"]
+                )
+            )
+
+            outbound_event = copy.deepcopy(
+                event
+            )
+
+            outbound_payload = copy.deepcopy(
+                payload
+            )
+
+            outbound_payload[
+                "upload"
+            ] = upload_instructions
+
+            outbound_payload[
+                "upload_registered_at_utc"
+            ] = registration[
+                "created_at_utc"
+            ]
+
+            if isinstance(
+                outbound_event.get("payload"),
+                dict
+            ):
+
+                outbound_event[
+                    "payload"
+                ] = outbound_payload
+
+            else:
+
+                outbound_event.update(
+                    outbound_payload
+                )
+
+            outbound_event["event_type"] = "TDOA_REQUEST"
+            outbound_event.setdefault(
+                "source",
+                "communication"
+            )
+            outbound_event.setdefault(
+                "target",
+                "node"
+            )
+
+            logging.info(
+                "[Communication] TDOA upload request registered: "
+                f"request_id={request_id} "
+                f"expected_nodes={target_nodes} "
+                f"upload_port={upload_instructions.get('port')} "
+                f"upload_path={upload_instructions.get('path')}"
+            )
+
+            for node_id, route in resolved_routes.items():
 
                 success = self._send_targeted_event(
                     event=outbound_event,
@@ -482,6 +620,17 @@ class CommunicationDispatcher:
 
             self.publish_communication_state()
 
+        except ValueError as error:
+
+            self.state.tx_errors += 1
+
+            logging.warning(
+                "[Communication] TDOA_REQUEST registration rejected: "
+                f"{error}"
+            )
+
+            self.publish_communication_state()
+
         except Exception as error:
 
             self.state.tx_errors += 1
@@ -491,6 +640,103 @@ class CommunicationDispatcher:
             )
 
             self.publish_communication_state()
+
+    # ========================================================
+    # HANDLE TDOA HTTP UPLOAD
+    # ========================================================
+
+    def handle_tdoa_http_upload(
+        self,
+        transaction: dict
+    ) -> dict:
+        """
+        Validate one HTTP upload and publish accepted server-local events.
+        """
+
+        with self.tdoa_upload_publish_lock:
+
+            result = self.tdoa_upload_manager.process_upload(
+                transaction
+            )
+
+            self.state.rx_count += 1
+            self.state.last_rx_time = self._utc_now()
+
+            if not result.get(
+                "accepted",
+                False
+            ):
+
+                self.state.rx_errors += 1
+
+                receipt = result.get(
+                    "receipt",
+                    {}
+                )
+
+                logging.warning(
+                    "[Communication] TDOA upload rejected: "
+                    f"source_ip={transaction.get('source_ip')} "
+                    f"reason={receipt.get('failure_reason')} "
+                    f"detail={receipt.get('failure_detail')}"
+                )
+
+                self.publish_communication_state()
+
+                return result
+
+            if result.get(
+                "publish_events",
+                False
+            ):
+
+                recording_event = result[
+                    "tdoa_recording_event"
+                ]
+
+                valid_recording_event = result[
+                    "tdoa_valid_recording_event"
+                ]
+
+                self.event_services.publish_tdoa_recording(
+                    recording_event
+                )
+
+                self.event_services.publish_tdoa_valid_recording(
+                    valid_recording_event
+                )
+
+                receipt = result[
+                    "receipt"
+                ]
+
+                logging.info(
+                    "[Communication] TDOA upload accepted: "
+                    f"request_id={receipt.get('tdoa_request_id')} "
+                    f"node_id={receipt.get('node_id')} "
+                    f"recording_id={receipt.get('recording_id')} "
+                    f"bytes={receipt.get('byte_count')} "
+                    f"sha256={receipt.get('sha256')}"
+                )
+
+            else:
+
+                receipt = result.get(
+                    "receipt",
+                    {}
+                )
+
+                logging.info(
+                    "[Communication] TDOA upload retry accepted "
+                    "idempotently: "
+                    f"request_id={receipt.get('tdoa_request_id')} "
+                    f"node_id={receipt.get('node_id')} "
+                    f"recording_id={receipt.get('recording_id')}"
+                )
+
+            self.publish_communication_state()
+
+            return result
 
     # ========================================================
     # LEARN NODE ROUTE
