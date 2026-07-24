@@ -22,12 +22,15 @@
 #   - Create and own communication_state_manager.py
 #   - Create and own communication_event_services.py
 #   - Create and own listener_manager.py
+#   - Create and own node_route_manager.py
 #   - Create and own sender_manager.py
 #   - Start inbound Communication listening
 #   - Handle inbound decoded events
+#   - Learn runtime node routes from NODE_REGISTER source addresses
 #   - Publish verified listener events to the local event bus
 #   - Handle outbound local events
 #   - Convert outbound events to verified server/node/gui events
+#   - Resolve TDOA_REQUEST targets and fan out targeted node unicasts
 #   - Decide when messages should be sent
 #   - Decide when messages should be queued
 #   - Flush queued messages when communication becomes available
@@ -39,6 +42,8 @@
 #   - Receive UDP packets directly
 #   - Decode packet payloads directly
 #   - Store queued messages directly
+#   - Persist runtime node IP addresses
+#   - Select nodes for a TDOA request
 #   - Perform Event Bus delivery logic
 #
 # Owner:
@@ -58,6 +63,10 @@ from communication.listener_manager import (
     ListenerManager
 )
 
+from communication.node_route_manager import (
+    NodeRouteManager
+)
+
 from communication.sender_manager import (
     SenderManager
 )
@@ -66,6 +75,7 @@ import json
 import logging
 
 from datetime import datetime
+from datetime import timezone
 
 
 class CommunicationDispatcher:
@@ -94,6 +104,18 @@ class CommunicationDispatcher:
 
         self.sender_manager = SenderManager(
             config=self.config
+        )
+
+        udp_config = self.config.get(
+            "udp",
+            {}
+        )
+
+        self.node_route_manager = NodeRouteManager(
+            node_listener_port=udp_config.get(
+                "send_port",
+                5006
+            )
         )
 
         self.wifi_enabled = self.config.get(
@@ -220,6 +242,13 @@ class CommunicationDispatcher:
 
                 return
 
+            if event_type == "NODE_REGISTER":
+
+                self._learn_node_route(
+                    listener_event=listener_event,
+                    message=message
+                )
+
             self._handle_inbound_state_event(
                 event_type=event_type,
                 event=message
@@ -331,7 +360,7 @@ class CommunicationDispatcher:
         event: dict
     ):
         """
-        Handle server-local TDOA_REQUEST and send it to nodes.
+        Resolve and unicast one server-local TDOA_REQUEST to each target node.
         """
 
         try:
@@ -342,6 +371,45 @@ class CommunicationDispatcher:
                 logging.warning(
                     "[Communication] TDOA_REQUEST was not a dictionary."
                 )
+                self.publish_communication_state()
+                return
+
+            payload = self._extract_payload(
+                event
+            )
+
+            request_id = (
+                payload.get("tdoa_request_id")
+                or payload.get("request_id")
+                or event.get("tdoa_request_id")
+                or event.get("request_id")
+            )
+
+            target_nodes = self._extract_target_nodes(
+                event=event,
+                payload=payload
+            )
+
+            if not request_id:
+
+                self.state.tx_errors += 1
+
+                logging.warning(
+                    "[Communication] TDOA_REQUEST missing request ID."
+                )
+
+                self.publish_communication_state()
+                return
+
+            if not target_nodes:
+
+                self.state.tx_errors += 1
+
+                logging.warning(
+                    "[Communication] TDOA_REQUEST has no target_nodes: "
+                    f"request_id={request_id}"
+                )
+
                 self.publish_communication_state()
                 return
 
@@ -359,16 +427,60 @@ class CommunicationDispatcher:
                 "node"
             )
 
-            self.send_event(
-                outbound_event
+            sent_node_ids = []
+            missing_node_ids = []
+            failed_node_ids = []
+
+            for node_id in target_nodes:
+
+                route = self.node_route_manager.resolve_route(
+                    node_id
+                )
+
+                if route is None:
+
+                    self.state.tx_errors += 1
+                    missing_node_ids.append(
+                        node_id
+                    )
+
+                    logging.warning(
+                        "[Communication] TDOA_REQUEST route missing: "
+                        f"request_id={request_id} "
+                        f"node_id={node_id}"
+                    )
+
+                    continue
+
+                success = self._send_targeted_event(
+                    event=outbound_event,
+                    node_id=node_id,
+                    destination=route,
+                    request_id=request_id
+                )
+
+                if success:
+
+                    sent_node_ids.append(
+                        node_id
+                    )
+
+                else:
+
+                    failed_node_ids.append(
+                        node_id
+                    )
+
+            logging.info(
+                "[Communication] TDOA_REQUEST fan-out complete: "
+                f"request_id={request_id} "
+                f"targeted={len(target_nodes)} "
+                f"sent={len(sent_node_ids)} "
+                f"missing_routes={missing_node_ids} "
+                f"send_failures={failed_node_ids}"
             )
 
             self.publish_communication_state()
-
-            logging.info(
-                "[Communication] TDOA_REQUEST sent or queued for nodes: "
-                f"request_id={outbound_event.get('tdoa_request_id') or outbound_event.get('request_id')}"
-            )
 
         except Exception as error:
 
@@ -379,6 +491,268 @@ class CommunicationDispatcher:
             )
 
             self.publish_communication_state()
+
+    # ========================================================
+    # LEARN NODE ROUTE
+    # ========================================================
+
+    def _learn_node_route(
+        self,
+        listener_event: dict,
+        message: dict
+    ):
+        """
+        Learn node_id -> source_ip:node_listener_port from NODE_REGISTER.
+        """
+
+        payload = self._extract_payload(
+            message
+        )
+
+        node_id = (
+            payload.get("node_id")
+            or message.get("node_id")
+            or message.get("source")
+        )
+
+        source_ip = listener_event.get(
+            "source_ip"
+        )
+
+        try:
+
+            result = self.node_route_manager.learn_route(
+                node_id=node_id,
+                source_ip=source_ip
+            )
+
+        except (TypeError, ValueError) as error:
+
+            self.state.rx_errors += 1
+
+            logging.warning(
+                "[Communication] NODE_REGISTER route rejected: "
+                f"node_id={node_id} "
+                f"source_ip={source_ip} "
+                f"reason={error}"
+            )
+
+            return
+
+        route = result[
+            "route"
+        ]
+
+        previous_route = result.get(
+            "previous_route"
+        )
+
+        if (
+            result.get("route_changed")
+            and previous_route is not None
+        ):
+
+            logging.info(
+                "[Communication] Node route replaced: "
+                f"node_id={route['node_id']} "
+                f"old={previous_route.get('host')}:{previous_route.get('port')} "
+                f"new={route['host']}:{route['port']}"
+            )
+
+        elif result.get(
+            "route_changed"
+        ):
+
+            logging.info(
+                "[Communication] Node route learned: "
+                f"node_id={route['node_id']} "
+                f"destination={route['host']}:{route['port']}"
+            )
+
+        else:
+
+            logging.info(
+                "[Communication] Node route refreshed: "
+                f"node_id={route['node_id']} "
+                f"destination={route['host']}:{route['port']}"
+            )
+
+    # ========================================================
+    # TARGETED TDOA SEND
+    # ========================================================
+
+    def _send_targeted_event(
+        self,
+        event: dict,
+        node_id: str,
+        destination: dict,
+        request_id: str
+    ) -> bool:
+        """
+        Send one call-specific unicast without entering the generic queue.
+        """
+
+        message = self.sender_manager.build_message(
+            event
+        )
+
+        if not self._can_send_now():
+
+            self.state.tx_errors += 1
+
+            logging.warning(
+                "[Communication] TDOA_REQUEST not sent; transport unavailable: "
+                f"request_id={request_id} "
+                f"node_id={node_id}"
+            )
+
+            return False
+
+        success = self.sender_manager.send_message(
+            message=message,
+            destination=destination
+        )
+
+        if not success:
+
+            self.state.tx_errors += 1
+
+            logging.warning(
+                "[Communication] TDOA_REQUEST send failed: "
+                f"request_id={request_id} "
+                f"node_id={node_id} "
+                f"destination={destination.get('host')}:{destination.get('port')}"
+            )
+
+            return False
+
+        self.state.tx_count += 1
+        self.state.last_tx_time = self._utc_now()
+
+        self.event_services.publish_event_sent(
+            {
+                "event_type": "EVENT_SENT",
+                "timestamp": self.state.last_tx_time,
+                "message": message,
+                "delivery": {
+                    "mode": "targeted_unicast",
+                    "node_id": node_id,
+                    "host": destination.get("host"),
+                    "port": destination.get("port")
+                },
+                "tdoa_request_id": request_id
+            }
+        )
+
+        logging.info(
+            "[Communication] TDOA_REQUEST sent: "
+            f"request_id={request_id} "
+            f"node_id={node_id} "
+            f"destination={destination.get('host')}:{destination.get('port')}"
+        )
+
+        return True
+
+    # ========================================================
+    # REQUEST HELPERS
+    # ========================================================
+
+    def _extract_payload(
+        self,
+        event: dict
+    ) -> dict:
+
+        if not isinstance(
+            event,
+            dict
+        ):
+
+            return {}
+
+        payload = event.get(
+            "payload"
+        )
+
+        if isinstance(
+            payload,
+            dict
+        ):
+
+            return payload
+
+        return event
+
+    def _extract_target_nodes(
+        self,
+        event: dict,
+        payload: dict
+    ) -> list:
+
+        target_nodes = payload.get(
+            "target_nodes"
+        )
+
+        if target_nodes is None:
+
+            target_nodes = event.get(
+                "target_nodes"
+            )
+
+        if isinstance(
+            target_nodes,
+            str
+        ):
+
+            raw_node_ids = [
+                target_nodes
+            ]
+
+        elif isinstance(
+            target_nodes,
+            (
+                list,
+                tuple,
+                set
+            )
+        ):
+
+            raw_node_ids = list(
+                target_nodes
+            )
+
+        else:
+
+            return []
+
+        unique_node_ids = []
+        seen_node_ids = set()
+
+        for raw_node_id in raw_node_ids:
+
+            if raw_node_id is None:
+
+                continue
+
+            node_id = str(
+                raw_node_id
+            ).strip()
+
+            if (
+                not node_id
+                or node_id in seen_node_ids
+            ):
+
+                continue
+
+            seen_node_ids.add(
+                node_id
+            )
+
+            unique_node_ids.append(
+                node_id
+            )
+
+        return unique_node_ids
 
     # ========================================================
     # HANDLE COMMUNICATION CHANGE MODE
@@ -1198,4 +1572,13 @@ class CommunicationDispatcher:
         self
     ) -> str:
 
-        return datetime.utcnow().isoformat()
+        return (
+            datetime.now(
+                timezone.utc
+            )
+            .isoformat()
+            .replace(
+                "+00:00",
+                "Z"
+            )
+        )

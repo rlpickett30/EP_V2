@@ -20,9 +20,11 @@
 #
 # Does:
 #   - Serialize outbound messages as JSON
-#   - Send UDP packets
+#   - Send UDP packets to the configured default destination
+#   - Send a packet to a call-specific destination
 #   - Report send success or failure
-#   - Allow destination updates
+#   - Preserve the configured default during call-specific sends
+#   - Allow deliberate default-destination updates
 #   - Close the UDP socket
 #
 # Does NOT:
@@ -43,8 +45,10 @@
 # ============================================================
 
 import json
-import socket
 import logging
+import socket
+
+from typing import Optional
 
 
 # ============================================================
@@ -73,10 +77,15 @@ class UDPSender:
 
     def send(
         self,
-        message: dict
+        message: dict,
+        destination: Optional[dict] = None
     ) -> bool:
 
         try:
+
+            send_host, send_port = self._resolve_destination(
+                destination
+            )
 
             payload = json.dumps(
                 message
@@ -87,8 +96,8 @@ class UDPSender:
             self.socket.sendto(
                 payload,
                 (
-                    self.host,
-                    self.port
+                    send_host,
+                    send_port
                 )
             )
 
@@ -102,6 +111,66 @@ class UDPSender:
             )
 
             return False
+
+    # ========================================================
+    # RESOLVE DESTINATION
+    # ========================================================
+
+    def _resolve_destination(
+        self,
+        destination: Optional[dict]
+    ) -> tuple[str, int]:
+
+        if destination is None:
+
+            return (
+                self.host,
+                self.port
+            )
+
+        if not isinstance(
+            destination,
+            dict
+        ):
+
+            raise TypeError(
+                "UDP destination must be a dictionary."
+            )
+
+        host = destination.get(
+            "host"
+        )
+
+        port = destination.get(
+            "port"
+        )
+
+        if not host:
+
+            raise ValueError(
+                "UDP destination is missing host."
+            )
+
+        if port is None:
+
+            raise ValueError(
+                "UDP destination is missing port."
+            )
+
+        normalized_port = int(
+            port
+        )
+
+        if not 1 <= normalized_port <= 65535:
+
+            raise ValueError(
+                f"Invalid UDP destination port: {port}"
+            )
+
+        return (
+            str(host),
+            normalized_port
+        )
 
     # ========================================================
     # SET DESTINATION

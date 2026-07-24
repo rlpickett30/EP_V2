@@ -22,7 +22,8 @@
 #   - Create and own udp_sender.py
 #   - Create and own sender_database.py
 #   - Build outbound messages
-#   - Send prepared messages
+#   - Send prepared messages to the configured default destination
+#   - Send prepared messages to an explicit call-specific destination
 #   - Store queued messages
 #   - Retrieve queued messages
 #   - Remove sent messages from queue
@@ -59,6 +60,7 @@ from communication.sender_database import (
 
 from typing import Dict
 from typing import List
+from typing import Optional
 
 
 # ============================================================
@@ -121,11 +123,13 @@ class SenderManager:
 
     def send_message(
         self,
-        message: Dict
+        message: Dict,
+        destination: Optional[Dict] = None
     ) -> bool:
 
         return self.udp_sender.send(
-            message
+            message=message,
+            destination=destination
         )
 
     # ========================================================

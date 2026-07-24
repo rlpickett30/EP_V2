@@ -871,7 +871,21 @@ Current status:
 Drawn as TDOA publication, Communication-sender subscription, and Event Journal subscription.
 
 Notes / legacy aliases:
-Need to confirm target format: selected nodes, all capable nodes, or cluster ID.
+The canonical target list is payload.target_nodes.
+Communication learns runtime node_id -> source_ip:node_listener_port routes
+from inbound NODE_REGISTER packets.
+The source IP comes from the UDP packet envelope, not node configuration.
+The source port is not reused; all nodes listen on the shared configured
+node UDP listener port.
+Communication deduplicates target_nodes while preserving order and sends the
+same complete TDOA_REQUEST envelope once to every resolved target by unicast.
+Nodes not listed in target_nodes receive no packet.
+An unknown node route is logged and is never sent to the default GUI
+destination.
+Targeted request sends do not enter the generic queue because the existing
+queue schema does not preserve call-specific destinations.
+Routes are runtime-only and are replaced whenever a node registers from a
+new IP address.
 
 TDOA_COMPLETE_SET:
 Purpose:
