@@ -418,11 +418,13 @@ Database should consume SERVER_AVIS_LITE, not raw AVIS_LITE.
 
 TDOA_RECORDING:
 Purpose:
-Inbound node response containing or referencing a synchronized recording.
+Inbound node answer to one request-scoped recording item.
 
 Publishing subsystem:
 Node Microphone subsystem
 Server Communication-listener republishes it after receiving it from a node.
+Server Communication also rebuilds a successful upload as a server-local
+TDOA_RECORDING after HTTP validation.
 
 Subscribing subsystem(s):
 Server Communication-listener
@@ -431,7 +433,9 @@ Event Journal
 
 Reason for subscription:
 Communication-listener receives and republishes the node recording response.
-TDOA collects recording responses until a complete valid set exists.
+TDOA records that the requested node answered.
+An explicit status=failure answer becomes a terminal node failure.
+A status=success answer does not count toward quorum by itself.
 Event Journal records the inbound recording event.
 
 Path / timeline:
@@ -440,13 +444,53 @@ TDOA_REQUEST
 -> TDOA_RECORDING
 -> Server Communication-listener
 -> TDOA recording manager
+
+Successful binary path:
+TDOA_REQUEST
+-> node microphone recording
+-> node Communication HTTP upload
+-> Server Communication validation
+-> server-local TDOA_RECORDING
+-> TDOA_VALID_RECORDING
+
+Current status:
+Implemented as TDOA subscription and request-scoped node-answer evidence.
+
+Notes / legacy aliases:
+Node failures travel over UDP as status=failure and include failure_reason.
+Successful audio travels by guarded-WAV HTTP upload.
+Only TDOA_VALID_RECORDING counts toward collection quorum.
+
+TDOA_VALID_RECORDING:
+Purpose:
+Server-local notice that Communication accepted one exact request/node/
+recording upload and validated its guarded WAV and timing schema.
+
+Publishing subsystem:
+Server Communication
+
+Subscribing subsystem(s):
+TDOA
+Event Journal
+
+Reason for subscription:
+TDOA counts only server-validated recordings toward collection quorum.
+Event Journal records accepted request-scoped WAV evidence.
+
+Path / timeline:
+Node guarded WAV HTTP upload
+-> Server Communication validation
+-> TDOA_VALID_RECORDING
+-> TDOA recording manager
 -> possible TDOA_COMPLETE_SET
 
 Current status:
-Drawn as TDOA subscription.
+Implemented by Server Communication and TDOA.
 
 Notes / legacy aliases:
-Need to confirm whether payload contains raw audio, file path, metadata, or staged recording reference.
+The payload must preserve tdoa_request_id, node_id, recording_id, and the
+exact server_wav_path. Node-local file paths are evidence only and are never
+used by server TDOA calculation.
 
 ============================================================
 PLATFORM REGISTRY PUBLICATIONS
@@ -887,12 +931,44 @@ queue schema does not preserve call-specific destinations.
 Routes are runtime-only and are replaced whenever a node registers from a
 new IP address.
 
-TDOA_COMPLETE_SET:
+TDOA_REQUEST_FAILED:
 Purpose:
-Notice that the required TDOA recording set has been collected and is ready for analysis.
+Notice that a request-scoped recording collection closed below quorum before
+calculation began.
 
 Publishing subsystem:
-TDOA recording manager / cluster consensus logic
+TDOA
+
+Subscribing subsystem(s):
+Event Journal
+
+Reason for subscription:
+The event preserves requested nodes, answers, explicit failures, valid
+recordings, missing nodes, deadline, and closure reason without falsely
+claiming that TDOA calculation failed.
+
+Path / timeline:
+TDOA_REQUEST
+-> TDOA_RECORDING and TDOA_VALID_RECORDING collection
+-> all requested nodes terminal or collection deadline
+-> valid recording count below required quorum
+-> TDOA_REQUEST_FAILED
+
+Current status:
+Implemented as the canonical below-quorum collection failure.
+
+Notes / legacy aliases:
+Do not use TDOA_CALC_FAILED for this condition because calculation never
+started. closure_reason is all_returned or timeout; failure_reason is
+below_quorum.
+
+TDOA_COMPLETE_SET:
+Purpose:
+Notice that at least the required quorum of server-validated recordings has
+been collected and is ready for analysis.
+
+Publishing subsystem:
+TDOA dispatcher after TDOA recording manager closure
 
 Subscribing subsystem(s):
 TDOA analysis manager
@@ -903,17 +979,24 @@ TDOA analysis should run only after enough valid recordings are available.
 Event Journal records when a complete set is formed.
 
 Path / timeline:
-Multiple TDOA_RECORDING events
--> TDOA recording manager validates set
+Multiple TDOA_RECORDING and TDOA_VALID_RECORDING events
+-> TDOA recording manager tracks answers, failures, validity, and deadline
 -> TDOA_COMPLETE_SET
 -> TDOA analysis manager
 -> TDOA_CALC
 
 Current status:
-Drawn as TDOA publication, TDOA internal subscription, and Event Journal subscription.
+Implemented as TDOA publication and internal calculation handoff.
 
 Notes / legacy aliases:
-This appears to be an internal TDOA handoff event.
+The default quorum is four valid recordings.
+closure_reason=all_returned means every requested node reached either a
+validated recording or an explicit failure.
+closure_reason=timeout_quorum means the deadline expired with quorum even
+though one or more requested nodes remained unresolved.
+recording_references and recording_events contain only exact request-scoped
+server WAV paths from TDOA_VALID_RECORDING. Calculation must not replace them
+with a species-based search of global recording history.
 
 TDOA_CALC:
 Purpose:
@@ -1195,13 +1278,14 @@ NODE_TDOA_STATE
 TDOA_CAPABLE
 AVIS_LITE
 TDOA_RECORDING
-TDOA_COMPLETE_SET
+TDOA_VALID_RECORDING
 
 TDOA publishes:
 TDOA_MODE_UPDATED
 TDOA_NODE_STATE_UPDATED
 TDOA_CAPABLE
 TDOA_REQUEST
+TDOA_REQUEST_FAILED
 TDOA_COMPLETE_SET
 TDOA_CALC
 
@@ -1223,6 +1307,7 @@ ENVIRO_EVENT
 GPS_COORD
 AVIS_LITE
 TDOA_RECORDING
+TDOA_VALID_RECORDING
 REGISTRY_UPDATED
 SERVER_NODE_REGISTER
 SERVER_ENVIRO_EVENT
@@ -1236,6 +1321,7 @@ TDOA_MODE_UPDATED
 TDOA_NODE_STATE_UPDATED
 TDOA_CAPABLE
 TDOA_REQUEST
+TDOA_REQUEST_FAILED
 TDOA_COMPLETE_SET
 TDOA_CALC
 COMMUNICATION_CHANGE_MODE

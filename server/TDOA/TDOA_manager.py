@@ -315,18 +315,19 @@ class TDOAManager:
 
     def tdoa_estimate(
         self,
-        candidate: dict
+        candidate: dict,
+        recording_events: Optional[list] = None
     ) -> dict:
         """
         Run the full TDOA calculation pipeline for one candidate.
 
         Called by:
-            TDOA_dispatcher._handle_candidate_ready()
+            TDOA_dispatcher._handle_tdoa_complete_set()
 
         Pipeline:
-            candidate
+            candidate + exact validated recording events
                 ↓
-            recordings selected
+            recordings normalized
                 ↓
             TDOA_event_detection.py
                 ↓
@@ -355,9 +356,17 @@ class TDOAManager:
                 candidate
             )
 
-            recordings = self._select_recordings_for_candidate(
-                candidate
-            )
+            if recording_events is not None:
+
+                recordings = self._normalize_exact_recording_events(
+                    recording_events
+                )
+
+            else:
+
+                recordings = self._select_recordings_for_candidate(
+                    candidate
+                )
 
             if not recordings:
                 raise RuntimeError(
@@ -449,6 +458,61 @@ class TDOAManager:
     # ========================================================
     # RECORDING SELECTION
     # ========================================================
+
+    def _normalize_exact_recording_events(
+        self,
+        recording_events: list
+    ) -> list:
+        """
+        Normalize the exact request-scoped events in TDOA_COMPLETE_SET.
+
+        Block 4 complete sets contain only Communication-validated server WAV
+        references. They must not be replaced by a species-based search of the
+        global recording store.
+        """
+
+        if not isinstance(recording_events, list):
+            raise TypeError(
+                "Exact TDOA recording events must be a list."
+            )
+
+        normalized_recordings = []
+        seen_node_ids = set()
+
+        for recording_event in recording_events:
+
+            if not isinstance(recording_event, dict):
+                raise TypeError(
+                    "Exact TDOA recording event must be a dictionary."
+                )
+
+            normalized_recording = self._normalize_recording_event(
+                recording_event
+            )
+
+            node_id = normalized_recording.get(
+                "node_id"
+            )
+
+            if node_id is None:
+                raise ValueError(
+                    "Exact TDOA recording event is missing node_id."
+                )
+
+            if node_id in seen_node_ids:
+                raise ValueError(
+                    f"Duplicate exact TDOA recording node: {node_id}"
+                )
+
+            seen_node_ids.add(
+                node_id
+            )
+
+            normalized_recordings.append(
+                normalized_recording
+            )
+
+        return normalized_recordings
 
     def _select_recordings_for_candidate(
         self,

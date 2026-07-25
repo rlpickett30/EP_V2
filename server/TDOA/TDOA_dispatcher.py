@@ -1,48 +1,42 @@
 # ============================================================
-# birdnet_dispatcher.py
+# TDOA_dispatcher.py
 #
-# EnviroPulse V2.0
+# EnviroPulse V2
 #
 # Subsystem:
-#   BirdNET
+#   TDOA
 #
 # Role:
 #   Dispatcher
 #
 # Purpose:
-#   Own the BirdNET subsystem workflow. Receive recording and GPS events,
-#   coordinate BirdNetManager analysis, and publish canonical AVIS_LITE
-#   events through BirdNetEventServices.
+#   Own TDOA subsystem workflow from candidate collection through calculation.
 #
 # Expected config source:
-#   birdnet_config.json
+#   TDOA_config.json
 #
 # Expected config section:
 #   Full file
 #
 # Does:
-#   - Load BirdNET configuration
-#   - Start and stop the BirdNET subsystem
-#   - Register BirdNET event subscriptions
-#   - Track runtime BirdNET location state
-#   - Handle GPS_COORD events
-#   - Handle RECORDING_AVAILABLE events
-#   - Queue recordings for asynchronous BirdNET analysis
-#   - Coordinate BirdNetManager
-#   - Build canonical AVIS_LITE events
-#   - Attach payload-safe spectrogram packages when available
-#   - Publish AVIS_LITE events through BirdNetEventServices
+#   - Load TDOA configuration
+#   - Start and stop TDOA subscriptions and deadline monitoring
+#   - Track node readiness and recent AVIS_LITE events
+#   - Select TDOA candidates
+#   - Build and publish request-scoped TDOA_REQUEST events
+#   - Coordinate request-scoped recording collection
+#   - Count only TDOA_VALID_RECORDING events toward quorum
+#   - Publish exact TDOA_COMPLETE_SET packages
+#   - Publish TDOA_REQUEST_FAILED below quorum
+#   - Coordinate TDOA calculation work
 #
 # Does NOT:
-#   - Analyze WAV files directly
-#   - Generate spectrograms directly
+#   - Receive or validate HTTP uploads
+#   - Validate WAV contents directly
 #   - Subscribe directly to the event bus
 #   - Publish directly to the event bus
-#   - Rewrite runtime GPS values back into config
-#   - Publish state events
-#   - Publish mode events
-#   - Own node registration
-#   - Send AVIS_LITE to the server directly
+#   - Perform signal analysis directly
+#   - Own node or Communication state
 #
 # Owner:
 #   Main / Subsystem root
@@ -56,9 +50,9 @@
 from TDOA.TDOA_event_services import TDOAEventServices
 from TDOA.TDOA_state_manager import TDOAStateManager
 from TDOA.candidate_filter import CandidateFilter
+from TDOA.TDOA_recording_manager import TDOARecordingManager
 
-# Future manager import.
-# TDOA_manager.py must provide:
+# TDOA_manager.py provides:
 #
 #   class TDOAManager:
 #       def update_mode(self, mode_name: str, mode_value: Any) -> dict | None:
@@ -81,6 +75,7 @@ from TDOA.TDOA_manager import TDOAManager
 
 import json
 import logging
+import threading
 import uuid
 
 from datetime import datetime
@@ -136,10 +131,6 @@ class TDOADispatcher:
             500
         )
 
-        self.pending_tdoa_requests = {}
-
-        self.completed_tdoa_requests = set()
-
         self.event_services = TDOAEventServices(
             event_bus=event_bus
         )
@@ -155,6 +146,13 @@ class TDOADispatcher:
         self.manager = TDOAManager(
             config=self.config
         )
+
+        self.recording_manager = TDOARecordingManager(
+            config=self.config
+        )
+
+        self.collection_monitor_stop = threading.Event()
+        self.collection_monitor_thread = None
 
         self.running = False
         self.subscribed = False
@@ -183,6 +181,8 @@ class TDOADispatcher:
 
         self.running = True
 
+        self._start_collection_deadline_monitor()
+
         logging.info(
             "[TDOA] Dispatcher ready."
         )
@@ -200,9 +200,83 @@ class TDOADispatcher:
 
         self.running = False
 
+        self.collection_monitor_stop.set()
+
+        if (
+            self.collection_monitor_thread is not None
+            and self.collection_monitor_thread.is_alive()
+        ):
+            self.collection_monitor_thread.join(
+                timeout=2.0
+            )
+
+        self.collection_monitor_thread = None
+
         logging.info(
             "[TDOA] Dispatcher stopped."
         )
+
+    # ========================================================
+    # COLLECTION DEADLINE MONITOR
+    # ========================================================
+
+    def _start_collection_deadline_monitor(
+        self
+    ):
+        """
+        Start the dispatcher-owned transaction deadline monitor.
+        """
+
+        if (
+            self.collection_monitor_thread is not None
+            and self.collection_monitor_thread.is_alive()
+        ):
+            return
+
+        self.collection_monitor_stop.clear()
+
+        self.collection_monitor_thread = threading.Thread(
+            target=self._collection_deadline_loop,
+            name="tdoa-collection-deadline-monitor",
+            daemon=True
+        )
+
+        self.collection_monitor_thread.start()
+
+    def _collection_deadline_loop(
+        self
+    ):
+        """
+        Ask the recording manager for expired transactions.
+
+        The manager records timing evidence. The dispatcher owns the workflow
+        decision to publish completion or failure events.
+        """
+
+        poll_interval = (
+            self.recording_manager.deadline_poll_interval_seconds
+        )
+
+        while not self.collection_monitor_stop.wait(
+            poll_interval
+        ):
+
+            try:
+
+                closures = (
+                    self.recording_manager.close_expired_requests()
+                )
+
+                for closure in closures:
+                    self._handle_collection_update(
+                        closure
+                    )
+
+            except Exception:
+
+                logging.exception(
+                    "[TDOA] Collection deadline monitor failed."
+                )
 
     # ========================================================
     # CONFIG
@@ -301,6 +375,13 @@ class TDOADispatcher:
         if event_type == TDOAEventServices.EVENT_TDOA_RECORDING:
 
             self._handle_tdoa_recording(
+                event
+            )
+            return
+
+        if event_type == TDOAEventServices.EVENT_TDOA_VALID_RECORDING:
+
+            self._handle_tdoa_valid_recording(
                 event
             )
             return
@@ -919,13 +1000,38 @@ class TDOADispatcher:
             )
             return
 
-        self.pending_tdoa_requests[request["tdoa_request_id"]] = {
-            "request": request,
-            "candidate": candidate,
-            "required_node_ids": set(request.get("target_nodes", [])),
-            "responses": {},
-            "complete": False
-        }
+        try:
+
+            transaction = self.recording_manager.open_request(
+                request=request,
+                candidate=candidate
+            )
+
+        except Exception as error:
+
+            logging.exception(
+                "[TDOA] Could not open recording collection transaction."
+            )
+
+            self.event_services.publish_tdoa_request_failed(
+                {
+                    "success": False,
+                    "status": "failed",
+                    "tdoa_request_id": request.get(
+                        "tdoa_request_id"
+                    ),
+                    "request_id": request.get(
+                        "tdoa_request_id"
+                    ),
+                    "candidate": candidate,
+                    "request": request,
+                    "closure_reason": "request_open_failed",
+                    "failure_reason": "transaction_open_failed",
+                    "failure_detail": str(error)
+                }
+            )
+
+            return
 
         self.event_services.publish_tdoa_request(
             request
@@ -934,7 +1040,8 @@ class TDOADispatcher:
         logging.info(
             "[TDOA] Published TDOA_REQUEST: "
             f"request_id={request.get('tdoa_request_id')} "
-            f"target_nodes={request.get('target_nodes')}"
+            f"target_nodes={request.get('target_nodes')} "
+            f"deadline={transaction.get('collection_deadline_at_utc')}"
         )
 
     def _build_tdoa_request(
@@ -1054,132 +1161,136 @@ class TDOADispatcher:
         event: dict
     ) -> None:
         """
-        Store a TDOA_RECORDING response and complete the request when all
-        requested nodes have answered.
+        Record one raw node answer.
+
+        Raw success responses do not count toward quorum. Explicit failure
+        responses are terminal node answers.
         """
 
         try:
 
-            result = self.manager.store_tdoa_recording(
+            update = self.recording_manager.record_node_answer(
                 event
             )
 
-            if result is not None:
-                self.event_services.publish_tdoa_state_update(
-                    result
-                )
-
-            payload = event.get(
-                "payload",
-                event
+            self._handle_collection_update(
+                update
             )
 
-            if not isinstance(payload, dict):
-                return
-
-            request_id = (
-                payload.get("tdoa_request_id")
-                or payload.get("request_id")
-                or event.get("tdoa_request_id")
-                or event.get("request_id")
-            )
-
-            node_id = (
-                payload.get("node_id")
-                or event.get("node_id")
-            )
-
-            if request_id is None or node_id is None:
-                logging.info(
-                    "[TDOA] Stored TDOA_RECORDING without request tracking: "
-                    f"request_id={request_id} node_id={node_id}"
-                )
-                return
-
-            self._store_tdoa_recording_response(
-                request_id=request_id,
-                node_id=node_id,
-                event=event
-            )
-
-        except Exception as error:
+        except Exception:
 
             logging.exception(
-                "TDOA recording handling failed."
+                "[TDOA] Raw recording response handling failed."
             )
 
-            self.event_services.publish_tdoa_calc_failed(
-                {
-                    "error": str(error),
-                    "source_event": event
-                }
-            )
-
-    def _store_tdoa_recording_response(
+    def _handle_tdoa_valid_recording(
         self,
-        request_id: str,
-        node_id: str,
         event: dict
     ) -> None:
         """
-        Store one node response and trigger solve when the complete set exists.
+        Add one Communication-validated server WAV to its transaction.
         """
 
-        pending = self.pending_tdoa_requests.get(
-            request_id
-        )
+        try:
 
-        if pending is None:
-            logging.warning(
-                "[TDOA] Received TDOA_RECORDING for unknown request: "
-                f"request_id={request_id} node_id={node_id}"
+            update = self.recording_manager.record_valid_recording(
+                event
             )
+
+            self._handle_collection_update(
+                update
+            )
+
+        except Exception:
+
+            logging.exception(
+                "[TDOA] Valid recording handling failed."
+            )
+
+    def _handle_collection_update(
+        self,
+        update: dict
+    ) -> None:
+        """
+        Apply one manager-returned transaction result.
+        """
+
+        if not isinstance(update, dict):
             return
 
-        pending["responses"][node_id] = event
-
-        required_node_ids = pending.get(
-            "required_node_ids",
-            set()
+        action = update.get(
+            "action"
         )
 
-        received_node_ids = set(
-            pending["responses"].keys()
+        request_id = update.get(
+            "tdoa_request_id"
+        )
+
+        payload = update.get(
+            "payload",
+            {}
+        )
+
+        if action == "ignored":
+
+            logging.warning(
+                "[TDOA] Collection event ignored: "
+                f"request_id={request_id} "
+                f"node_id={update.get('node_id')} "
+                f"reason={update.get('reason')}"
+            )
+
+            return
+
+        if action == "pending":
+
+            logging.info(
+                "[TDOA] Collection progress: "
+                f"request_id={request_id} "
+                f"answered={payload.get('answered_node_count')}/"
+                f"{payload.get('requested_node_count')} "
+                f"valid={payload.get('valid_recording_count')}/"
+                f"{payload.get('required_valid_recordings')} "
+                f"failures={payload.get('explicit_failure_count')}"
+            )
+
+            return
+
+        if action == "failed":
+
+            self.event_services.publish_tdoa_request_failed(
+                payload
+            )
+
+            logging.warning(
+                "[TDOA] Recording collection failed: "
+                f"request_id={request_id} "
+                f"closure={payload.get('closure_reason')} "
+                f"valid={payload.get('valid_recording_count')}/"
+                f"{payload.get('required_valid_recordings')} "
+                f"missing={payload.get('missing_node_ids')}"
+            )
+
+            return
+
+        if action != "complete":
+            return
+
+        self.event_services.publish_tdoa_complete_set(
+            payload
         )
 
         logging.info(
-            "[TDOA] TDOA_RECORDING response accepted: "
-            f"request_id={request_id} node_id={node_id} "
-            f"received={len(received_node_ids)}/{len(required_node_ids)}"
-        )
-
-        if pending.get("complete", False):
-            return
-
-        if not required_node_ids.issubset(received_node_ids):
-            return
-
-        pending["complete"] = True
-
-        complete_set = {
-            "tdoa_request_id": request_id,
-            "request": pending.get("request"),
-            "candidate": pending.get("candidate"),
-            "node_ids": sorted(received_node_ids),
-            "required_node_ids": sorted(required_node_ids),
-            "recording_events": [
-                pending["responses"][node_id]
-                for node_id in sorted(required_node_ids)
-            ],
-            "completed_at_utc": datetime.utcnow().isoformat()
-        }
-
-        self.event_services.publish_tdoa_complete_set(
-            complete_set
+            "[TDOA] Recording collection complete: "
+            f"request_id={request_id} "
+            f"closure={payload.get('closure_reason')} "
+            f"valid={payload.get('valid_recording_count')}/"
+            f"{payload.get('requested_node_count')} "
+            f"missing={payload.get('missing_node_ids')}"
         )
 
         self._handle_tdoa_complete_set(
-            complete_set
+            payload
         )
 
     def _handle_tdoa_complete_set(
@@ -1195,14 +1306,23 @@ class TDOADispatcher:
         )
 
         candidate = complete_set.get(
-            "candidate"
+            "candidate",
+            {}
+        )
+
+        node_ids = complete_set.get(
+            "valid_node_ids",
+            []
         )
 
         self.event_services.publish_tdoa_calc_started(
             {
                 "tdoa_request_id": request_id,
                 "candidate": candidate,
-                "node_ids": complete_set.get("node_ids", [])
+                "node_ids": node_ids,
+                "closure_reason": complete_set.get(
+                    "closure_reason"
+                )
             }
         )
 
@@ -1210,12 +1330,19 @@ class TDOADispatcher:
             {
                 "tdoa_request_id": request_id,
                 "candidate": candidate,
-                "node_ids": complete_set.get("node_ids", [])
+                "node_ids": node_ids,
+                "closure_reason": complete_set.get(
+                    "closure_reason"
+                )
             }
         )
 
         result = self.manager.tdoa_estimate(
-            candidate
+            candidate=candidate,
+            recording_events=complete_set.get(
+                "recording_events",
+                []
+            )
         )
 
         result["tdoa_request_id"] = request_id

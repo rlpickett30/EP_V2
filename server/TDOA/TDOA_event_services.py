@@ -56,10 +56,12 @@ TDOA_CAPABLE_LOST = "TDOA_CAPABLE_LOST"
 # canonical names without Event Services having to subscribe to them yet.
 AVIS_LITE = "AVIS_LITE"
 TDOA_RECORDING = "TDOA_RECORDING"
+TDOA_VALID_RECORDING = "TDOA_VALID_RECORDING"
 WEATHER_UPDATE = "WEATHER_UPDATE"
 
 TDOA_CANDIDATE_READY = "TDOA_CANDIDATE_READY"
 TDOA_REQUEST = "TDOA_REQUEST"
+TDOA_REQUEST_FAILED = "TDOA_REQUEST_FAILED"
 TDOA_COMPLETE_SET = "TDOA_COMPLETE_SET"
 TDOA_CALC_STARTED = "TDOA_CALC_STARTED"
 TDOA_CALC_REQUESTED = "TDOA_CALC_REQUESTED"
@@ -86,12 +88,24 @@ class TDOAEventServices:
     Current real subscriptions:
         - TDOA_CHANGE_MODE
         - NODE_TDOA_STATE
+        - AVIS_LITE
+        - TDOA_RECORDING
+        - TDOA_VALID_RECORDING
+        - WEATHER_UPDATE
 
     Current real publications:
         - TDOA_MODE_UPDATED
         - TDOA_NODE_STATE_UPDATED
         - TDOA_CAPABLE
         - TDOA_CAPABLE_LOST
+        - TDOA_CANDIDATE_READY
+        - TDOA_REQUEST
+        - TDOA_REQUEST_FAILED
+        - TDOA_COMPLETE_SET
+        - TDOA_CALC_STARTED
+        - TDOA_CALC_REQUESTED
+        - TDOA_CALC_COMPLETE
+        - TDOA_CALC_FAILED
     """
 
     EVENT_TDOA_CHANGE_MODE = TDOA_CHANGE_MODE
@@ -110,10 +124,12 @@ class TDOAEventServices:
 
     EVENT_AVIS_LITE = AVIS_LITE
     EVENT_TDOA_RECORDING = TDOA_RECORDING
+    EVENT_TDOA_VALID_RECORDING = TDOA_VALID_RECORDING
     EVENT_WEATHER_UPDATE = WEATHER_UPDATE
 
     EVENT_TDOA_CANDIDATE_READY = TDOA_CANDIDATE_READY
     EVENT_TDOA_REQUEST = TDOA_REQUEST
+    EVENT_TDOA_REQUEST_FAILED = TDOA_REQUEST_FAILED
     EVENT_TDOA_COMPLETE_SET = TDOA_COMPLETE_SET
     EVENT_TDOA_CALC_STARTED = TDOA_CALC_STARTED
     EVENT_TDOA_CALC_REQUESTED = TDOA_CALC_REQUESTED
@@ -191,7 +207,17 @@ class TDOAEventServices:
                 )
             )
         )
-        
+
+        self.event_bus.subscribe(
+            TDOA_VALID_RECORDING,
+            lambda payload: dispatcher.handle_event(
+                self._build_inbound_event(
+                    event_name=TDOA_VALID_RECORDING,
+                    payload=payload
+                )
+            )
+        )
+
         self.event_bus.subscribe(
             WEATHER_UPDATE,
             lambda payload: dispatcher.handle_event(
@@ -264,6 +290,12 @@ class TDOAEventServices:
     def publish_tdoa_request(self, payload):
         self._publish(
             event_name=TDOA_REQUEST,
+            payload=payload
+        )
+
+    def publish_tdoa_request_failed(self, payload):
+        self._publish(
+            event_name=TDOA_REQUEST_FAILED,
             payload=payload
         )
 
