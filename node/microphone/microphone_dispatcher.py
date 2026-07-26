@@ -28,10 +28,13 @@
 #   - Own Recycler
 #   - Own MicrophoneEventServices
 #   - Own PPSAnchorJournal
+#   - Own MicrophoneClockModelManager
 #   - Subscribe to PPS_STATE events through MicrophoneEventServices
 #   - Subscribe to PPS_EDGE events through MicrophoneEventServices
 #   - Build local PPS/sample lookup records without declaring sync
-#   - Persist finalized PPS/sample anchor evidence without declaring sync
+#   - Fit GNSS-labeled PPS/sample anchors into a graded clock model
+#   - Persist finalized PPS/sample anchors and clock-model evidence
+#   - Associate the current model and nearby anchors with guarded recordings
 #   - Subscribe to GPS_STATE events through MicrophoneEventServices
 #   - Subscribe to TDOA_REQUEST events through MicrophoneEventServices
 #   - Track PPS lock state
@@ -80,6 +83,7 @@ from queue import Empty
 from queue import Full
 from queue import Queue
 
+from microphone.microphone_clock_model import MicrophoneClockModelManager
 from microphone.microphone_loop import MicrophoneLoop
 from microphone.microphone_manager import MicrophoneManager
 from microphone.microphone_event_services import MicrophoneEventServices
@@ -152,6 +156,23 @@ class MicrophoneDispatcher:
             recordings_root=self.config["recordings_root"],
             node_id=self.node_id,
             debug=self.debug
+        )
+
+        self.clock_model_manager = (
+            MicrophoneClockModelManager(
+                recordings_root=self.config[
+                    "recordings_root"
+                ],
+                node_id=self.node_id,
+                nominal_sample_rate_hz=(
+                    self.loop.sample_rate
+                ),
+                anchor_evidence_path=(
+                    self.pps_anchor_journal
+                    .output_path
+                ),
+                debug=self.debug
+            )
         )
 
         self.pps_locked = False
@@ -662,6 +683,70 @@ class MicrophoneDispatcher:
                 payload,
                 ["sequence_reset", "pps_sequence_reset"],
                 default=snapshot.get("sequence_reset")
+            ),
+            "utc_label_valid": bool(
+                self.get_first_available(
+                    payload,
+                    ["utc_label_valid"],
+                    default=False
+                )
+            ),
+            "utc_label_state": (
+                self.get_first_available(
+                    payload,
+                    ["utc_label_state"]
+                )
+            ),
+            "utc_source": (
+                self.get_first_available(
+                    payload,
+                    ["utc_source"]
+                )
+            ),
+            "gnss_utc_ns": (
+                self.get_first_available(
+                    payload,
+                    ["gnss_utc_ns"]
+                )
+            ),
+            "gnss_utc": (
+                self.get_first_available(
+                    payload,
+                    ["gnss_utc"]
+                )
+            ),
+            "gnss_utc_epoch": (
+                self.get_first_available(
+                    payload,
+                    ["gnss_utc_epoch"]
+                )
+            ),
+            "rmc_arrival_delay_ms": (
+                self.get_first_available(
+                    payload,
+                    ["rmc_arrival_delay_ms"]
+                )
+            ),
+            "utc_label_rejection_reasons": list(
+                self.get_first_available(
+                    payload,
+                    [
+                        (
+                            "utc_label_rejection_"
+                            "reasons"
+                        )
+                    ],
+                    default=[]
+                )
+                or
+                []
+            ),
+            "utc_pairing": copy.deepcopy(
+                self.get_first_available(
+                    payload,
+                    ["utc_pairing"],
+                    default={}
+                )
             ),
             "raw_pps_event": copy.deepcopy(event),
             "stream_snapshot_at_enqueue": (
@@ -1416,6 +1501,82 @@ class MicrophoneDispatcher:
                 "rejected_non_interpolated_candidate"
             )
 
+        utc_label_valid = bool(
+            pending.get(
+                "utc_label_valid",
+                False
+            )
+        )
+
+        utc_reasons = list(
+            pending.get(
+                "utc_label_rejection_reasons",
+                []
+            )
+            or
+            []
+        )
+
+        if (
+            pending.get(
+                "utc_source"
+            )
+            !=
+            "gnss_rmc_paired_to_pps"
+        ):
+            utc_label_valid = False
+            utc_reasons.append(
+                "gnss_utc_source_invalid"
+            )
+
+        try:
+            gnss_utc_ns = int(
+                pending[
+                    "gnss_utc_ns"
+                ]
+            )
+
+            if gnss_utc_ns <= 0:
+                raise ValueError(
+                    "gnss_utc_ns must be positive"
+                )
+
+        except (
+            KeyError,
+            TypeError,
+            ValueError
+        ):
+            utc_label_valid = False
+            utc_reasons.append(
+                "gnss_utc_ns_invalid"
+            )
+
+        utc_reasons = list(
+            dict.fromkeys(
+                utc_reasons
+            )
+        )
+
+        if not utc_label_valid:
+
+            if not utc_reasons:
+                utc_reasons = [
+                    "gnss_utc_label_invalid"
+                ]
+
+            lookup_result = self._make_rejected_lookup(
+                target_monotonic_ns=pending.get(
+                    "pps_edge_monotonic_ns"
+                ),
+                reasons=utc_reasons,
+                candidate_lookup=lookup_result
+            )
+
+            accepted = False
+            resolver_state = (
+                "rejected_gnss_utc_label"
+            )
+
         with self._pps_anchor_lock:
 
             self.pps_anchor_attempt_count += 1
@@ -1431,7 +1592,9 @@ class MicrophoneDispatcher:
 
             anchor_record = {
                 "schema_version": 1,
-                "anchor_state": "sample_lookup_only",
+                "anchor_state": (
+                    "pps_sample_utc_anchor"
+                ),
                 "anchor_accepted": accepted,
                 "anchor_quality": (
                     "ACCEPTED"
@@ -1495,6 +1658,40 @@ class MicrophoneDispatcher:
                 "sequence_reset": pending.get(
                     "sequence_reset"
                 ),
+                "utc_label_valid": bool(
+                    utc_label_valid
+                ),
+                "utc_label_state": pending.get(
+                    "utc_label_state"
+                ),
+                "utc_source": pending.get(
+                    "utc_source"
+                ),
+                "gnss_utc_ns": pending.get(
+                    "gnss_utc_ns"
+                ),
+                "gnss_utc": pending.get(
+                    "gnss_utc"
+                ),
+                "gnss_utc_epoch": pending.get(
+                    "gnss_utc_epoch"
+                ),
+                "rmc_arrival_delay_ms": (
+                    pending.get(
+                        "rmc_arrival_delay_ms"
+                    )
+                ),
+                "utc_label_rejection_reasons": (
+                    copy.deepcopy(
+                        utc_reasons
+                    )
+                ),
+                "utc_pairing": copy.deepcopy(
+                    pending.get(
+                        "utc_pairing",
+                        {}
+                    )
+                ),
                 "raw_pps_event": copy.deepcopy(
                     pending.get("raw_pps_event")
                 ),
@@ -1510,7 +1707,7 @@ class MicrophoneDispatcher:
                     lookup_result
                 ),
                 "timing_state": (
-                    "pps_anchor_candidate_unfitted"
+                    "pps_sample_utc_anchor_unfitted"
                 ),
                 "corrected_tdoa_eligible": False,
                 "microphone_synced": False,
@@ -1521,6 +1718,65 @@ class MicrophoneDispatcher:
 
             self.latest_pps_sample_anchor = (
                 anchor_record
+            )
+
+        clock_result = (
+            self.clock_model_manager
+            .observe_anchor(
+                anchor_record
+            )
+        )
+
+        clock_model = clock_result.get(
+            "model"
+        )
+
+        if isinstance(
+            clock_model,
+            dict
+        ):
+            clock_quality = clock_model.get(
+                "quality",
+                {}
+            )
+
+            anchor_record[
+                "clock_model_id"
+            ] = clock_model.get(
+                "model_id"
+            )
+
+            anchor_record[
+                "clock_model_quality"
+            ] = clock_quality.get(
+                "status"
+            )
+
+            anchor_record[
+                "clock_model_quality_reasons"
+            ] = copy.deepcopy(
+                clock_quality.get(
+                    "quality_reasons",
+                    []
+                )
+            )
+
+        else:
+            anchor_record[
+                "clock_model_id"
+            ] = None
+            anchor_record[
+                "clock_model_quality"
+            ] = None
+            anchor_record[
+                "clock_model_quality_reasons"
+            ] = []
+
+        with self._pps_anchor_lock:
+            self.latest_pps_sample_anchor = (
+                copy.deepcopy(
+                    anchor_record
+                )
             )
 
         self.pps_anchor_journal.enqueue(
@@ -1949,17 +2205,176 @@ class MicrophoneDispatcher:
             "recording_engine"
         ) == "continuous_pps":
 
-            self.consecutive_synced_windows = 0
+            sync_rejection_reasons = []
 
-            self.log(
-                (
-                    "MICROPHONE_SYNCED withheld: "
-                    "continuous sample clock has not yet "
-                    "been fitted to PPS"
+            if not self.loop.continuous_stream_active():
+                sync_rejection_reasons.append(
+                    "continuous_stream_inactive"
+                )
+
+            if not self.pps_locked:
+                sync_rejection_reasons.append(
+                    "pps_not_locked"
+                )
+
+            if not self.gps_locked:
+                sync_rejection_reasons.append(
+                    "gps_not_locked"
+                )
+
+            if (
+                recording.get(
+                    "raw_timing_quality"
+                )
+                !=
+                "CLEAN"
+            ):
+                sync_rejection_reasons.append(
+                    "recording_timing_not_clean"
+                )
+
+            if not bool(
+                recording.get(
+                    "corrected_tdoa_eligible",
+                    False
+                )
+            ):
+                sync_rejection_reasons.append(
+                    (
+                        "clock_model_not_"
+                        "qualified"
+                    )
+                )
+
+            clock_model = recording.get(
+                "clock_model",
+                {}
+            )
+
+            if not isinstance(
+                clock_model,
+                dict
+            ):
+                clock_model = {}
+
+            clock_quality = clock_model.get(
+                "quality",
+                {}
+            )
+
+            if not isinstance(
+                clock_quality,
+                dict
+            ):
+                clock_quality = {}
+
+            if (
+                clock_quality.get(
+                    "status"
+                )
+                !=
+                "PASS"
+            ):
+                sync_rejection_reasons.append(
+                    "clock_model_not_pass"
+                )
+
+            if bool(
+                clock_quality.get(
+                    "unresolved_discontinuity",
+                    False
+                )
+            ):
+                sync_rejection_reasons.append(
+                    (
+                        "unresolved_stream_"
+                        "discontinuity"
+                    )
+                )
+
+            sync_rejection_reasons = list(
+                dict.fromkeys(
+                    sync_rejection_reasons
                 )
             )
 
-            return None
+            if sync_rejection_reasons:
+                self.consecutive_synced_windows = 0
+
+                self.log(
+                    (
+                        "MICROPHONE_SYNCED withheld: "
+                        f"reasons="
+                        f"{sync_rejection_reasons}"
+                    )
+                )
+
+                return None
+
+            try:
+                residual_p95_us = float(
+                    clock_quality[
+                        "residual_p95_us"
+                    ]
+                )
+
+            except (
+                KeyError,
+                TypeError,
+                ValueError
+            ):
+                self.consecutive_synced_windows = 0
+                return None
+
+            self.consecutive_synced_windows += 1
+
+            event = (
+                self.manager
+                .build_microphone_synced_event(
+                    recording=recording,
+                    pps_state=pps_state,
+                    sync_source=(
+                        "pps_gnss_sample_clock_model"
+                    ),
+                    scheduled_start_epoch=(
+                        scheduled_start_epoch
+                    ),
+                    scheduled_start_utc=(
+                        scheduled_start_utc
+                    ),
+                    sync_error_ms=(
+                        residual_p95_us
+                        /
+                        1000.0
+                    ),
+                    sync_window_ms=(
+                        self.clock_model_manager
+                        .warning_residual_us
+                        /
+                        1000.0
+                    ),
+                    consecutive_synced_windows=(
+                        self.consecutive_synced_windows
+                    )
+                )
+            )
+
+            self.event_services.publish_microphone_synced(
+                event
+            )
+
+            self.log(
+                (
+                    "Published MICROPHONE_SYNCED: "
+                    f"{event['recording_id']} "
+                    f"clock_model_id="
+                    f"{recording.get('clock_model_id')} "
+                    f"residual_p95_us="
+                    f"{residual_p95_us:.3f}"
+                )
+            )
+
+            return event
 
         sync_error_ms = self.calculate_microphone_sync_error_ms(
             recording=recording,
@@ -2011,6 +2426,18 @@ class MicrophoneDispatcher:
         recording["device"] = self.config.get("device")
 
         return recording
+
+    def attach_sample_clock_model(
+        self,
+        recording
+    ):
+
+        return (
+            self.clock_model_manager
+            .associate_recording(
+                recording
+            )
+        )
     
     def attach_timing_quality(self, recording):
 
@@ -2080,12 +2507,30 @@ class MicrophoneDispatcher:
             not timing_issues
         )
 
+        clock_model_association = recording.get(
+            "clock_model_association",
+            {}
+        )
+
+        if not isinstance(
+            clock_model_association,
+            dict
+        ):
+            clock_model_association = {}
+
         corrected_tdoa_eligible = bool(
             clock_fit_eligible
             and
-            recording.get("timing_state")
+            clock_model_association.get(
+                "model_valid",
+                False
+            )
+            and
+            recording.get(
+                "clock_model_quality"
+            )
             ==
-            "pps_clock_fitted"
+            "PASS"
         )
 
         recording["raw_timing_quality"] = (
@@ -2548,6 +2993,10 @@ class MicrophoneDispatcher:
             recording
         )
 
+        recording = self.attach_sample_clock_model(
+            recording
+        )
+
         recording = self.attach_timing_quality(
             recording
         )
@@ -2878,6 +3327,18 @@ class MicrophoneDispatcher:
                         "corrected_tdoa_eligible",
                         False
                     )
+                ),
+
+                "clock_model_id": payload.get(
+                    "clock_model_id"
+                ),
+
+                "clock_model_quality": payload.get(
+                    "clock_model_quality"
+                ),
+
+                "clock_model_association": payload.get(
+                    "clock_model_association"
                 )
             },
 
@@ -2895,6 +3356,27 @@ class MicrophoneDispatcher:
 
                 "timing_state": payload.get(
                     "timing_state"
+                ),
+
+                "raw_wav_immutable": bool(
+                    payload.get(
+                        "raw_wav_immutable",
+                        True
+                    )
+                ),
+
+                "audio_correction_state": payload.get(
+                    "audio_correction_state",
+                    "raw_unmodified"
+                ),
+
+                "clock_model": payload.get(
+                    "clock_model"
+                ),
+
+                "nearby_pps_anchors": payload.get(
+                    "nearby_pps_anchors",
+                    []
                 ),
 
                 "boundary": {

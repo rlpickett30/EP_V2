@@ -349,7 +349,33 @@ class MicrophoneManager:
                     "corrected_tdoa_eligible",
                     False
                 )
-            ),            
+            ),
+
+            "clock_model_id": recording.get(
+                "clock_model_id"
+            ),
+
+            "clock_model_quality": recording.get(
+                "clock_model_quality"
+            ),
+
+            "clock_model": recording.get(
+                "clock_model"
+            ),
+
+            "nearby_pps_anchors": recording.get(
+                "nearby_pps_anchors",
+                []
+            ),
+
+            "clock_model_association": recording.get(
+                "clock_model_association"
+            ),
+
+            "raw_wav_immutable": True,
+            "audio_correction_state": (
+                "raw_unmodified"
+            ),
         }
 
         return payload
@@ -378,6 +404,55 @@ class MicrophoneManager:
             pps_state=pps_state,
             sync_source=sync_source
         )
+
+        clock_model = payload.get(
+            "clock_model"
+        )
+
+        if isinstance(
+            clock_model,
+            dict
+        ):
+            compact_clock_model = dict(
+                clock_model
+            )
+
+            fit_residuals = (
+                compact_clock_model.pop(
+                    "fit_residuals",
+                    []
+                )
+            )
+
+            compact_clock_model[
+                "fit_residual_count"
+            ] = (
+                len(
+                    fit_residuals
+                )
+                if isinstance(
+                    fit_residuals,
+                    list
+                )
+                else 0
+            )
+
+            payload[
+                "clock_model"
+            ] = compact_clock_model
+
+        nearby_anchors = payload.get(
+            "nearby_pps_anchors",
+            []
+        )
+
+        if isinstance(
+            nearby_anchors,
+            list
+        ):
+            payload[
+                "nearby_pps_anchors"
+            ] = nearby_anchors[-4:]
 
         payload.update({
             "microphone_synced": True,

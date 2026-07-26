@@ -40,6 +40,7 @@ SEND_NODE_CHANGE_MODE
 Node-local only:
 
 RECORDING_AVAILABLE
+PPS_EDGE
 NETWORK_CONNECTED
 NETWORK_DISCONNECTED
 EVENT_SENT
@@ -652,6 +653,18 @@ start_error_ms
 actual_duration_sec
 device
 microphone_type
+timing_state
+raw_timing_quality
+timing_issues
+clock_fit_eligible
+corrected_tdoa_eligible
+clock_model_id
+clock_model_quality
+clock_model
+clock_model_association
+nearby_pps_anchors
+raw_wav_immutable = True
+audio_correction_state = "raw_unmodified"
 
 Optional payload fields:
 spectrogram_path
@@ -757,6 +770,18 @@ start_error_ms
 actual_duration_sec
 device
 microphone_type
+timing_state
+raw_timing_quality
+timing_issues
+clock_fit_eligible
+corrected_tdoa_eligible
+clock_model_id
+clock_model_quality
+clock_model
+clock_model_association
+nearby_pps_anchors
+raw_wav_immutable = True
+audio_correction_state = "raw_unmodified"
 
 Success contract:
 status = "success"
@@ -770,6 +795,8 @@ selected_wav_path identifies the preserved 16-second guarded raw WAV
 core_wav_path may identify the corresponding 15-second BirdNET WAV
 duration_sec and frame_count describe the selected guarded WAV
 The raw timing evidence from RECORDING_AVAILABLE remains present
+The clock model and nearby anchors describe the selected raw recording
+The raw WAV remains immutable and is not yet corrected
 
 Failure contract:
 status = "failure"
@@ -808,11 +835,96 @@ The same guarded WAV may be returned for multiple request IDs. Each response
 retains its own request and candidate lineage.
 
 
+PPS_EDGE
+--------
+
+Purpose:
+Publish one LinuxPPS edge with its preserved kernel timing evidence and the
+GNSS UTC second obtained by pairing the edge with the corresponding RMC
+observation.
+
+Direction:
+RTK -> Microphone on the node-local event bus.
+
+Publisher:
+RTK_dispatcher.py through RTK_event_services.py.
+
+Subscriber:
+microphone_dispatcher.py.
+
+Required top-level fields:
+event_type = "PPS_EDGE"
+source = node_id
+target = "microphone"
+timestamp
+payload
+event_id
+
+Required payload fields:
+node_id
+node_name
+subsystem = "rtk"
+pps_seq
+previous_pps_seq
+sequence_gap
+sequence_reset
+missed_edge_count
+pps_valid
+pps_source
+pps_device
+pps_kernel_realtime_ns
+pps_edge_monotonic_ns
+read_realtime_ns
+read_monotonic_ns
+realtime_minus_monotonic_ns
+clock_pair_span_ns
+monotonic_conversion_method
+pps_age_sec_at_read
+pps_age_ms_at_read
+utc_label_valid
+utc_label_state
+utc_source
+gnss_utc_ns
+gnss_utc
+gnss_utc_epoch
+rmc_arrival_delay_ms
+utc_label_rejection_reasons
+utc_pairing
+snapshot
+
+Accepted-label contract:
+utc_label_valid = True
+utc_label_state = "gnss_rmc_paired"
+utc_source = "gnss_rmc_paired_to_pps"
+gnss_utc_ns is the canonical integer-nanosecond UTC second
+rmc_arrival_delay_ms preserves RMC arrival relative to the physical PPS edge
+utc_label_rejection_reasons is empty
+
+Rejected-label contract:
+utc_label_valid = False
+gnss_utc_ns = null
+utc_label_rejection_reasons contains one or more machine-readable reasons
+The raw LinuxPPS and RMC pairing evidence remains present
+Microphone must journal the rejected anchor and must not fit it
+
+Expected path:
+LinuxPPS sequence observed
+-> RMC observation paired by monotonic arrival delay
+-> PPS_EDGE
+-> Microphone sample lookup
+-> accepted or rejected PPS/sample/UTC anchor
+
+This event remains node-local. Communication must not transmit the 1 Hz edge
+stream to the server.
+
+
 MICROPHONE_SYNCED
 -----------------
 
 Purpose:
-Report that a microphone recording started within the configured PPS/GPS sync window.
+Report that the continuous microphone stream has a PASS-quality GNSS/PPS
+sample-clock model and that the referenced raw recording contains no timing
+discontinuity.
 
 Direction:
 Node -> Server.
@@ -822,8 +934,6 @@ microphone_dispatcher.py.
 
 Subscribers:
 - communication_dispatcher.py
-
-Recommended subscriber addition:
 - journal_dispatcher.py
 
 Required top-level fields:
@@ -872,16 +982,35 @@ window_second
 sync_error_ms
 sync_window_ms
 consecutive_synced_windows
+timing_state = "pps_clock_modeled_raw"
+raw_timing_quality = "CLEAN"
+clock_fit_eligible = True
+corrected_tdoa_eligible = True
+clock_model_id
+clock_model_quality = "PASS"
+clock_model
+clock_model_association
+nearby_pps_anchors
+raw_wav_immutable = True
+audio_correction_state = "raw_unmodified"
 
 Expected path:
-Microphone recording completes
--> sync error calculated
+PPS_EDGE with accepted GNSS UTC label
+-> accepted PPS/sample/UTC anchors
+-> PASS-quality sample-clock model
+-> clean guarded recording associated with that model
 -> MICROPHONE_SYNCED
 -> Communication
 -> Server
 
 Atlas note:
-This event is important for proving the TDOA door is open before the math is meaningful.
+For a continuous stream, sync_error_ms carries the clock model's p95 fit
+residual in milliseconds and sync_window_ms carries the PASS threshold.
+
+MICROPHONE_SYNCED does not mean that the raw WAV has been stretched,
+compressed, clipped, or aligned. Server-side correction remains a later
+stage. WARN, FAIL, missing GNSS labels, insufficient observations, stream
+discontinuities, and degraded audio must withhold this event.
 
 
 AVIS_LITE
@@ -1170,8 +1299,6 @@ ENVIRO_STATE
 ENVIRO_EVENT
 AVIS_LITE
 NODE_REGISTER
-
-Recommended addition:
 MICROPHONE_SYNCED
 
 
@@ -1188,4 +1315,5 @@ NETWORK_CONNECTED and EVENT_SENT should not be treated as server acknowledgement
 
 SEND_NODE_CHANGE_MODE should stay unchanged until the server and GUI contracts are scanned. Rename pressure is real, but premature renaming would create unnecessary breakage.
 
-MICROPHONE_SYNCED is now one of the most important proof events for the current TDOA milestone. Journal should subscribe to it.
+MICROPHONE_SYNCED is one of the most important proof events for the current
+TDOA milestone. Node Journal subscribes to preserve the model-quality gate.

@@ -23,6 +23,8 @@
 #   - Connect to the ZED-F9P over USB serial
 #   - Read mixed USB serial data from the receiver
 #   - Parse NMEA GGA and RMC sentences
+#   - Parse and preserve full RMC UTC date/time and arrival timestamps
+#   - Retain a bounded RMC observation history for PPS pairing
 #   - Preserve latest GPS fix data
 #   - Extract RTCM3 packets produced by a base receiver
 #   - Write RTCM3 packets into a rover receiver
@@ -36,6 +38,7 @@
 #   - Claim true PPS lock from USB serial
 #   - Decide RTK base or rover role
 #   - Decide TDOA readiness
+#   - Pair RMC observations to PPS edges
 #
 # Owner:
 #   GPS_manager.py
@@ -44,8 +47,13 @@
 
 from __future__ import annotations
 
+import copy
 import threading
 import time
+
+from collections import deque
+from datetime import datetime
+from datetime import timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 import serial
@@ -69,10 +77,13 @@ class FP9Driver:
         self.connected = False
 
         self.serial_lock = threading.RLock()
+        self.poll_lock = threading.RLock()
+        self.data_lock = threading.RLock()
 
         self.nmea_buffer = b""
         self.rtcm_buffer = b""
         self.pending_rtcm_packets: List[bytes] = []
+        self.rmc_history = deque(maxlen=32)
 
         self.last_gps_data: Dict[str, Any] = {
             "fix_valid": False,
@@ -85,6 +96,7 @@ class FP9Driver:
             "rtk_status": "NO_FIX",
             "timestamp": time.time(),
             "last_sentence": None,
+            "latest_rmc": None,
         }
 
     # --------------------------------------------------
@@ -223,34 +235,36 @@ class FP9Driver:
         read_size: int = 4096
     ) -> Dict[str, int]:
 
-        if not self.connected:
-            self.connect()
+        with self.poll_lock:
 
-        start = time.time()
+            if not self.connected:
+                self.connect()
 
-        stats = {
-            "bytes_read": 0,
-            "nmea_lines": 0,
-            "rtcm_packets": 0,
-        }
+            start = time.time()
 
-        while time.time() - start < duration_sec:
-            data = self.read_available(
-                read_size
-            )
+            stats = {
+                "bytes_read": 0,
+                "nmea_lines": 0,
+                "rtcm_packets": 0,
+            }
 
-            if not data:
-                continue
+            while time.time() - start < duration_sec:
+                data = self.read_available(
+                    read_size
+                )
 
-            result = self.process_bytes(
-                data
-            )
+                if not data:
+                    continue
 
-            stats["bytes_read"] += result["bytes_read"]
-            stats["nmea_lines"] += result["nmea_lines"]
-            stats["rtcm_packets"] += result["rtcm_packets"]
+                result = self.process_bytes(
+                    data
+                )
 
-        return stats
+                stats["bytes_read"] += result["bytes_read"]
+                stats["nmea_lines"] += result["nmea_lines"]
+                stats["rtcm_packets"] += result["rtcm_packets"]
+
+            return stats
 
     def process_bytes(
         self,
@@ -327,9 +341,12 @@ class FP9Driver:
         )
 
         if packets:
-            self.pending_rtcm_packets.extend(
-                packets
-            )
+
+            with self.data_lock:
+
+                self.pending_rtcm_packets.extend(
+                    packets
+                )
 
         return len(
             packets
@@ -384,9 +401,10 @@ class FP9Driver:
         self
     ) -> List[bytes]:
 
-        packets = self.pending_rtcm_packets
-        self.pending_rtcm_packets = []
-        return packets
+        with self.data_lock:
+            packets = self.pending_rtcm_packets
+            self.pending_rtcm_packets = []
+            return packets
 
     # --------------------------------------------------
     # NMEA Helpers
@@ -527,22 +545,24 @@ class FP9Driver:
                 and longitude is not None
             )
 
-            self.last_gps_data.update(
-                {
-                    "fix_valid": fix_valid,
-                    "latitude": latitude,
-                    "longitude": longitude,
-                    "altitude_m": altitude_m,
-                    "satellites": satellites,
-                    "hdop": hdop,
-                    "fix_quality": fix_quality,
-                    "rtk_status": self.fix_quality_to_status(
-                        fix_quality
-                    ),
-                    "timestamp": time.time(),
-                    "last_sentence": sentence,
-                }
-            )
+            with self.data_lock:
+
+                self.last_gps_data.update(
+                    {
+                        "fix_valid": fix_valid,
+                        "latitude": latitude,
+                        "longitude": longitude,
+                        "altitude_m": altitude_m,
+                        "satellites": satellites,
+                        "hdop": hdop,
+                        "fix_quality": fix_quality,
+                        "rtk_status": self.fix_quality_to_status(
+                            fix_quality
+                        ),
+                        "timestamp": time.time(),
+                        "last_sentence": sentence,
+                    }
+                )
 
         except Exception as error:
             self.log(
@@ -554,15 +574,22 @@ class FP9Driver:
         sentence: str,
     ) -> None:
 
+        arrival_monotonic_ns = time.monotonic_ns()
+        arrival_realtime_ns = time.time_ns()
+
         parts = sentence.split(
             ","
         )
 
-        if len(parts) < 7:
+        if len(parts) < 10:
             return
 
         try:
             status = parts[2]
+            utc_result = self.parse_rmc_datetime(
+                time_field=parts[1],
+                date_field=parts[9],
+            )
 
             latitude = self.nmea_coord_to_decimal(
                 parts[3],
@@ -574,25 +601,216 @@ class FP9Driver:
                 parts[6],
             )
 
+            observation = {
+                "schema_version": 1,
+                "source": "gnss_rmc",
+                "rmc_status": status,
+                "rmc_valid": bool(
+                    status == "A"
+                    and utc_result.get("valid", False)
+                ),
+                "rmc_utc_ns": utc_result.get(
+                    "utc_ns"
+                ),
+                "rmc_utc": utc_result.get(
+                    "utc"
+                ),
+                "rmc_time_field": parts[1],
+                "rmc_date_field": parts[9],
+                "arrival_monotonic_ns": (
+                    arrival_monotonic_ns
+                ),
+                "arrival_realtime_ns": (
+                    arrival_realtime_ns
+                ),
+                "parse_error": utc_result.get(
+                    "error"
+                ),
+                "raw_sentence": sentence,
+            }
+
+            with self.data_lock:
+
+                self.rmc_history.append(
+                    copy.deepcopy(observation)
+                )
+
+                self.last_gps_data.update(
+                    {
+                        "latest_rmc": copy.deepcopy(
+                            observation
+                        ),
+                        "rmc_utc_ns": observation.get(
+                            "rmc_utc_ns"
+                        ),
+                        "rmc_utc": observation.get(
+                            "rmc_utc"
+                        ),
+                        "rmc_status": status,
+                        "rmc_arrival_monotonic_ns": (
+                            arrival_monotonic_ns
+                        ),
+                        "rmc_arrival_realtime_ns": (
+                            arrival_realtime_ns
+                        ),
+                    }
+                )
+
             if (
                 status == "A"
                 and latitude is not None
                 and longitude is not None
             ):
-                self.last_gps_data.update(
-                    {
-                        "fix_valid": True,
-                        "latitude": latitude,
-                        "longitude": longitude,
-                        "timestamp": time.time(),
-                        "last_sentence": sentence,
-                    }
-                )
+
+                with self.data_lock:
+
+                    self.last_gps_data.update(
+                        {
+                            "fix_valid": True,
+                            "latitude": latitude,
+                            "longitude": longitude,
+                            "timestamp": time.time(),
+                            "last_sentence": sentence,
+                        }
+                    )
 
         except Exception as error:
             self.log(
                 f"RMC parse error: {error}"
             )
+
+    def parse_rmc_datetime(
+        self,
+        time_field: str,
+        date_field: str,
+    ) -> Dict[str, Any]:
+
+        try:
+            time_text = str(
+                time_field or ""
+            ).strip()
+
+            date_text = str(
+                date_field or ""
+            ).strip().split(
+                "*",
+                1,
+            )[0]
+
+            if (
+                len(time_text) < 6
+                or
+                len(date_text) != 6
+            ):
+                raise ValueError(
+                    "RMC date/time fields are incomplete"
+                )
+
+            hour = int(
+                time_text[0:2]
+            )
+            minute = int(
+                time_text[2:4]
+            )
+
+            second_text = time_text[4:]
+
+            if "." in second_text:
+                second_integer_text, fraction_text = (
+                    second_text.split(
+                        ".",
+                        1,
+                    )
+                )
+            else:
+                second_integer_text = second_text
+                fraction_text = ""
+
+            second = int(
+                second_integer_text
+            )
+
+            fraction_digits = "".join(
+                character
+                for character in fraction_text
+                if character.isdigit()
+            )
+
+            fractional_ns = int(
+                (
+                    fraction_digits
+                    +
+                    "000000000"
+                )[:9]
+                or
+                "0"
+            )
+
+            day = int(
+                date_text[0:2]
+            )
+            month = int(
+                date_text[2:4]
+            )
+            two_digit_year = int(
+                date_text[4:6]
+            )
+
+            year = (
+                1900
+                +
+                two_digit_year
+                if two_digit_year >= 80
+                else 2000
+                +
+                two_digit_year
+            )
+
+            utc_second = datetime(
+                year,
+                month,
+                day,
+                hour,
+                minute,
+                second,
+                tzinfo=timezone.utc,
+            )
+
+            utc_ns = int(
+                utc_second.timestamp()
+            ) * 1_000_000_000 + fractional_ns
+
+            utc_text = (
+                datetime.fromtimestamp(
+                    utc_ns / 1_000_000_000,
+                    timezone.utc,
+                )
+                .isoformat(
+                    timespec="microseconds"
+                )
+                .replace(
+                    "+00:00",
+                    "Z",
+                )
+            )
+
+            return {
+                "valid": True,
+                "utc_ns": utc_ns,
+                "utc": utc_text,
+                "error": None,
+            }
+
+        except Exception as error:
+
+            return {
+                "valid": False,
+                "utc_ns": None,
+                "utc": None,
+                "error": (
+                    f"{type(error).__name__}: {error}"
+                ),
+            }
 
     def parse_sentence(
         self,
@@ -633,9 +851,24 @@ class FP9Driver:
             duration_sec=0.20
         )
 
-        return dict(
-            self.last_gps_data
-        )
+        with self.data_lock:
+
+            return copy.deepcopy(
+                self.last_gps_data
+            )
+
+    def get_rmc_observations(
+        self
+    ) -> List[Dict[str, Any]]:
+
+        with self.data_lock:
+
+            return [
+                copy.deepcopy(
+                    observation
+                )
+                for observation in self.rmc_history
+            ]
 
     # --------------------------------------------------
     # RTK / UBX Config

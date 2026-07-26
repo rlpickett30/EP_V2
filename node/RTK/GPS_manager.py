@@ -27,6 +27,7 @@
 #   - Preserve latitude, longitude, altitude, satellite, and HDOP data
 #   - Preserve GPS, DGPS, RTK fixed, and RTK float metadata
 #   - Normalize fix quality into readable fix labels
+#   - Expose timestamped RMC observations for PPS UTC pairing
 #
 # Does NOT:
 #   - Own EventBus logic
@@ -177,9 +178,27 @@ class GPSManager:
             "driver_timestamp": gps_data.get(
                 "timestamp"
             ),
+            "latest_rmc": gps_data.get(
+                "latest_rmc"
+            ),
         }
 
         return snapshot
+
+    def poll_timing_observations(
+        self,
+        duration_sec: float = 0.01,
+    ) -> Dict[str, int]:
+
+        return self.driver.poll_serial(
+            duration_sec=duration_sec
+        )
+
+    def get_rmc_observations(
+        self
+    ):
+
+        return self.driver.get_rmc_observations()
 
     # --------------------------------------------------
     # Event IDs

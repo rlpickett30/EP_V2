@@ -33,7 +33,8 @@
 #   - Publish RTK_STATE events through RTKEventServices
 #   - Publish GPS_STATE events through RTKEventServices
 #   - Publish PPS_STATE events through RTKEventServices
-#   - Publish one local PPS_EDGE event for each observed LinuxPPS sequence
+#   - Pair each observed LinuxPPS sequence with a GNSS RMC UTC label
+#   - Publish one labeled local PPS_EDGE event per resolved sequence
 #   - Publish GPS_COORD events through RTKEventServices
 #   - Publish periodic state heartbeats
 #
@@ -196,7 +197,10 @@ class RTKDispatcher:
         # audio-timing cadence. This interval is intentionally code-owned for
         # this first timing pass; generated deployment config remains unchanged.
         self.pps_edge_poll_interval_sec = 0.02
+        self.gnss_timing_poll_duration_sec = 0.01
+        self.pps_rmc_pairing_window_sec = 0.75
         self.last_published_pps_edge_seq: Optional[int] = None
+        self.pending_pps_edges = {}
         self.pps_edge_thread: Optional[threading.Thread] = None
 
         self.running = False
@@ -540,93 +544,72 @@ class RTKDispatcher:
 
             try:
 
+                self.gps_manager.poll_timing_observations(
+                    duration_sec=(
+                        self.gnss_timing_poll_duration_sec
+                    )
+                )
+
                 snapshot = self.get_pps_snapshot()
 
                 pps_seq = snapshot.get(
                     "pps_seq"
                 )
 
-                if pps_seq is None:
+                if pps_seq is not None:
 
-                    time.sleep(
-                        self.pps_edge_poll_interval_sec
-                    )
-
-                    continue
-
-                try:
-                    pps_seq = int(
-                        pps_seq
-                    )
-
-                except (
-                    TypeError,
-                    ValueError,
-                ):
-
-                    time.sleep(
-                        self.pps_edge_poll_interval_sec
-                    )
-
-                    continue
-
-                previous_pps_seq = (
-                    self.last_published_pps_edge_seq
-                )
-
-                # The sysfs assert file contains the most recent historical
-                # edge when this worker starts. Arm from that sequence rather
-                # than falsely publishing a pulse that predates the process.
-                if previous_pps_seq is None:
-
-                    self.last_published_pps_edge_seq = (
-                        pps_seq
-                    )
-
-                    self.log(
-                        (
-                            "PPS edge monitor armed: "
-                            f"initial_seq={pps_seq}"
+                    try:
+                        pps_seq = int(
+                            pps_seq
                         )
+
+                    except (
+                        TypeError,
+                        ValueError,
+                    ):
+                        pps_seq = None
+
+                if pps_seq is not None:
+
+                    previous_pps_seq = (
+                        self.last_published_pps_edge_seq
                     )
 
-                    time.sleep(
-                        self.pps_edge_poll_interval_sec
-                    )
+                    # The sysfs assert file contains the most recent
+                    # historical edge when this worker starts. Arm from that
+                    # sequence rather than falsely publishing a pulse that
+                    # predates the process.
+                    if previous_pps_seq is None:
 
-                    continue
+                        self.last_published_pps_edge_seq = (
+                            pps_seq
+                        )
 
-                if pps_seq == previous_pps_seq:
+                        self.log(
+                            (
+                                "PPS edge monitor armed: "
+                                f"initial_seq={pps_seq}"
+                            )
+                        )
 
-                    time.sleep(
-                        self.pps_edge_poll_interval_sec
-                    )
+                    elif pps_seq != previous_pps_seq:
 
-                    continue
+                        self.last_published_pps_edge_seq = (
+                            pps_seq
+                        )
 
-                self.last_published_pps_edge_seq = (
-                    pps_seq
-                )
+                        self.pending_pps_edges[
+                            pps_seq
+                        ] = {
+                            "pps_snapshot": dict(
+                                snapshot
+                            ),
+                            "previous_pps_seq": (
+                                previous_pps_seq
+                            ),
+                        }
 
-                event = self.build_pps_edge_event(
-                    pps_snapshot=snapshot,
-                    previous_pps_seq=previous_pps_seq,
-                )
-
-                self.event_services.publish_pps_edge(
-                    event
-                )
-
-                self.log(
-                    (
-                        "Published PPS_EDGE: "
-                        f"seq={pps_seq} "
-                        f"gap="
-                        f"{event['payload']['sequence_gap']} "
-                        f"age_ms="
-                        f"{event['payload']['pps_age_ms_at_read']}"
-                    )
-                )
+                self.resolve_pending_pps_edges()
 
             except Exception as error:
 
@@ -636,6 +619,88 @@ class RTKDispatcher:
 
             time.sleep(
                 self.pps_edge_poll_interval_sec
+            )
+
+    def resolve_pending_pps_edges(
+        self
+    ) -> None:
+
+        if not self.pending_pps_edges:
+            return
+
+        rmc_observations = (
+            self.gps_manager
+            .get_rmc_observations()
+        )
+
+        now_monotonic_ns = time.monotonic_ns()
+
+        for pps_seq in sorted(
+            tuple(
+                self.pending_pps_edges
+            )
+        ):
+
+            pending = self.pending_pps_edges[
+                pps_seq
+            ]
+
+            pps_snapshot = pending[
+                "pps_snapshot"
+            ]
+
+            pairing = (
+                self.pps_manager
+                .pair_snapshot_with_rmc(
+                    pps_snapshot=pps_snapshot,
+                    rmc_observations=(
+                        rmc_observations
+                    ),
+                    now_monotonic_ns=(
+                        now_monotonic_ns
+                    ),
+                    pairing_window_sec=(
+                        self.pps_rmc_pairing_window_sec
+                    ),
+                )
+            )
+
+            if not pairing.get(
+                "terminal",
+                True,
+            ):
+                continue
+
+            event = self.build_pps_edge_event(
+                pps_snapshot=pps_snapshot,
+                previous_pps_seq=pending[
+                    "previous_pps_seq"
+                ],
+                utc_pairing=pairing,
+            )
+
+            self.event_services.publish_pps_edge(
+                event
+            )
+
+            self.log(
+                (
+                    "Published PPS_EDGE: "
+                    f"seq={pps_seq} "
+                    f"gap="
+                    f"{event['payload']['sequence_gap']} "
+                    f"utc_label="
+                    f"{event['payload']['utc_label_state']} "
+                    f"rmc_delay_ms="
+                    f"{event['payload'].get('rmc_arrival_delay_ms')} "
+                    f"reasons="
+                    f"{event['payload'].get('utc_label_rejection_reasons')}"
+                )
+            )
+
+            self.pending_pps_edges.pop(
+                pps_seq,
+                None,
             )
 
     # --------------------------------------------------
@@ -866,7 +931,29 @@ class RTKDispatcher:
         self,
         pps_snapshot: Dict[str, Any],
         previous_pps_seq: int,
+        utc_pairing: Optional[
+            Dict[str, Any]
+        ] = None,
     ) -> Dict[str, Any]:
+
+        if not isinstance(
+            utc_pairing,
+            dict,
+        ):
+            utc_pairing = {
+                "utc_label_valid": False,
+                "utc_label_state": (
+                    "gnss_rmc_pairing_missing"
+                ),
+                "utc_source": "gnss_rmc",
+                "quality_reasons": [
+                    "gnss_rmc_pairing_missing"
+                ],
+                "gnss_utc_ns": None,
+                "gnss_utc": None,
+                "gnss_utc_epoch": None,
+                "rmc_arrival_delay_ms": None,
+            }
 
         pps_seq = int(
             pps_snapshot["pps_seq"]
@@ -993,10 +1080,48 @@ class RTKDispatcher:
             "pps_age_sec_at_read": pps_age_sec,
             "pps_age_ms_at_read": pps_age_ms_at_read,
 
-            # The kernel timestamp is valid timing evidence, but this pass has
-            # not yet paired the edge with a GNSS RMC/ZDA UTC label.
-            "utc_label_state": (
-                "kernel_realtime_unpaired_gnss"
+            "utc_label_valid": bool(
+                utc_pairing.get(
+                    "utc_label_valid",
+                    False,
+                )
+            ),
+
+            "utc_label_state": utc_pairing.get(
+                "utc_label_state"
+            ),
+
+            "utc_source": utc_pairing.get(
+                "utc_source"
+            ),
+
+            "gnss_utc_ns": utc_pairing.get(
+                "gnss_utc_ns"
+            ),
+
+            "gnss_utc": utc_pairing.get(
+                "gnss_utc"
+            ),
+
+            "gnss_utc_epoch": utc_pairing.get(
+                "gnss_utc_epoch"
+            ),
+
+            "rmc_arrival_delay_ms": (
+                utc_pairing.get(
+                    "rmc_arrival_delay_ms"
+                )
+            ),
+
+            "utc_label_rejection_reasons": list(
+                utc_pairing.get(
+                    "quality_reasons",
+                    [],
+                )
+            ),
+
+            "utc_pairing": dict(
+                utc_pairing
             ),
 
             "snapshot": dict(

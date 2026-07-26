@@ -27,6 +27,8 @@
 #   - Report latest PPS kernel timestamp
 #   - Preserve integer-nanosecond realtime evidence
 #   - Estimate each PPS edge in the monotonic clock domain
+#   - Pair PPS snapshots with timestamped GNSS RMC observations
+#   - Preserve GNSS label source, arrival delay, and rejection reasons
 #   - Serialize snapshot reads across RTK worker threads
 #   - Build PPS snapshots for RTKDispatcher
 #
@@ -36,7 +38,7 @@
 #   - Subscribe to events
 #   - Access the event bus
 #   - Configure the ZED-F9P
-#   - Pair PPS edges with RMC UTC labels yet
+#   - Read or parse GNSS serial data
 #
 # Owner:
 #   RTK_dispatcher.py
@@ -49,6 +51,8 @@ import re
 import threading
 import time
 
+from datetime import datetime
+from datetime import timezone
 from pathlib import Path
 from typing import Any
 from typing import Dict
@@ -396,6 +400,371 @@ class PPSManager:
             }
 
             return snapshot
+
+    # --------------------------------------------------
+    # GNSS UTC Pairing
+    # --------------------------------------------------
+
+    def pair_snapshot_with_rmc(
+        self,
+        pps_snapshot: Dict[str, Any],
+        rmc_observations,
+        now_monotonic_ns: Optional[int] = None,
+        pairing_window_sec: float = 0.75,
+        early_tolerance_sec: float = 0.05,
+    ) -> Dict[str, Any]:
+
+        if now_monotonic_ns is None:
+            now_monotonic_ns = time.monotonic_ns()
+
+        pairing_window_ns = int(
+            round(
+                max(
+                    0.001,
+                    float(pairing_window_sec),
+                )
+                *
+                1_000_000_000
+            )
+        )
+
+        early_tolerance_ns = int(
+            round(
+                max(
+                    0.0,
+                    float(early_tolerance_sec),
+                )
+                *
+                1_000_000_000
+            )
+        )
+
+        result = {
+            "schema_version": 1,
+            "pairing_state": "rejected",
+            "terminal": True,
+            "utc_label_valid": False,
+            "utc_label_state": "gnss_rmc_rejected",
+            "utc_source": "gnss_rmc",
+            "quality_reasons": [],
+            "gnss_utc_ns": None,
+            "gnss_utc": None,
+            "gnss_utc_epoch": None,
+            "rmc_arrival_delay_ms": None,
+            "pairing_window_ms": (
+                pairing_window_ns / 1_000_000.0
+            ),
+            "rmc_observation": None,
+        }
+
+        if not isinstance(
+            pps_snapshot,
+            dict,
+        ):
+            result["quality_reasons"] = [
+                "pps_snapshot_invalid"
+            ]
+            return result
+
+        if not bool(
+            pps_snapshot.get(
+                "pps_valid",
+                False,
+            )
+        ):
+            result["quality_reasons"] = [
+                "pps_snapshot_not_valid"
+            ]
+            return result
+
+        try:
+            pps_edge_monotonic_ns = int(
+                pps_snapshot[
+                    "pps_edge_monotonic_ns"
+                ]
+            )
+
+        except (
+            KeyError,
+            TypeError,
+            ValueError,
+        ):
+            result["quality_reasons"] = [
+                "pps_edge_monotonic_ns_invalid"
+            ]
+            return result
+
+        try:
+            pps_kernel_realtime_ns = int(
+                pps_snapshot[
+                    "pps_kernel_realtime_ns"
+                ]
+            )
+
+        except (
+            KeyError,
+            TypeError,
+            ValueError,
+        ):
+            pps_kernel_realtime_ns = None
+
+        elapsed_ns = int(
+            now_monotonic_ns
+            -
+            pps_edge_monotonic_ns
+        )
+
+        candidates = []
+        late_candidates = []
+
+        if not isinstance(
+            rmc_observations,
+            (
+                list,
+                tuple,
+            ),
+        ):
+            rmc_observations = []
+
+        for observation in rmc_observations:
+
+            if not isinstance(
+                observation,
+                dict,
+            ):
+                continue
+
+            try:
+                arrival_monotonic_ns = int(
+                    observation[
+                        "arrival_monotonic_ns"
+                    ]
+                )
+
+            except (
+                KeyError,
+                TypeError,
+                ValueError,
+            ):
+                continue
+
+            arrival_delay_ns = int(
+                arrival_monotonic_ns
+                -
+                pps_edge_monotonic_ns
+            )
+
+            if (
+                arrival_delay_ns
+                <
+                -early_tolerance_ns
+            ):
+                continue
+
+            if (
+                arrival_delay_ns
+                >
+                pairing_window_ns
+            ):
+                late_candidates.append(
+                    (
+                        arrival_delay_ns,
+                        observation,
+                    )
+                )
+                continue
+
+            candidates.append(
+                (
+                    abs(
+                        arrival_delay_ns
+                    ),
+                    arrival_delay_ns,
+                    observation,
+                )
+            )
+
+        if not candidates:
+
+            if elapsed_ns <= pairing_window_ns:
+                result.update(
+                    {
+                        "pairing_state": "pending",
+                        "terminal": False,
+                        "utc_label_state": (
+                            "awaiting_gnss_rmc"
+                        ),
+                        "quality_reasons": [
+                            (
+                                "matching_rmc_not_"
+                                "observed_yet"
+                            )
+                        ],
+                    }
+                )
+
+                return result
+
+            if late_candidates:
+                (
+                    arrival_delay_ns,
+                    observation,
+                ) = min(
+                    late_candidates,
+                    key=lambda item: item[0],
+                )
+
+                result[
+                    "rmc_arrival_delay_ms"
+                ] = (
+                    arrival_delay_ns
+                    /
+                    1_000_000.0
+                )
+                result[
+                    "rmc_observation"
+                ] = dict(
+                    observation
+                )
+                result[
+                    "quality_reasons"
+                ] = [
+                    (
+                        "rmc_arrival_delay_"
+                        "exceeded"
+                    )
+                ]
+
+                return result
+
+            result["quality_reasons"] = [
+                "matching_rmc_timeout"
+            ]
+            return result
+
+        (
+            _,
+            arrival_delay_ns,
+            observation,
+        ) = min(
+            candidates,
+            key=lambda item: item[0],
+        )
+
+        result["rmc_arrival_delay_ms"] = (
+            arrival_delay_ns
+            /
+            1_000_000.0
+        )
+
+        result["rmc_observation"] = dict(
+            observation
+        )
+
+        if arrival_delay_ns < 0:
+            result["quality_reasons"] = [
+                "rmc_arrived_before_pps_edge"
+            ]
+            return result
+
+        if not bool(
+            observation.get(
+                "rmc_valid",
+                False,
+            )
+        ):
+            result["quality_reasons"] = [
+                "rmc_observation_not_valid"
+            ]
+            return result
+
+        try:
+            raw_rmc_utc_ns = int(
+                observation[
+                    "rmc_utc_ns"
+                ]
+            )
+
+        except (
+            KeyError,
+            TypeError,
+            ValueError,
+        ):
+            result["quality_reasons"] = [
+                "rmc_utc_ns_invalid"
+            ]
+            return result
+
+        gnss_utc_ns = int(
+            (
+                raw_rmc_utc_ns
+                +
+                500_000_000
+            )
+            //
+            1_000_000_000
+            *
+            1_000_000_000
+        )
+
+        gnss_utc = (
+            datetime.fromtimestamp(
+                gnss_utc_ns
+                /
+                1_000_000_000,
+                timezone.utc,
+            )
+            .replace(
+                microsecond=0
+            )
+            .isoformat()
+            .replace(
+                "+00:00",
+                "Z",
+            )
+        )
+
+        result.update(
+            {
+                "pairing_state": "accepted",
+                "terminal": True,
+                "utc_label_valid": True,
+                "utc_label_state": (
+                    "gnss_rmc_paired"
+                ),
+                "utc_source": (
+                    "gnss_rmc_paired_to_pps"
+                ),
+                "quality_reasons": [],
+                "gnss_utc_ns": gnss_utc_ns,
+                "gnss_utc": gnss_utc,
+                "gnss_utc_epoch": (
+                    gnss_utc_ns
+                    /
+                    1_000_000_000.0
+                ),
+                "rmc_raw_utc_ns": (
+                    raw_rmc_utc_ns
+                ),
+                "rmc_fractional_ns": (
+                    raw_rmc_utc_ns
+                    -
+                    gnss_utc_ns
+                ),
+                "kernel_realtime_minus_gnss_ns": (
+                    (
+                        pps_kernel_realtime_ns
+                        -
+                        gnss_utc_ns
+                    )
+                    if pps_kernel_realtime_ns
+                    is not None
+                    else None
+                ),
+            }
+        )
+
+        return result
 
     # --------------------------------------------------
     # Lifecycle
