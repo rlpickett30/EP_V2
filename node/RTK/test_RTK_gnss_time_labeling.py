@@ -218,6 +218,96 @@ class RTKGNSSTimeLabelingTests(
             observation["rmc_valid"]
         )
 
+    def test_mixed_rtcm_prefix_is_removed_from_rmc_sentence(
+        self
+    ):
+
+        driver = FP9Driver(
+            debug=False
+        )
+
+        rmc_sentence = (
+            b"$GNRMC,012206.00,A,3714.75318,N,"
+            b"10743.02071,W,0.000,,260726,,,D,V*0F"
+        )
+
+        mixed_stream = (
+            b"\xd3\x00\x13\x24J\x01v~@\x0e4}>"
+            b"\x00\x04L\x00"
+            +
+            rmc_sentence
+            +
+            b"\r\n"
+        )
+
+        parsed_count = driver.process_nmea_bytes(
+            mixed_stream
+        )
+
+        observations = (
+            driver.get_rmc_observations()
+        )
+
+        self.assertEqual(
+            parsed_count,
+            1,
+        )
+        self.assertEqual(
+            len(observations),
+            1,
+        )
+        self.assertEqual(
+            observations[0]["raw_sentence"],
+            rmc_sentence.decode("ascii"),
+        )
+        self.assertTrue(
+            observations[0]["rmc_valid"]
+        )
+
+    def test_mixed_rmc_sentence_survives_chunk_boundary(
+        self
+    ):
+
+        driver = FP9Driver(
+            debug=False
+        )
+
+        first_count = driver.process_nmea_bytes(
+            (
+                b"\xd3\x00\x07\x00\xff$noise\x00"
+                b"$GNRMC,0122"
+            )
+        )
+
+        second_count = driver.process_nmea_bytes(
+            (
+                b"41.00,A,3714.75318,N,"
+                b"10743.02071,W,0.000,,"
+                b"260726,,,D,V*0C\r\n"
+            )
+        )
+
+        observations = (
+            driver.get_rmc_observations()
+        )
+
+        self.assertEqual(
+            first_count,
+            0,
+        )
+        self.assertEqual(
+            second_count,
+            1,
+        )
+        self.assertEqual(
+            len(observations),
+            1,
+        )
+        self.assertEqual(
+            observations[0]["rmc_utc"],
+            "2026-07-26T01:22:41.000000Z",
+        )
+
     def test_pps_pairs_by_monotonic_arrival_not_system_clock(
         self
     ):

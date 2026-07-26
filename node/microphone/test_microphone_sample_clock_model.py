@@ -416,6 +416,112 @@ class MicrophoneSampleClockModelTests(
             second_model["reset_count"],
             1,
         )
+        self.assertFalse(
+            second_model[
+                "quality"
+            ][
+                "unresolved_discontinuity"
+            ]
+        )
+        self.assertTrue(
+            second_model[
+                "quality"
+            ][
+                "prior_discontinuity_isolated"
+            ]
+        )
+
+    def test_rolling_fit_tracks_warming_clock(
+        self
+    ):
+
+        with tempfile.TemporaryDirectory() as root:
+            manager = self.make_manager(
+                root
+            )
+            sample_position = 0.0
+
+            for index in range(
+                1201
+            ):
+
+                if index > 0:
+                    progress = (
+                        index
+                        /
+                        1200.0
+                    )
+                    rate_error_ppm = (
+                        136.0
+                        +
+                        (
+                            -13.0
+                            -
+                            136.0
+                        )
+                        *
+                        progress
+                    )
+                    sample_position += (
+                        self.nominal_rate_hz
+                        *
+                        (
+                            1.0
+                            +
+                            rate_error_ppm
+                            /
+                            1_000_000.0
+                        )
+                    )
+
+                anchor = self.make_anchor(
+                    index=index,
+                    sample_offset=(
+                        sample_position
+                        -
+                        index
+                        *
+                        self.effective_rate_hz
+                    ),
+                )
+
+                manager.observe_anchor(
+                    anchor
+                )
+
+            model = manager.get_latest_model()
+
+        self.assertEqual(
+            model["quality"]["status"],
+            "PASS",
+        )
+        self.assertLessEqual(
+            model["coverage"][
+                "duration_seconds"
+            ],
+            120.0,
+        )
+        self.assertEqual(
+            model["coverage"][
+                "fit_window_policy"
+            ],
+            "rolling_recent_utc",
+        )
+        self.assertGreater(
+            model["quality"][
+                (
+                    "fit_window_discarded_"
+                    "anchor_count"
+                )
+            ],
+            1000,
+        )
+        self.assertLess(
+            model["quality"][
+                "residual_p95_us"
+            ],
+            1000.0,
+        )
 
     def test_recording_receives_model_and_raw_wav_is_unchanged(
         self

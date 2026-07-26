@@ -48,6 +48,7 @@
 from __future__ import annotations
 
 import copy
+import re
 import threading
 import time
 
@@ -57,6 +58,11 @@ from datetime import timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 import serial
+
+
+SUPPORTED_NMEA_START_PATTERN = re.compile(
+    rb"\$[A-Z]{2}(?:GGA|RMC),"
+)
 
 
 class FP9Driver:
@@ -310,12 +316,13 @@ class FP9Driver:
                 1,
             )
 
-            sentence = raw_line.decode(
-                "ascii",
-                errors="ignore",
-            ).strip()
+            sentence = (
+                self.extract_supported_nmea_sentence(
+                    raw_line
+                )
+            )
 
-            if not sentence.startswith("$"):
+            if sentence is None:
                 continue
 
             self.parse_sentence(
@@ -325,6 +332,53 @@ class FP9Driver:
             parsed_count += 1
 
         return parsed_count
+
+    def extract_supported_nmea_sentence(
+        self,
+        raw_line: bytes,
+    ) -> Optional[str]:
+
+        matches = list(
+            SUPPORTED_NMEA_START_PATTERN.finditer(
+                raw_line
+            )
+        )
+
+        for match in reversed(
+            matches
+        ):
+            candidate_bytes = bytearray()
+
+            for value in raw_line[
+                match.start():
+            ]:
+
+                if 32 <= value <= 126:
+                    candidate_bytes.append(
+                        value
+                    )
+                    continue
+
+                break
+
+            if not candidate_bytes:
+                continue
+
+            try:
+                sentence = bytes(
+                    candidate_bytes
+                ).decode(
+                    "ascii",
+                    errors="strict",
+                ).strip()
+
+            except UnicodeDecodeError:
+                continue
+
+            if sentence:
+                return sentence
+
+        return None
 
     def process_rtcm_bytes(
         self,

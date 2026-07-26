@@ -22,6 +22,7 @@
 # Does:
 #   - Consume accepted PPS/sample/UTC anchor evidence
 #   - Reuse the laboratory robust linear clock-fit method
+#   - Bound each active fit to a recent UTC horizon
 #   - Produce PASS, WARN, and FAIL model quality states
 #   - Preserve per-anchor fit residuals
 #   - Reset the fit across stream or timing-segment discontinuities
@@ -68,6 +69,7 @@ class MicrophoneClockModelManager:
         minimum_anchor_count=5,
         minimum_coverage_seconds=15.0,
         maximum_anchor_count=1200,
+        maximum_fit_horizon_seconds=120.0,
         sigma_clip=4.0,
         warning_residual_us=1000.0,
         failure_residual_us=5000.0,
@@ -110,6 +112,12 @@ class MicrophoneClockModelManager:
             self.minimum_anchor_count,
             int(
                 maximum_anchor_count
+            ),
+        )
+        self.maximum_fit_horizon_seconds = max(
+            self.minimum_coverage_seconds,
+            float(
+                maximum_fit_horizon_seconds
             ),
         )
         self.sigma_clip = float(
@@ -175,6 +183,7 @@ class MicrophoneClockModelManager:
         self._last_reset_reason = None
         self._reset_count = 0
         self._rejected_anchor_count = 0
+        self._fit_window_discarded_anchor_count = 0
 
     # --------------------------------------------------
     # Debug
@@ -343,14 +352,7 @@ class MicrophoneClockModelManager:
                 normalized
             )
 
-            if (
-                len(self._anchors)
-                >
-                self.maximum_anchor_count
-            ):
-                self._anchors = self._anchors[
-                    -self.maximum_anchor_count:
-                ]
+            self._prune_fit_window_locked()
 
             self._latest_model = (
                 self._fit_locked()
@@ -540,6 +542,62 @@ class MicrophoneClockModelManager:
                 )
             ),
         }, None
+
+    def _prune_fit_window_locked(
+        self,
+    ):
+
+        if not self._anchors:
+            return
+
+        latest_utc_ns = int(
+            self._anchors[-1][
+                "gnss_utc_ns"
+            ]
+        )
+
+        earliest_utc_ns = (
+            latest_utc_ns
+            -
+            int(
+                self.maximum_fit_horizon_seconds
+                *
+                1_000_000_000
+            )
+        )
+
+        retained = [
+            anchor
+            for anchor in self._anchors
+            if int(
+                anchor[
+                    "gnss_utc_ns"
+                ]
+            )
+            >=
+            earliest_utc_ns
+        ]
+
+        if (
+            len(retained)
+            >
+            self.maximum_anchor_count
+        ):
+            retained = retained[
+                -self.maximum_anchor_count:
+            ]
+
+        discarded_count = (
+            len(self._anchors)
+            -
+            len(retained)
+        )
+
+        if discarded_count > 0:
+            self._fit_window_discarded_anchor_count += (
+                discarded_count
+            )
+            self._anchors = retained
 
     # --------------------------------------------------
     # Clock Fit
@@ -901,6 +959,16 @@ class MicrophoneClockModelManager:
                 "minimum_coverage_seconds": (
                     self.minimum_coverage_seconds
                 ),
+                "maximum_fit_horizon_seconds": (
+                    self.maximum_fit_horizon_seconds
+                ),
+                (
+                    "fit_window_discarded_"
+                    "anchor_count"
+                ): (
+                    self
+                    ._fit_window_discarded_anchor_count
+                ),
                 "maximum_rate_error_ppm": (
                     self.maximum_rate_error_ppm
                 ),
@@ -910,9 +978,8 @@ class MicrophoneClockModelManager:
                     "gnss_rmc_paired_to_pps"
                     for item in anchors
                 ),
-                "unresolved_discontinuity": bool(
-                    quality_status != "PASS"
-                    and
+                "unresolved_discontinuity": False,
+                "prior_discontinuity_isolated": bool(
                     self._last_reset_reason
                     is not None
                 ),
@@ -944,6 +1011,12 @@ class MicrophoneClockModelManager:
                 ),
                 "duration_seconds": (
                     coverage_seconds
+                ),
+                "fit_window_policy": (
+                    "rolling_recent_utc"
+                ),
+                "maximum_fit_horizon_seconds": (
+                    self.maximum_fit_horizon_seconds
                 ),
             },
             "fit_residuals": fit_residuals,
@@ -992,6 +1065,11 @@ class MicrophoneClockModelManager:
                 ],
                 "observed_anchor_count": len(
                     anchors
+                ),
+                "unresolved_discontinuity": False,
+                "prior_discontinuity_isolated": bool(
+                    self._last_reset_reason
+                    is not None
                 ),
             },
             "coverage": None,
@@ -1700,6 +1778,7 @@ class MicrophoneClockModelManager:
         self._latest_model = None
         self._stream_instance_id = None
         self._timing_segment_id = None
+        self._fit_window_discarded_anchor_count = 0
         self._last_reset_reason = str(
             reason
         )
