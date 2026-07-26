@@ -39,7 +39,6 @@
         "debug_event_analysis": false,
         "debug_event_solver": false,
         "debug_solver_consensus": false,
-        "max_recordings_stored": 250,
         "default_sample_rate_hz": 48000,
         "solver_mode": "default",
         "minimum_solver_nodes": 4

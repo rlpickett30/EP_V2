@@ -30,6 +30,7 @@
 #   - Publish exact aligned TDOA_COMPLETE_SET packages
 #   - Publish TDOA_REQUEST_FAILED below quorum
 #   - Coordinate TDOA calculation work
+#   - Publish canonical TDOA_CALC results
 #
 # Does NOT:
 #   - Receive or validate HTTP uploads
@@ -65,10 +66,11 @@ from TDOA.TDOA_clock_alignment_manager import (
 #       def update_weather(self, weather_event: dict) -> dict | None:
 #           ...
 #
-#       def store_tdoa_recording(self, recording_event: dict) -> dict | None:
-#           ...
-#
-#       def tdoa_estimate(self, candidate: dict) -> dict:
+#       def tdoa_estimate(
+#           self,
+#           candidate: dict,
+#           recording_events: list
+#       ) -> dict:
 #           ...
 #
 from TDOA.TDOA_manager import TDOAManager
@@ -1435,16 +1437,86 @@ class TDOADispatcher:
             )
         )
 
+        input_request_id = result.get(
+            "calculation_input",
+            {}
+        ).get(
+            "tdoa_request_id"
+        )
+
+        if (
+            result.get(
+                "success",
+                False
+            )
+            and
+            input_request_id not in (
+                None,
+                ""
+            )
+            and
+            input_request_id != request_id
+        ):
+            result["success"] = False
+            result["status"] = "failed"
+            result.setdefault(
+                "errors",
+                []
+            ).append(
+                "Aligned calculation input request ID does not match "
+                "TDOA_COMPLETE_SET."
+            )
+
         result["tdoa_request_id"] = request_id
-        result["complete_set"] = complete_set
+        result["complete_set_summary"] = {
+            "schema_version": complete_set.get(
+                "schema_version"
+            ),
+            "closure_reason": complete_set.get(
+                "closure_reason"
+            ),
+            "aligned_recording_count": complete_set.get(
+                "aligned_recording_count"
+            ),
+            "aligned_node_ids": complete_set.get(
+                "aligned_node_ids",
+                []
+            ),
+            "alignment_rejected_node_ids": complete_set.get(
+                "alignment_rejected_node_ids",
+                []
+            ),
+            "target_grid": complete_set.get(
+                "clock_alignment",
+                {}
+            ).get(
+                "target_grid"
+            )
+        }
 
         if result.get("success", False):
-            self.event_services.publish_tdoa_calc_complete(
+            self.event_services.publish_tdoa_calc(
                 result
             )
+
+            logging.info(
+                "[TDOA] Canonical calculation published: "
+                f"request_id={request_id} "
+                f"solver_attempts="
+                f"{result.get('solver_attempt_count')} "
+                f"localization_valid="
+                f"{result.get('localization_valid')}"
+            )
+
         else:
             self.event_services.publish_tdoa_calc_failed(
                 result
+            )
+
+            logging.warning(
+                "[TDOA] Calculation handoff failed: "
+                f"request_id={request_id} "
+                f"errors={result.get('errors')}"
             )
 
     def _handle_weather_update(

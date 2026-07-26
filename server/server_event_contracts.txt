@@ -998,7 +998,7 @@ Multiple TDOA_RECORDING and TDOA_VALID_RECORDING events
 -> TDOA_CALC
 
 Current status:
-Implemented through Block 8 as the aligned calculation handoff.
+Implemented through Block 9 as the exact aligned calculation handoff.
 
 Notes / legacy aliases:
 The default quorum is four valid recordings.
@@ -1017,6 +1017,9 @@ clock_alignment.recording_results preserves every PASS or rejection reason.
 The default 48 kHz grid contains exactly 720,000 samples.
 Calculation must not replace these exact aligned events with a species-based
 search of global recording history.
+TDOAManager must load payload.aligned_wav_path only. Generic wav_path,
+recording_path, raw_server_wav_path, guarded_wav_path, and node-local paths
+are not valid calculation substitutes.
 
 TDOA_CALC:
 Purpose:
@@ -1041,11 +1044,28 @@ TDOA_COMPLETE_SET
 -> SERVER_TDOA_CALC
 
 Current status:
-Drawn as TDOA publication, Platform Registry subscription, and Event Journal subscription.
+Implemented as the canonical Block 9 TDOA publication and Event Journal
+subscription. Platform Registry promotion to SERVER_TDOA_CALC remains outside
+the Block 9 handoff refactor.
 
 Notes / legacy aliases:
 SERVER_TDOA_CALC is the server-promoted version.
 Database should consume SERVER_TDOA_CALC, not raw TDOA_CALC.
+TDOA_CALC_COMPLETE is not canonical and is not published.
+TDOA_CALC contains:
+    tdoa_request_id
+    candidate lineage
+    exact aligned input paths and SHA-256 values
+    scheduled_start_utc, sample rate, duration, and frame count
+    per-channel detection counts and compact detection evidence
+    analysis timing groups
+    solver attempts and residual evidence
+    solver consensus
+    localization_valid
+status=complete means the calculation pipeline completed. It does not claim
+that localization_valid is true. Bad geometry, a high residual, or no valid
+consensus remains a completed calculation result. TDOA_CALC_FAILED is reserved
+for a broken aligned-input handoff or calculation execution failure.
 
 ============================================================
 COMMUNICATION EVENTS

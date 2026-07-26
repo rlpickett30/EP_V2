@@ -65,7 +65,7 @@ TDOA_REQUEST_FAILED = "TDOA_REQUEST_FAILED"
 TDOA_COMPLETE_SET = "TDOA_COMPLETE_SET"
 TDOA_CALC_STARTED = "TDOA_CALC_STARTED"
 TDOA_CALC_REQUESTED = "TDOA_CALC_REQUESTED"
-TDOA_CALC_COMPLETE = "TDOA_CALC_COMPLETE"
+TDOA_CALC = "TDOA_CALC"
 TDOA_CALC_FAILED = "TDOA_CALC_FAILED"
 TDOA_STATE_UPDATED = "TDOA_STATE_UPDATED"
 
@@ -104,7 +104,7 @@ class TDOAEventServices:
         - TDOA_COMPLETE_SET
         - TDOA_CALC_STARTED
         - TDOA_CALC_REQUESTED
-        - TDOA_CALC_COMPLETE
+        - TDOA_CALC
         - TDOA_CALC_FAILED
     """
 
@@ -133,7 +133,7 @@ class TDOAEventServices:
     EVENT_TDOA_COMPLETE_SET = TDOA_COMPLETE_SET
     EVENT_TDOA_CALC_STARTED = TDOA_CALC_STARTED
     EVENT_TDOA_CALC_REQUESTED = TDOA_CALC_REQUESTED
-    EVENT_TDOA_CALC_COMPLETE = TDOA_CALC_COMPLETE
+    EVENT_TDOA_CALC = TDOA_CALC
     EVENT_TDOA_CALC_FAILED = TDOA_CALC_FAILED
     EVENT_TDOA_STATE_UPDATED = TDOA_STATE_UPDATED
 
@@ -317,9 +317,9 @@ class TDOAEventServices:
             payload=payload
         )
 
-    def publish_tdoa_calc_complete(self, payload):
+    def publish_tdoa_calc(self, payload):
         self._publish(
-            event_name=TDOA_CALC_COMPLETE,
+            event_name=TDOA_CALC,
             payload=payload
         )
 

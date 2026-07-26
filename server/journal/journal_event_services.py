@@ -135,6 +135,10 @@ class JournalEventServices:
         "TDOA_RECORDING",
         "TDOA_VALID_RECORDING",
         "TDOA_COMPLETE_SET",
+        "TDOA_CALC_STARTED",
+        "TDOA_CALC_REQUESTED",
+        "TDOA_CALC",
+        "TDOA_CALC_FAILED",
 #        "NODE_STATE_UPDATED",
         "NODE_TDOA_STATE",
         

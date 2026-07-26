@@ -13,14 +13,15 @@
 #   Perform TDOA calculation work requested by TDOA_dispatcher.py.
 #
 # Does:
-#   - Stores incoming TDOA recording packages
 #   - Applies mode changes from dispatcher
 #   - Applies weather updates from dispatcher
+#   - Validates exact request-scoped UTC-aligned recording inputs
+#   - Loads only server-derived aligned WAV files
 #   - Runs event detection
 #   - Runs event analysis
 #   - Runs event solver
 #   - Runs solver consensus
-#   - Returns completed result packages to dispatcher
+#   - Returns canonical publishable calculation results to dispatcher
 #
 # Does NOT:
 #   - Subscribe to events
@@ -29,6 +30,8 @@
 #   - Decide when TDOA should run
 #   - Track node capability state
 #   - Perform candidate filtering
+#   - Select recordings from global history
+#   - Load node-local or raw guarded WAV paths
 #
 # Owner:
 #   TDOA_dispatcher.py
@@ -36,6 +39,7 @@
 # ============================================================
 
 import copy
+import hashlib
 import logging
 import wave
 from pathlib import Path
@@ -114,11 +118,6 @@ class TDOAManager:
             False
         )
 
-        self.max_recordings_stored = manager_config.get(
-            "max_recordings_stored",
-            250
-        )
-
         self.default_sample_rate_hz = manager_config.get(
             "default_sample_rate_hz",
             self.config.get(
@@ -130,7 +129,39 @@ class TDOAManager:
             )
         )
 
-        self.recording_store = []
+        self.minimum_solver_nodes = int(
+            manager_config.get(
+                "minimum_solver_nodes",
+                4
+            )
+        )
+
+        alignment_config = self.config.get(
+            "tdoa_clock_alignment",
+            {}
+        )
+
+        self.expected_aligned_sample_rate_hz = int(
+            alignment_config.get(
+                "target_sample_rate_hz",
+                self.default_sample_rate_hz
+            )
+        )
+
+        self.expected_aligned_duration_seconds = float(
+            alignment_config.get(
+                "target_duration_seconds",
+                15.0
+            )
+        )
+
+        self.expected_aligned_frame_count = int(
+            round(
+                self.expected_aligned_sample_rate_hz
+                *
+                self.expected_aligned_duration_seconds
+            )
+        )
 
         self.weather_state = {}
 
@@ -262,57 +293,6 @@ class TDOAManager:
             )
         }
 
-    def store_tdoa_recording(
-        self,
-        recording_event: dict
-    ) -> Optional[dict]:
-        """
-        Store a TDOA recording package.
-
-        Called by:
-            TDOA_dispatcher._handle_tdoa_recording()
-
-        Expected useful fields may include:
-            node_id
-            avis_lite_id
-            channel_name
-            signal
-            sample_rate_hz
-            timestamp
-        """
-
-        if recording_event is None:
-            raise ValueError(
-                "recording_event is None."
-            )
-
-        normalized_recording = self._normalize_recording_event(
-            recording_event
-        )
-
-        self.recording_store.append(
-            normalized_recording
-        )
-
-        self._trim_recording_store()
-
-        return {
-            "manager": "TDOA",
-            "update_type": "recording_stored",
-            "stored_recording_count": len(
-                self.recording_store
-            ),
-            "node_id": normalized_recording.get(
-                "node_id"
-            ),
-            "avis_lite_id": normalized_recording.get(
-                "avis_lite_id"
-            ),
-            "channel_name": normalized_recording.get(
-                "channel_name"
-            )
-        }
-
     def tdoa_estimate(
         self,
         candidate: dict,
@@ -339,11 +319,23 @@ class TDOAManager:
         """
 
         result = {
+            "schema_version": 1,
             "success": False,
+            "status": "failed",
             "manager": "TDOA",
-            "calculation": "tdoa_estimate",
-            "candidate": candidate,
-            "channel_events": {},
+            "calculation": "TDOA_CALC",
+            "input_contract": "aligned_complete_set",
+            "tdoa_request_id": None,
+            "candidate": copy.deepcopy(
+                candidate
+            ),
+            "calculation_input": {},
+            "calculation_attempted": False,
+            "solver_attempt_count": 0,
+            "localization_valid": False,
+            "solution": {},
+            "channel_event_counts": {},
+            "channel_event_summary": {},
             "analysis_groups": [],
             "solver_results": [],
             "solver_consensus": {},
@@ -356,22 +348,43 @@ class TDOAManager:
                 candidate
             )
 
-            if recording_events is not None:
-
-                recordings = self._normalize_exact_recording_events(
-                    recording_events
+            if recording_events is None:
+                raise ValueError(
+                    "TDOA_COMPLETE_SET recording_events are required. "
+                    "Global recording-history fallback is disabled."
                 )
 
-            else:
-
-                recordings = self._select_recordings_for_candidate(
-                    candidate
-                )
+            recordings = self._normalize_exact_recording_events(
+                recording_events
+            )
 
             if not recordings:
                 raise RuntimeError(
-                    "No stored TDOA recordings matched candidate."
+                    "TDOA_COMPLETE_SET contains no aligned recordings."
                 )
+
+            self._validate_shared_aligned_grid(
+                recordings
+            )
+
+            self._validate_candidate_recording_lineage(
+                candidate=candidate,
+                recordings=recordings
+            )
+
+            result["calculation_input"] = (
+                self._build_calculation_input(
+                    recordings
+                )
+            )
+
+            result["tdoa_request_id"] = result[
+                "calculation_input"
+            ].get(
+                "tdoa_request_id"
+            )
+
+            result["calculation_attempted"] = True
 
             self._prepare_solver_for_recordings(
                 recordings=recordings
@@ -399,6 +412,10 @@ class TDOAManager:
                 analysis_groups=analysis_groups
             )
 
+            result["solver_attempt_count"] = len(
+                solver_results
+            )
+
             consensus_result = self.solver_consensus.compute(
                 solver_results=solver_results
             )
@@ -408,11 +425,48 @@ class TDOAManager:
                     "Solver consensus failed."
                 )
 
+            public_consensus = self._public_consensus_result(
+                consensus_result
+            )
+
+            consensus_solution = public_consensus.get(
+                "consensus_solution",
+                {}
+            )
+
             result["success"] = True
-            result["channel_events"] = channel_events
-            result["analysis_groups"] = analysis_groups
-            result["solver_results"] = solver_results
-            result["solver_consensus"] = consensus_result
+            result["status"] = "complete"
+            result["channel_event_counts"] = {
+                channel_name: len(events)
+                for channel_name, events in channel_events.items()
+            }
+            result["channel_event_summary"] = (
+                self._summarize_channel_events(
+                    channel_events
+                )
+            )
+            result["analysis_groups"] = [
+                self._public_analysis_group(
+                    analysis_group
+                )
+                for analysis_group in analysis_groups
+            ]
+            result["solver_results"] = [
+                self._public_solver_result(
+                    solver_result
+                )
+                for solver_result in solver_results
+            ]
+            result["solver_consensus"] = public_consensus
+            result["localization_valid"] = bool(
+                consensus_solution.get(
+                    "solver_consensus_valid",
+                    False
+                )
+            )
+            result["solution"] = copy.deepcopy(
+                consensus_solution
+            )
 
             if self.debug:
                 result["debug"] = {
@@ -453,10 +507,12 @@ class TDOAManager:
                     type(error).__name__
                 )
 
-        return result
+        return self._to_builtin(
+            result
+        )
 
     # ========================================================
-    # RECORDING SELECTION
+    # EXACT ALIGNED RECORDING INPUT
     # ========================================================
 
     def _normalize_exact_recording_events(
@@ -464,11 +520,10 @@ class TDOAManager:
         recording_events: list
     ) -> list:
         """
-        Normalize the exact request-scoped events in TDOA_COMPLETE_SET.
+        Normalize exact request-scoped events from TDOA_COMPLETE_SET.
 
-        Block 4 complete sets contain only Communication-validated server WAV
-        references. They must not be replaced by a species-based search of the
-        global recording store.
+        Block 9 deliberately refuses generic, raw, node-local, or
+        global-history recording selection.
         """
 
         if not isinstance(recording_events, list):
@@ -478,6 +533,7 @@ class TDOAManager:
 
         normalized_recordings = []
         seen_node_ids = set()
+        seen_channel_names = set()
 
         for recording_event in recording_events:
 
@@ -486,18 +542,15 @@ class TDOAManager:
                     "Exact TDOA recording event must be a dictionary."
                 )
 
-            normalized_recording = self._normalize_recording_event(
-                recording_event
+            normalized_recording = (
+                self._normalize_aligned_recording_event(
+                    recording_event
+                )
             )
 
             node_id = normalized_recording.get(
                 "node_id"
             )
-
-            if node_id is None:
-                raise ValueError(
-                    "Exact TDOA recording event is missing node_id."
-                )
 
             if node_id in seen_node_ids:
                 raise ValueError(
@@ -508,78 +561,76 @@ class TDOAManager:
                 node_id
             )
 
+            channel_name = normalized_recording.get(
+                "channel_name"
+            )
+
+            if channel_name in seen_channel_names:
+                raise ValueError(
+                    "Duplicate exact TDOA recording channel: "
+                    f"{channel_name}"
+                )
+
+            seen_channel_names.add(
+                channel_name
+            )
+
             normalized_recordings.append(
                 normalized_recording
             )
 
+        if len(normalized_recordings) < self.minimum_solver_nodes:
+            raise ValueError(
+                "Not enough exact aligned recordings for TDOA calculation. "
+                f"Required={self.minimum_solver_nodes}, "
+                f"Available={len(normalized_recordings)}"
+            )
+
         return normalized_recordings
 
-    def _select_recordings_for_candidate(
-        self,
-        candidate: dict
-    ) -> list:
-        """
-        Select stored recordings that belong to the candidate.
-        """
-
-        candidate_node_ids = set(
-            candidate.get(
-                "node_ids",
-                []
-            )
-        )
-
-        candidate_avis_lite_id = candidate.get(
-            "avis_lite_id"
-        )
-
-        selected = []
-
-        for recording in self.recording_store:
-
-            node_id = recording.get(
-                "node_id"
-            )
-
-            avis_lite_id = recording.get(
-                "avis_lite_id"
-            )
-
-            node_matches = (
-                not candidate_node_ids
-                or
-                node_id in candidate_node_ids
-            )
-
-            avis_lite_matches = (
-                candidate_avis_lite_id is None
-                or
-                avis_lite_id == candidate_avis_lite_id
-            )
-
-            if node_matches and avis_lite_matches:
-                selected.append(
-                    recording
-                )
-
-        return selected
-
-    def _normalize_recording_event(
+    def _normalize_aligned_recording_event(
         self,
         recording_event: dict
     ) -> dict:
         """
-        Normalize an incoming recording event into one internal shape.
+        Validate and load one exact aligned recording.
         """
 
         payload = recording_event.get(
-            "payload",
-            recording_event
+            "payload"
         )
 
         if not isinstance(payload, dict):
             raise TypeError(
-                "Recording payload must be a dictionary."
+                "Aligned TDOA recording event must contain a payload "
+                "dictionary."
+            )
+
+        status = payload.get(
+            "status",
+            recording_event.get(
+                "status"
+            )
+        )
+
+        if status != "success":
+            raise ValueError(
+                "Exact aligned TDOA recording status is not success."
+            )
+
+        if payload.get("alignment_status") != "PASS":
+            raise ValueError(
+                "Exact TDOA recording alignment_status is not PASS."
+            )
+
+        if payload.get("timing_state") != "utc_grid_aligned":
+            raise ValueError(
+                "Exact TDOA recording timing_state is not utc_grid_aligned."
+            )
+
+        if payload.get("corrected_tdoa_eligible") is not True:
+            raise ValueError(
+                "Exact aligned TDOA recording is not calculation eligible."
             )
 
         node_id = payload.get(
@@ -589,78 +640,165 @@ class TDOAManager:
             )
         )
 
-        avis_lite_id = payload.get(
-            "avis_lite_id",
-            recording_event.get(
-                "avis_lite_id"
+        if node_id in (None, ""):
+            raise ValueError(
+                "Exact aligned TDOA recording is missing node_id."
             )
+
+        aligned_wav_path = payload.get(
+            "aligned_wav_path"
         )
 
-        channel_name = payload.get(
-            "channel_name",
-            node_id
+        if aligned_wav_path in (None, ""):
+            raise ValueError(
+                f"Exact TDOA recording for {node_id} is missing "
+                "aligned_wav_path. Generic wav_path and recording_path "
+                "fallbacks are disabled."
+            )
+
+        expected_sha256 = payload.get(
+            "aligned_wav_sha256"
         )
 
-        signal = payload.get(
-            "signal"
+        if expected_sha256 in (None, ""):
+            raise ValueError(
+                f"Exact TDOA recording for {node_id} is missing "
+                "aligned_wav_sha256."
+            )
+
+        actual_sha256 = self._sha256_file(
+            aligned_wav_path
         )
 
-        sample_rate_hz = payload.get(
+        if actual_sha256.lower() != str(
+            expected_sha256
+        ).lower():
+            raise ValueError(
+                f"Aligned WAV checksum mismatch for {node_id}."
+            )
+
+        signal, wav_properties = self._load_aligned_wav_signal(
+            aligned_wav_path
+        )
+
+        declared_sample_rate_hz = payload.get(
             "sample_rate_hz",
             payload.get(
-                "sample_rate",
-                self.default_sample_rate_hz
+                "sample_rate"
             )
         )
 
-        wav_path = (
-            payload.get("wav_path")
-            or payload.get("recording_path")
-        )
-
-        if signal is None and wav_path is not None:
-            signal, loaded_sample_rate_hz = self._load_wav_signal(
-                wav_path=wav_path
+        if (
+            declared_sample_rate_hz is not None
+            and
+            int(declared_sample_rate_hz)
+            !=
+            wav_properties["sample_rate_hz"]
+        ):
+            raise ValueError(
+                f"Aligned WAV sample-rate metadata mismatch for {node_id}."
             )
 
-            if loaded_sample_rate_hz is not None:
-                sample_rate_hz = loaded_sample_rate_hz
+        declared_frame_count = payload.get(
+            "frame_count"
+        )
+
+        if (
+            declared_frame_count is not None
+            and
+            int(declared_frame_count)
+            !=
+            wav_properties["frame_count"]
+        ):
+            raise ValueError(
+                f"Aligned WAV frame-count metadata mismatch for {node_id}."
+            )
+
+        declared_channels = payload.get(
+            "channels"
+        )
+
+        if (
+            declared_channels is not None
+            and
+            int(declared_channels)
+            !=
+            wav_properties["channels"]
+        ):
+            raise ValueError(
+                f"Aligned WAV channel metadata mismatch for {node_id}."
+            )
 
         return {
-            "node_id": node_id,
-            "avis_lite_id": avis_lite_id,
-            "channel_name": channel_name,
-            "signal": signal,
-            "sample_rate_hz": sample_rate_hz,
-            "timestamp": payload.get(
-                "timestamp",
-                recording_event.get(
-                    "timestamp"
+            "tdoa_request_id": payload.get(
+                "tdoa_request_id",
+                payload.get(
+                    "request_id"
                 )
             ),
-            "recording_id": payload.get("recording_id"),
-            "wav_path": wav_path,
-            "position": payload.get("position"),
-            "source_event": recording_event
+            "node_id": node_id,
+            "avis_lite_id": payload.get(
+                "avis_lite_id",
+                recording_event.get(
+                    "avis_lite_id"
+                )
+            ),
+            "channel_name": payload.get(
+                "channel_name",
+                node_id
+            ),
+            "signal": signal,
+            "sample_rate_hz": wav_properties[
+                "sample_rate_hz"
+            ],
+            "channels": wav_properties[
+                "channels"
+            ],
+            "sample_width_bytes": wav_properties[
+                "sample_width_bytes"
+            ],
+            "frame_count": wav_properties[
+                "frame_count"
+            ],
+            "duration_seconds": wav_properties[
+                "duration_seconds"
+            ],
+            "scheduled_start_utc": payload.get(
+                "scheduled_start_utc"
+            ),
+            "recording_id": payload.get(
+                "recording_id"
+            ),
+            "aligned_wav_path": str(
+                Path(
+                    aligned_wav_path
+                ).resolve()
+            ),
+            "aligned_wav_sha256": actual_sha256,
+            "aligned_metadata_path": payload.get(
+                "aligned_metadata_path"
+            ),
+            "position": payload.get(
+                "position"
+            )
         }
 
-    def _load_wav_signal(
+    def _load_aligned_wav_signal(
         self,
         wav_path
     ) -> tuple:
         """
-        Load a WAV pointer returned by a node into a mono float signal.
+        Load one server-derived aligned WAV into a mono float signal.
         """
 
         path = Path(
             wav_path
         )
 
-        if not path.exists():
-            logging.warning(
-                f"TDOA WAV path does not exist on server: {path}"
+        if not path.is_file():
+            raise FileNotFoundError(
+                f"Aligned TDOA WAV does not exist on server: {path}"
             )
-            return None, None
 
         with wave.open(
             str(path),
@@ -708,27 +846,261 @@ class TDOAManager:
                 axis=1
             )
 
-        return signal, sample_rate_hz
+        return signal, {
+            "sample_rate_hz": int(
+                sample_rate_hz
+            ),
+            "channels": int(
+                channels
+            ),
+            "sample_width_bytes": int(
+                sample_width
+            ),
+            "frame_count": int(
+                frame_count
+            ),
+            "duration_seconds": float(
+                frame_count
+                /
+                sample_rate_hz
+            )
+        }
 
-    def _trim_recording_store(
-        self
+    @staticmethod
+    def _sha256_file(
+        wav_path
+    ) -> str:
+
+        digest = hashlib.sha256()
+
+        with Path(
+            wav_path
+        ).open(
+            "rb"
+        ) as wav_file:
+
+            for block in iter(
+                lambda: wav_file.read(
+                    1024
+                    *
+                    1024
+                ),
+                b""
+            ):
+                digest.update(
+                    block
+                )
+
+        return digest.hexdigest()
+
+    def _validate_shared_aligned_grid(
+        self,
+        recordings: list
     ) -> None:
         """
-        Keep bounded recording history.
+        Confirm every exact input occupies the same canonical audio grid.
         """
 
-        if len(self.recording_store) <= self.max_recordings_stored:
-            return
+        request_ids = {
+            recording.get(
+                "tdoa_request_id"
+            )
+            for recording in recordings
+        }
 
-        overflow = (
-            len(self.recording_store)
-            -
-            self.max_recordings_stored
+        if None in request_ids or "" in request_ids:
+            raise ValueError(
+                "Exact aligned recordings are missing tdoa_request_id."
+            )
+
+        if len(request_ids) != 1:
+            raise ValueError(
+                "Exact aligned recordings contain mixed tdoa_request_id "
+                "values."
+            )
+
+        scheduled_starts = {
+            recording.get(
+                "scheduled_start_utc"
+            )
+            for recording in recordings
+        }
+
+        if None in scheduled_starts or "" in scheduled_starts:
+            raise ValueError(
+                "Exact aligned recordings are missing scheduled_start_utc."
+            )
+
+        if len(scheduled_starts) != 1:
+            raise ValueError(
+                "Exact aligned recordings do not share scheduled_start_utc."
+            )
+
+        for recording in recordings:
+
+            node_id = recording.get(
+                "node_id"
+            )
+
+            if (
+                recording.get(
+                    "sample_rate_hz"
+                )
+                !=
+                self.expected_aligned_sample_rate_hz
+            ):
+                raise ValueError(
+                    f"Aligned sample rate is not the configured target "
+                    f"for {node_id}."
+                )
+
+            if (
+                recording.get(
+                    "frame_count"
+                )
+                !=
+                self.expected_aligned_frame_count
+            ):
+                raise ValueError(
+                    f"Aligned frame count is not the configured target "
+                    f"for {node_id}."
+                )
+
+    @staticmethod
+    def _validate_candidate_recording_lineage(
+        candidate: dict,
+        recordings: list
+    ) -> None:
+        """
+        Confirm the exact aligned members belong to the triggering candidate.
+        """
+
+        candidate_node_ids = set(
+            candidate.get(
+                "node_ids",
+                []
+            )
         )
 
-        self.recording_store = self.recording_store[
-            overflow:
+        if candidate_node_ids:
+
+            recording_node_ids = {
+                recording.get(
+                    "node_id"
+                )
+                for recording in recordings
+            }
+
+            unexpected_node_ids = (
+                recording_node_ids
+                -
+                candidate_node_ids
+            )
+
+            if unexpected_node_ids:
+                raise ValueError(
+                    "Exact aligned recordings contain nodes outside the "
+                    "triggering candidate: "
+                    f"{sorted(unexpected_node_ids)}"
+                )
+
+        candidate_avis_lite_id = candidate.get(
+            "avis_lite_id"
+        )
+
+        if candidate_avis_lite_id in (None, ""):
+            return
+
+        mismatched_node_ids = [
+            recording.get(
+                "node_id"
+            )
+            for recording in recordings
+            if (
+                recording.get(
+                    "avis_lite_id"
+                )
+                not in (
+                    None,
+                    "",
+                    candidate_avis_lite_id
+                )
+            )
         ]
+
+        if mismatched_node_ids:
+            raise ValueError(
+                "Exact aligned recordings contain AVIS_LITE lineage "
+                "outside the triggering candidate: "
+                f"{sorted(mismatched_node_ids)}"
+            )
+
+    def _build_calculation_input(
+        self,
+        recordings: list
+    ) -> dict:
+
+        return {
+            "source_event": "TDOA_COMPLETE_SET",
+            "timing_state": "utc_grid_aligned",
+            "tdoa_request_id": recordings[
+                0
+            ].get(
+                "tdoa_request_id"
+            ),
+            "scheduled_start_utc": recordings[
+                0
+            ].get(
+                "scheduled_start_utc"
+            ),
+            "sample_rate_hz": recordings[
+                0
+            ].get(
+                "sample_rate_hz"
+            ),
+            "frame_count": recordings[
+                0
+            ].get(
+                "frame_count"
+            ),
+            "duration_seconds": recordings[
+                0
+            ].get(
+                "duration_seconds"
+            ),
+            "recording_count": len(
+                recordings
+            ),
+            "node_ids": [
+                recording.get(
+                    "node_id"
+                )
+                for recording in recordings
+            ],
+            "recordings": [
+                {
+                    "node_id": recording.get(
+                        "node_id"
+                    ),
+                    "recording_id": recording.get(
+                        "recording_id"
+                    ),
+                    "channel_name": recording.get(
+                        "channel_name"
+                    ),
+                    "aligned_wav_path": recording.get(
+                        "aligned_wav_path"
+                    ),
+                    "aligned_wav_sha256": recording.get(
+                        "aligned_wav_sha256"
+                    ),
+                    "aligned_metadata_path": recording.get(
+                        "aligned_metadata_path"
+                    )
+                }
+                for recording in recordings
+            ]
+        }
 
 
     def _prepare_solver_for_recordings(
@@ -855,6 +1227,271 @@ class TDOAManager:
             )
 
         return solver_results
+
+    # ========================================================
+    # CANONICAL RESULT BUILDING
+    # ========================================================
+
+    def _summarize_channel_events(
+        self,
+        channel_events: dict
+    ) -> dict:
+        """
+        Preserve bounded per-channel detection evidence.
+        """
+
+        summary = {}
+
+        for channel_name, events in channel_events.items():
+
+            onset_samples = [
+                event.get(
+                    "onset_sample"
+                )
+                for event in events
+                if event.get(
+                    "onset_sample"
+                ) is not None
+            ]
+
+            summary[channel_name] = {
+                "event_count": len(
+                    events
+                ),
+                "first_onset_sample": (
+                    min(
+                        onset_samples
+                    )
+                    if onset_samples
+                    else
+                    None
+                ),
+                "last_onset_sample": (
+                    max(
+                        onset_samples
+                    )
+                    if onset_samples
+                    else
+                    None
+                )
+            }
+
+        return self._to_builtin(
+            summary
+        )
+
+    def _public_analysis_group(
+        self,
+        analysis_group: dict
+    ) -> dict:
+        """
+        Preserve solver-ready timing evidence without matched audio windows.
+        """
+
+        matched_channels = analysis_group.get(
+            "matched_channels",
+            {}
+        )
+
+        return self._to_builtin({
+            "group_id": analysis_group.get(
+                "group_id"
+            ),
+            "reference_channel": analysis_group.get(
+                "reference_channel"
+            ),
+            "alignment_feature": analysis_group.get(
+                "alignment_feature"
+            ),
+            "feature_values": copy.deepcopy(
+                analysis_group.get(
+                    "feature_values",
+                    {}
+                )
+            ),
+            "reference_value": analysis_group.get(
+                "reference_value"
+            ),
+            "tdoa_values": copy.deepcopy(
+                analysis_group.get(
+                    "tdoa_values",
+                    {}
+                )
+            ),
+            "residuals": copy.deepcopy(
+                analysis_group.get(
+                    "residuals",
+                    {}
+                )
+            ),
+            "spread": analysis_group.get(
+                "spread"
+            ),
+            "std_deviation": analysis_group.get(
+                "std_deviation"
+            ),
+            "channel_count": analysis_group.get(
+                "channel_count"
+            ),
+            "consensus_valid": analysis_group.get(
+                "consensus_valid"
+            ),
+            "matched_channel_names": sorted(
+                matched_channels.keys()
+            ),
+            "match_errors": copy.deepcopy(
+                analysis_group.get(
+                    "match_errors",
+                    {}
+                )
+            )
+        })
+
+    def _public_solver_result(
+        self,
+        solver_result: dict
+    ) -> dict:
+        """
+        Preserve one solver attempt without duplicating analysis internals.
+        """
+
+        solution = solver_result.get(
+            "solution",
+            {}
+        )
+
+        return self._to_builtin({
+            "success": solver_result.get(
+                "success",
+                False
+            ),
+            "solution": self._public_solution(
+                solution
+            ),
+            "errors": copy.deepcopy(
+                solver_result.get(
+                    "errors",
+                    []
+                )
+            ),
+            "debug": copy.deepcopy(
+                solver_result.get(
+                    "debug",
+                    {}
+                )
+            )
+        })
+
+    def _public_consensus_result(
+        self,
+        consensus_result: dict
+    ) -> dict:
+        """
+        Preserve consensus evidence without nested analysis/audio copies.
+        """
+
+        raw_consensus_solution = consensus_result.get(
+            "consensus_solution",
+            {}
+        )
+
+        consensus_solution = {
+            key: copy.deepcopy(
+                value
+            )
+            for key, value in raw_consensus_solution.items()
+            if key != "best_solution"
+        }
+
+        best_solution = raw_consensus_solution.get(
+            "best_solution"
+        )
+
+        if isinstance(best_solution, dict):
+            consensus_solution["best_solution"] = (
+                self._public_solution(
+                    best_solution
+                )
+            )
+
+        return self._to_builtin({
+            "success": consensus_result.get(
+                "success",
+                False
+            ),
+            "consensus_solution": consensus_solution,
+            "valid_solutions": [
+                self._public_solution(
+                    solution
+                )
+                for solution in consensus_result.get(
+                    "valid_solutions",
+                    []
+                )
+            ],
+            "errors": copy.deepcopy(
+                consensus_result.get(
+                    "errors",
+                    []
+                )
+            ),
+            "debug": copy.deepcopy(
+                consensus_result.get(
+                    "debug",
+                    {}
+                )
+            )
+        })
+
+    def _public_solution(
+        self,
+        solution: dict
+    ) -> dict:
+
+        return {
+            key: self._to_builtin(
+                value
+            )
+            for key, value in solution.items()
+            if key != "analysis_group"
+        }
+
+    def _to_builtin(
+        self,
+        value
+    ):
+        """
+        Convert calculation evidence into JSON-safe Python builtins.
+        """
+
+        if isinstance(value, np.ndarray):
+            return value.tolist()
+
+        if isinstance(value, np.generic):
+            return value.item()
+
+        if isinstance(value, Path):
+            return str(
+                value
+            )
+
+        if isinstance(value, dict):
+            return {
+                str(key): self._to_builtin(
+                    item
+                )
+                for key, item in value.items()
+            }
+
+        if isinstance(value, (list, tuple, set)):
+            return [
+                self._to_builtin(
+                    item
+                )
+                for item in value
+            ]
+
+        return value
 
     # ========================================================
     # MODE HANDLING
