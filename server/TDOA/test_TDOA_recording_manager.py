@@ -565,6 +565,28 @@ class FakeCalculationManager:
         }
 
 
+class FakeClockAlignmentManager:
+    """
+    Keep the Block 4 collection integration test focused on raw closure.
+    """
+
+    def align_complete_set(
+        self,
+        raw_complete_set
+    ):
+
+        return {
+            "success": True,
+            "status": "complete",
+            "failure_reason": None,
+            "complete_set": raw_complete_set,
+            "failure_payload": None,
+            "clock_alignment": {
+                "status": "BYPASSED_BY_BLOCK_4_TEST"
+            }
+        }
+
+
 class TDOADispatcherCollectionIntegrationTests(
     unittest.TestCase
 ):
@@ -589,6 +611,9 @@ class TDOADispatcherCollectionIntegrationTests(
         )
 
         dispatcher.manager = FakeCalculationManager()
+        dispatcher.clock_alignment_manager = (
+            FakeClockAlignmentManager()
+        )
 
         complete_events = []
         failed_events = []

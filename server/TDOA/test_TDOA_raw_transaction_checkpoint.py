@@ -123,6 +123,28 @@ class FakeCalculationManager:
         }
 
 
+class FakeClockAlignmentManager:
+    """
+    Preserve the pre-Block-8 boundary of this raw transaction checkpoint.
+    """
+
+    def align_complete_set(
+        self,
+        raw_complete_set
+    ):
+
+        return {
+            "success": True,
+            "status": "complete",
+            "failure_reason": None,
+            "complete_set": raw_complete_set,
+            "failure_payload": None,
+            "clock_alignment": {
+                "status": "BYPASSED_BY_BLOCK_5_TEST"
+            }
+        }
+
+
 class TDOARawTransactionCheckpointTests(
     unittest.TestCase
 ):
@@ -170,6 +192,9 @@ class TDOARawTransactionCheckpointTests(
 
         self.calculation_manager = FakeCalculationManager()
         self.tdoa_dispatcher.manager = self.calculation_manager
+        self.tdoa_dispatcher.clock_alignment_manager = (
+            FakeClockAlignmentManager()
+        )
 
         self.communication_dispatcher = CommunicationDispatcher(
             event_bus=self.event_bus,

@@ -26,7 +26,8 @@
 #   - Build and publish request-scoped TDOA_REQUEST events
 #   - Coordinate request-scoped recording collection
 #   - Count only TDOA_VALID_RECORDING events toward quorum
-#   - Publish exact TDOA_COMPLETE_SET packages
+#   - Coordinate server clock alignment after raw collection
+#   - Publish exact aligned TDOA_COMPLETE_SET packages
 #   - Publish TDOA_REQUEST_FAILED below quorum
 #   - Coordinate TDOA calculation work
 #
@@ -51,6 +52,9 @@ from TDOA.TDOA_event_services import TDOAEventServices
 from TDOA.TDOA_state_manager import TDOAStateManager
 from TDOA.candidate_filter import CandidateFilter
 from TDOA.TDOA_recording_manager import TDOARecordingManager
+from TDOA.TDOA_clock_alignment_manager import (
+    TDOAClockAlignmentManager
+)
 
 # TDOA_manager.py provides:
 #
@@ -149,6 +153,12 @@ class TDOADispatcher:
 
         self.recording_manager = TDOARecordingManager(
             config=self.config
+        )
+
+        self.clock_alignment_manager = (
+            TDOAClockAlignmentManager(
+                config=self.config
+            )
         )
 
         self.collection_monitor_stop = threading.Event()
@@ -1276,21 +1286,101 @@ class TDOADispatcher:
         if action != "complete":
             return
 
+        try:
+
+            alignment_result = (
+                self.clock_alignment_manager
+                .align_complete_set(
+                    raw_complete_set=payload
+                )
+            )
+
+        except Exception as error:
+
+            logging.exception(
+                "[TDOA] Server clock alignment failed unexpectedly."
+            )
+
+            self.event_services.publish_tdoa_request_failed(
+                {
+                    **payload,
+                    "schema_version": 2,
+                    "success": False,
+                    "status": "failed",
+                    "raw_collection_closure_reason": (
+                        payload.get(
+                            "closure_reason"
+                        )
+                    ),
+                    "closure_reason": (
+                        "clock_alignment_exception"
+                    ),
+                    "failure_reason": (
+                        "clock_alignment_exception"
+                    ),
+                    "failure_detail": (
+                        f"{type(error).__name__}: {error}"
+                    )
+                }
+            )
+
+            return
+
+        if not alignment_result.get(
+            "success",
+            False
+        ):
+
+            failure_payload = alignment_result.get(
+                "failure_payload",
+                {}
+            )
+
+            self.event_services.publish_tdoa_request_failed(
+                failure_payload
+            )
+
+            clock_alignment = alignment_result.get(
+                "clock_alignment",
+                {}
+            )
+
+            logging.warning(
+                "[TDOA] Server clock alignment rejected set: "
+                f"request_id={request_id} "
+                f"aligned="
+                f"{clock_alignment.get('aligned_recording_count')}/"
+                f"{clock_alignment.get('required_aligned_recordings')} "
+                f"rejected="
+                f"{clock_alignment.get('rejected_node_ids')}"
+            )
+
+            return
+
+        aligned_complete_set = alignment_result.get(
+            "complete_set",
+            {}
+        )
+
         self.event_services.publish_tdoa_complete_set(
-            payload
+            aligned_complete_set
         )
 
         logging.info(
-            "[TDOA] Recording collection complete: "
+            "[TDOA] Recording collection and clock alignment complete: "
             f"request_id={request_id} "
             f"closure={payload.get('closure_reason')} "
-            f"valid={payload.get('valid_recording_count')}/"
+            f"raw_valid={payload.get('valid_recording_count')}/"
             f"{payload.get('requested_node_count')} "
-            f"missing={payload.get('missing_node_ids')}"
+            f"aligned="
+            f"{aligned_complete_set.get('aligned_recording_count')}/"
+            f"{aligned_complete_set.get('required_valid_recordings')} "
+            f"rejected="
+            f"{aligned_complete_set.get('alignment_rejected_node_ids')}"
         )
 
         self._handle_tdoa_complete_set(
-            payload
+            aligned_complete_set
         )
 
     def _handle_tdoa_complete_set(
@@ -1298,7 +1388,7 @@ class TDOADispatcher:
         complete_set: dict
     ) -> None:
         """
-        Invoke the manager once a complete requested recording set exists.
+        Invoke the manager once a complete UTC-aligned recording set exists.
         """
 
         request_id = complete_set.get(

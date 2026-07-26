@@ -130,7 +130,7 @@ TDOA_REQUEST
 Publisher: Server TDOA
 
 TDOA_COMPLETE_SET
-Publisher: Server TDOA / Recording Manager / Cluster Consensus
+Publisher: Server TDOA Dispatcher after raw collection and UTC clock alignment
 
 Publishes calculation events:
 TDOA_CALC

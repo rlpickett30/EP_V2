@@ -933,8 +933,8 @@ new IP address.
 
 TDOA_REQUEST_FAILED:
 Purpose:
-Notice that a request-scoped recording collection closed below quorum before
-calculation began.
+Notice that a request-scoped recording collection or server clock-alignment
+stage closed below quorum before calculation began.
 
 Publishing subsystem:
 TDOA
@@ -944,8 +944,8 @@ Event Journal
 
 Reason for subscription:
 The event preserves requested nodes, answers, explicit failures, valid
-recordings, missing nodes, deadline, and closure reason without falsely
-claiming that TDOA calculation failed.
+recordings, missing nodes, deadline, clock-alignment rejections, and closure
+reason without falsely claiming that TDOA calculation failed.
 
 Path / timeline:
 TDOA_REQUEST
@@ -954,39 +954,51 @@ TDOA_REQUEST
 -> valid recording count below required quorum
 -> TDOA_REQUEST_FAILED
 
+Clock-alignment failure path:
+TDOA_VALID_RECORDING raw quorum
+-> validate recording-time clock models
+-> align guarded WAVs to the canonical UTC grid
+-> fewer than four recordings pass
+-> TDOA_REQUEST_FAILED
+
 Current status:
-Implemented as the canonical below-quorum collection failure.
+Implemented as the canonical pre-calculation below-quorum failure.
 
 Notes / legacy aliases:
 Do not use TDOA_CALC_FAILED for this condition because calculation never
 started. closure_reason is all_returned or timeout; failure_reason is
-below_quorum.
+below_quorum for raw collection failure.
+For Block 8 rejection, closure_reason=clock_alignment_rejected and
+failure_reason=clock_alignment_below_quorum. raw_recording_events and
+raw_recording_references preserve the accepted guarded inputs.
 
 TDOA_COMPLETE_SET:
 Purpose:
 Notice that at least the required quorum of server-validated recordings has
-been collected and is ready for analysis.
+passed timing quality and has been mapped onto one identical UTC sample grid.
 
 Publishing subsystem:
-TDOA dispatcher after TDOA recording manager closure
+TDOA dispatcher after raw collection and server clock alignment
 
 Subscribing subsystem(s):
 TDOA analysis manager
 Event Journal
 
 Reason for subscription:
-TDOA analysis should run only after enough valid recordings are available.
-Event Journal records when a complete set is formed.
+TDOA analysis should run only after enough UTC-aligned recordings are
+available. Event Journal records the raw-to-aligned evidence and complete set.
 
 Path / timeline:
 Multiple TDOA_RECORDING and TDOA_VALID_RECORDING events
 -> TDOA recording manager tracks answers, failures, validity, and deadline
+-> TDOA clock alignment validates recording-time models
+-> immutable 16-second guarded WAVs map to one 15-second UTC grid
 -> TDOA_COMPLETE_SET
 -> TDOA analysis manager
 -> TDOA_CALC
 
 Current status:
-Implemented as TDOA publication and internal calculation handoff.
+Implemented through Block 8 as the aligned calculation handoff.
 
 Notes / legacy aliases:
 The default quorum is four valid recordings.
@@ -995,8 +1007,16 @@ validated recording or an explicit failure.
 closure_reason=timeout_quorum means the deadline expired with quorum even
 though one or more requested nodes remained unresolved.
 recording_references and recording_events contain only exact request-scoped
-server WAV paths from TDOA_VALID_RECORDING. Calculation must not replace them
-with a species-based search of global recording history.
+derived aligned WAV paths. Each successful derived WAV has the same
+scheduled_start_utc authority, 15-second half-open interval, configured sample
+rate, channel count, and frame count.
+raw_recording_references and raw_recording_events preserve the exact immutable
+16-second server WAV inputs from TDOA_VALID_RECORDING.
+clock_alignment.target_grid defines the common UTC grid.
+clock_alignment.recording_results preserves every PASS or rejection reason.
+The default 48 kHz grid contains exactly 720,000 samples.
+Calculation must not replace these exact aligned events with a species-based
+search of global recording history.
 
 TDOA_CALC:
 Purpose:
