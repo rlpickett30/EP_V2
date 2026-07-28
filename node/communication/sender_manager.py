@@ -25,9 +25,11 @@
 #   - Create and own UDPSender
 #   - Create and own SenderDatabase
 #   - Create and own TDOAUploadClient
+#   - Create and own SpectrogramUploadClient
 #   - Build outbound messages
 #   - Send prepared messages over UDP
 #   - Upload guarded TDOA WAVs and event metadata through binary HTTP
+#   - Upload BirdNET spectrogram PNGs through binary HTTP
 #   - Store queued messages
 #   - Retrieve queued messages
 #   - Remove sent messages from the queue
@@ -66,6 +68,10 @@ from communication.sender_database import (
 
 from communication.tdoa_upload_client import (
     TDOAUploadClient
+)
+
+from communication.spectrogram_upload_client import (
+    SpectrogramUploadClient
 )
 
 # ============================================================
@@ -119,6 +125,16 @@ class SenderManager:
 
         self.tdoa_upload_client = TDOAUploadClient()
 
+        self.spectrogram_upload_client = SpectrogramUploadClient(
+            config=self.config.get(
+                "http_media",
+                {}
+            ),
+            fallback_host=udp_config.get(
+                "send_host"
+            )
+        )
+
     # ========================================================
     # BUILD MESSAGE
     # ========================================================
@@ -160,6 +176,21 @@ class SenderManager:
             event_metadata=event_metadata,
             wav_path=wav_path,
             upload_instructions=upload_instructions
+        )
+
+    # ========================================================
+    # UPLOAD BIRDNET SPECTROGRAM
+    # ========================================================
+
+    def upload_spectrogram(
+        self,
+        event_metadata: Dict,
+        image_path
+    ) -> Dict:
+
+        return self.spectrogram_upload_client.upload(
+            event_metadata=event_metadata,
+            image_path=image_path
         )
 
     # ========================================================

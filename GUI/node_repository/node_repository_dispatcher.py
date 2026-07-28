@@ -1026,7 +1026,14 @@ class NodeRepositoryDispatcher:
             )
         )
 
-        if not image_png_b64:
+        local_path = spectrogram.get(
+            "local_path"
+        )
+
+        if (
+            not image_png_b64
+            and not local_path
+        ):
 
             return {}
 
@@ -1034,7 +1041,13 @@ class NodeRepositoryDispatcher:
             spectrogram
         )
 
-        normalized["image_png_b64"] = image_png_b64
+        if image_png_b64:
+
+            normalized["image_png_b64"] = image_png_b64
+
+        if local_path:
+
+            normalized["local_path"] = local_path
 
         return normalized
 

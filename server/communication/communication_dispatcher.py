@@ -34,6 +34,8 @@
 #   - Register expected TDOA uploads before transmitting a request
 #   - Start and stop the threaded TDOA HTTP upload receiver
 #   - Publish accepted HTTP uploads and validated recording events
+#   - Validate and store BirdNET spectrogram HTTP uploads
+#   - Serve stored spectrograms to GUI clients through HTTP
 #   - Decide when messages should be sent
 #   - Decide when messages should be queued
 #   - Flush queued messages when communication becomes available
@@ -49,6 +51,7 @@
 #   - Select nodes for a TDOA request
 #   - Validate multipart metadata or WAV contents directly
 #   - Store uploaded WAV bytes directly
+#   - Validate or store spectrogram PNG bytes directly
 #   - Count TDOA collection quorum
 #   - Perform Event Bus delivery logic
 #
@@ -83,6 +86,10 @@ from communication.tdoa_upload_manager import (
 
 from communication.tdoa_upload_server import (
     TDOAUploadServer
+)
+
+from communication.spectrogram_upload_manager import (
+    SpectrogramUploadManager
 )
 
 import copy
@@ -144,13 +151,67 @@ class CommunicationDispatcher:
             True
         )
 
+        http_media_config = self.config.get(
+            "http_media",
+            {}
+        )
+
+        self.http_media_enabled = http_media_config.get(
+            "enabled",
+            True
+        )
+
         self.tdoa_upload_manager = TDOAUploadManager(
             config=http_upload_config
         )
 
+        self.spectrogram_upload_manager = SpectrogramUploadManager(
+            config=http_media_config
+        )
+
+        http_transfer_config = copy.deepcopy(
+            http_upload_config
+        )
+
+        http_transfer_config["enabled"] = bool(
+            self.http_upload_enabled
+            or self.http_media_enabled
+        )
+
+        http_transfer_config["spectrogram_enabled"] = (
+            self.http_media_enabled
+        )
+
+        http_transfer_config["spectrogram_upload_path"] = (
+            http_media_config.get(
+                "upload_path",
+                http_media_config.get(
+                    "path",
+                    "/media/spectrogram"
+                )
+            )
+        )
+
+        http_transfer_config["spectrogram_download_path"] = (
+            http_media_config.get(
+                "download_path",
+                "/media/spectrogram"
+            )
+        )
+
+        http_transfer_config["max_spectrogram_upload_bytes"] = (
+            http_media_config.get(
+                "max_upload_bytes",
+                http_media_config.get(
+                    "max_image_bytes",
+                    4 * 1024 * 1024
+                )
+            )
+        )
+
         self.tdoa_upload_server = TDOAUploadServer(
             dispatcher=self,
-            config=http_upload_config
+            config=http_transfer_config
         )
 
         self.tdoa_upload_publish_lock = threading.Lock()
@@ -215,9 +276,17 @@ class CommunicationDispatcher:
 
         self.running = True
 
-        if self.http_upload_enabled:
+        if (
+            self.http_upload_enabled
+            or self.http_media_enabled
+        ):
 
-            self.tdoa_upload_manager.prepare_storage()
+            if self.http_upload_enabled:
+                self.tdoa_upload_manager.prepare_storage()
+
+            if self.http_media_enabled:
+                self.spectrogram_upload_manager.prepare_storage()
+
             self.tdoa_upload_server.start()
 
         if self.udp_enabled:
@@ -737,6 +806,89 @@ class CommunicationDispatcher:
             self.publish_communication_state()
 
             return result
+
+    # ========================================================
+    # HANDLE SPECTROGRAM HTTP TRANSFER
+    # ========================================================
+
+    def handle_spectrogram_http_upload(
+        self,
+        transaction: dict
+    ) -> dict:
+
+        if not self.http_media_enabled:
+            return {
+                "accepted": False,
+                "success": False,
+                "http_status": 503,
+                "receipt": {
+                    "accepted": False,
+                    "status": "rejected",
+                    "failure_reason": "spectrogram_upload_disabled",
+                    "failure_detail": (
+                        "Spectrogram HTTP transfer is disabled."
+                    )
+                }
+            }
+
+        result = self.spectrogram_upload_manager.process_upload(
+            transaction
+        )
+
+        self.state.rx_count += 1
+        self.state.last_rx_time = self._utc_now()
+
+        receipt = result.get(
+            "receipt",
+            {}
+        )
+
+        if result.get(
+            "accepted",
+            False
+        ):
+
+            logging.info(
+                "[Communication] Spectrogram upload accepted: "
+                f"node_id={receipt.get('node_id')} "
+                f"recording_id={receipt.get('recording_id')} "
+                f"media_id={receipt.get('media_id')} "
+                f"bytes={receipt.get('byte_count')}"
+            )
+
+        else:
+
+            self.state.rx_errors += 1
+
+            logging.warning(
+                "[Communication] Spectrogram upload rejected: "
+                f"source_ip={transaction.get('source_ip')} "
+                f"reason={receipt.get('failure_reason')} "
+                f"detail={receipt.get('failure_detail')}"
+            )
+
+        self.publish_communication_state()
+
+        return result
+
+    def handle_spectrogram_http_download(
+        self,
+        media_id
+    ) -> dict:
+
+        if not self.http_media_enabled:
+            return {
+                "success": False,
+                "http_status": 503,
+                "failure_reason": "spectrogram_download_disabled",
+                "failure_detail": (
+                    "Spectrogram HTTP transfer is disabled."
+                )
+            }
+
+        return self.spectrogram_upload_manager.get_download(
+            media_id
+        )
 
     # ========================================================
     # LEARN NODE ROUTE

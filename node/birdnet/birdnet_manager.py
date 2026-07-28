@@ -11,7 +11,7 @@
 #
 # Purpose:
 #   Run BirdNET analysis on a supplied WAV recording path, generate one
-#   compact spectrogram package for the same recording, and return
+#   file-backed spectrogram package for the same recording, and return
 #   normalized BirdNET detection packages to the BirdNET dispatcher.
 #
 # Expected config source:
@@ -25,7 +25,7 @@
 #   - Call birdnet_analyzer.py
 #   - Coordinate spectrogram_manager.py
 #   - Convert BirdNET detections into normalized detection packages
-#   - Attach one serialized spectrogram package to the primary detection package
+#   - Attach one file-backed spectrogram package to the primary detection package
 #   - Preserve recording lineage
 #
 # Does NOT:

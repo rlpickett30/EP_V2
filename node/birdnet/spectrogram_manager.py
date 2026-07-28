@@ -10,8 +10,8 @@
 #   Manager
 #
 # Purpose:
-#   Generate a compact PNG spectrogram from a supplied WAV recording and
-#   return a serialized payload-safe dictionary for AVIS_LITE events.
+#   Generate a PNG spectrogram from a supplied WAV recording, store it beside
+#   the recording, and return lightweight file metadata for AVIS_LITE.
 #
 # Expected config source:
 #   birdnet_config.json
@@ -24,10 +24,9 @@
 #   - Convert PCM audio into normalized mono samples
 #   - Build a compact STFT spectrogram
 #   - Encode the spectrogram as PNG
-#   - Serialize the PNG as base64 text
-#   - Return metadata needed by the GUI to decode and display the image
+#   - Write the PNG atomically beside the source WAV
+#   - Return metadata needed by Communication to upload the image through HTTP
 #   - Support classic pink / purple spectrogram coloring
-#   - Enforce UDP-safe spectrogram payload limits
 #
 # Does NOT:
 #   - Subscribe to the event bus
@@ -49,6 +48,7 @@ from __future__ import annotations
 # ============================================================
 
 import base64
+import hashlib
 import io
 import struct
 import wave
@@ -68,13 +68,12 @@ import numpy as np
 # MODULE DEFAULTS
 # ============================================================
 
-# Server -> GUI still uses UDP datagrams.
-# The image is nested inside a larger SERVER_AVIS_LITE JSON envelope, so the
-# base64 PNG must stay well below the theoretical UDP ceiling.
-HARD_MAX_WIDTH = 160
-HARD_MAX_HEIGHT = 64
-HARD_MAX_DURATION_SEC = 12.0
-HARD_MAX_FREQUENCY_HZ = 6000.0
+# These are safety ceilings for local image generation, not UDP limits. The
+# PNG bytes now travel through HTTP while AVIS_LITE carries only a reference.
+HARD_MAX_WIDTH = 2048
+HARD_MAX_HEIGHT = 1024
+HARD_MAX_DURATION_SEC = 60.0
+HARD_MAX_FREQUENCY_HZ = 96000.0
 HARD_IMAGE_PAYLOAD_CHARS = 18000
 
 
@@ -159,14 +158,15 @@ class SpectrogramManager:
         wav_path: Path | str
     ) -> dict:
         """
-        Build a compact serialized spectrogram package.
+        Build and store one spectrogram PNG.
 
-        Returned package is safe to place inside an AVIS_LITE payload:
+        Returned package is safe to place inside an AVIS_LITE payload because
+        it contains only metadata and a node-local path:
             {
                 "available": bool,
-                "encoding": "base64",
+                "transport": "http",
                 "mime_type": "image/png",
-                "image_png_b64": str,
+                "local_path": str,
                 ...metadata...
             }
         """
@@ -204,19 +204,30 @@ class SpectrogramManager:
                 sample_rate=sample_rate
             )
 
-            image_array, image_b64 = self.encode_payload_safe_image(
+            png_bytes = self.encode_png(
                 image_array=image_array
             )
 
+            output_path = self.write_spectrogram_file(
+                wav_path=path,
+                png_bytes=png_bytes
+            )
+
             height, width = image_array.shape[:2]
+            image_sha256 = hashlib.sha256(
+                png_bytes
+            ).hexdigest()
 
             package = {
                 "available": True,
-                "encoding": "base64",
+                "transport": "http",
                 "mime_type": "image/png",
                 "format": "png",
                 "scope": "recording",
-                "image_png_b64": image_b64,
+                "local_path": str(output_path),
+                "filename": output_path.name,
+                "byte_count": len(png_bytes),
+                "sha256": image_sha256,
                 "width": int(width),
                 "height": int(height),
                 "sample_rate": int(sample_rate),
@@ -252,15 +263,15 @@ class SpectrogramManager:
                 "color_mode": self.get_string(
                     "color_mode",
                     DEFAULT_CONFIG["color_mode"]
-                ),
-                "payload_chars": len(image_b64)
+                )
             }
 
             self.log(
                 (
                     "Spectrogram generated: "
                     f"{width}x{height}, "
-                    f"{len(image_b64)} base64 chars, "
+                    f"{len(png_bytes)} PNG bytes, "
+                    f"path={output_path}, "
                     f"mode={package['color_mode']}"
                 )
             )
@@ -277,6 +288,38 @@ class SpectrogramManager:
                 reason="spectrogram_generation_failed",
                 error=str(error)
             )
+
+    def write_spectrogram_file(
+        self,
+        wav_path: Path,
+        png_bytes: bytes
+    ) -> Path:
+        """
+        Atomically replace the sidecar PNG for one recording.
+        """
+
+        output_path = wav_path.with_suffix(
+            ".png"
+        )
+
+        temporary_path = output_path.with_name(
+            output_path.name + ".tmp"
+        )
+
+        output_path.parent.mkdir(
+            parents=True,
+            exist_ok=True
+        )
+
+        temporary_path.write_bytes(
+            png_bytes
+        )
+
+        temporary_path.replace(
+            output_path
+        )
+
+        return output_path
 
     # ========================================================
     # WAV READING
@@ -1342,7 +1385,7 @@ class SpectrogramManager:
 
     def get_effective_max_width(self) -> int:
         """
-        Return UDP-safe maximum image width.
+        Return the configured image width within a local safety ceiling.
         """
 
         configured_width = self.get_int(
@@ -1364,7 +1407,7 @@ class SpectrogramManager:
 
     def get_effective_height(self) -> int:
         """
-        Return UDP-safe maximum image height.
+        Return the configured image height within a local safety ceiling.
         """
 
         configured_height = self.get_int(
@@ -1386,7 +1429,7 @@ class SpectrogramManager:
 
     def get_effective_max_duration_sec(self) -> float:
         """
-        Return UDP-safe maximum audio duration shown in the thumbnail.
+        Return the configured audio duration within a local safety ceiling.
         """
 
         configured_duration = self.get_float(
@@ -1408,7 +1451,7 @@ class SpectrogramManager:
         sample_rate: int
     ) -> float:
         """
-        Return UDP-safe maximum displayed frequency.
+        Return the configured maximum frequency within Nyquist and safety bounds.
         """
 
         configured_max_frequency = self.get_float(

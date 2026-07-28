@@ -36,6 +36,7 @@
 #   - Cache request-scoped upload instructions from inbound TDOA_REQUEST
 #   - Publish inbound TDOA_REQUEST messages to the node bus
 #   - Route successful TDOA_RECORDING responses through binary HTTP
+#   - Upload AVIS_LITE spectrogram PNGs before sending lightweight metadata
 #   - Route recording and upload failures through the existing UDP path
 #   - Require a validated server receipt for successful binary delivery
 #   - Publish inbound SEND_NODE_CHANGE_MODE messages to the node bus
@@ -703,6 +704,234 @@ class CommunicationDispatcher:
             logging.exception(
                 "[Communication] Inbound dispatcher error: %s",
                 error
+            )
+
+    # ========================================================
+    # BIRDNET SPECTROGRAM UPLOAD WORKFLOW
+    # ========================================================
+
+    def _prepare_avis_lite_http_reference(
+        self,
+        message: dict
+    ):
+        """
+        Replace a node-local spectrogram path with a verified server URL.
+
+        A failed image upload never suppresses the bird detection. The
+        lightweight AVIS_LITE event continues through UDP with explicit image
+        failure metadata.
+        """
+
+        payload = self._get_payload(
+            message
+        )
+
+        spectrogram = payload.get(
+            "spectrogram"
+        )
+
+        if not isinstance(spectrogram, dict):
+            return
+
+        spectrogram = deepcopy(
+            spectrogram
+        )
+
+        if spectrogram.get(
+            "download_url"
+        ):
+
+            self._strip_private_spectrogram_fields(
+                spectrogram
+            )
+
+            payload["spectrogram"] = spectrogram
+            payload["spectrogram_available"] = True
+            message["payload"] = payload
+
+            return
+
+        local_path = (
+            spectrogram.get("local_path")
+            or payload.get("spectrogram_path")
+        )
+
+        if not local_path:
+
+            self._strip_private_spectrogram_fields(
+                spectrogram
+            )
+
+            payload["spectrogram"] = spectrogram
+            message["payload"] = payload
+
+            return
+
+        upload_result = self._upload_spectrogram(
+            avis_lite_event=message,
+            image_path=local_path
+        )
+
+        self._strip_private_spectrogram_fields(
+            spectrogram
+        )
+
+        if upload_result.get(
+            "success",
+            False
+        ):
+
+            receipt = upload_result.get(
+                "receipt",
+                {}
+            )
+
+            spectrogram.update({
+                "available": True,
+                "transport": "http",
+                "encoding": "url",
+                "upload_status": "accepted",
+                "media_id": receipt.get(
+                    "media_id"
+                ),
+                "download_path": receipt.get(
+                    "download_path"
+                ),
+                "download_url": receipt.get(
+                    "download_url"
+                ),
+                "byte_count": receipt.get(
+                    "byte_count"
+                ),
+                "sha256": receipt.get(
+                    "sha256"
+                ),
+                "server_filename": receipt.get(
+                    "filename"
+                )
+            })
+
+            payload["spectrogram_available"] = True
+            payload["spectrogram_attached"] = True
+
+            logging.info(
+                "[Communication] Spectrogram upload accepted: "
+                "node_id=%s recording_id=%s media_id=%s bytes=%s",
+                payload.get("node_id"),
+                payload.get("recording_id"),
+                receipt.get("media_id"),
+                receipt.get("byte_count")
+            )
+
+        else:
+
+            spectrogram.update({
+                "available": False,
+                "transport": "http",
+                "upload_status": "failed",
+                "failure_reason": upload_result.get(
+                    "failure_reason"
+                ),
+                "failure_detail": upload_result.get(
+                    "failure_detail"
+                )
+            })
+
+            payload["spectrogram_available"] = False
+            payload["spectrogram_attached"] = False
+
+            logging.warning(
+                "[Communication] Spectrogram upload failed; "
+                "sending AVIS_LITE metadata without image: "
+                "node_id=%s recording_id=%s reason=%s detail=%s",
+                payload.get("node_id"),
+                payload.get("recording_id"),
+                upload_result.get("failure_reason"),
+                upload_result.get("failure_detail")
+            )
+
+        payload["spectrogram"] = spectrogram
+        message["payload"] = payload
+
+    def _upload_spectrogram(
+        self,
+        avis_lite_event: dict,
+        image_path
+    ) -> dict:
+
+        if self.sender_manager is None:
+            return {
+                "success": False,
+                "accepted": False,
+                "failure_reason": "spectrogram_upload_sender_unavailable",
+                "failure_detail": "SenderManager is unavailable.",
+                "receipt": None
+            }
+
+        upload_method = getattr(
+            self.sender_manager,
+            "upload_spectrogram",
+            None
+        )
+
+        if upload_method is None:
+            return {
+                "success": False,
+                "accepted": False,
+                "failure_reason": "spectrogram_upload_sender_unavailable",
+                "failure_detail": (
+                    "SenderManager has no spectrogram upload method."
+                ),
+                "receipt": None
+            }
+
+        try:
+
+            result = upload_method(
+                event_metadata=avis_lite_event,
+                image_path=image_path
+            )
+
+        except Exception as error:
+
+            logging.exception(
+                "[Communication] SenderManager spectrogram upload crashed."
+            )
+
+            return {
+                "success": False,
+                "accepted": False,
+                "failure_reason": "spectrogram_upload_failed",
+                "failure_detail": str(error),
+                "receipt": None
+            }
+
+        if not isinstance(result, dict):
+            return {
+                "success": False,
+                "accepted": False,
+                "failure_reason": "spectrogram_upload_result_invalid",
+                "failure_detail": (
+                    "SenderManager returned a non-dictionary result."
+                ),
+                "receipt": None
+            }
+
+        return result
+
+    def _strip_private_spectrogram_fields(
+        self,
+        spectrogram: dict
+    ):
+
+        for field_name in (
+            "local_path",
+            "image_png_b64",
+            "spectrogram_png_b64",
+        ):
+            spectrogram.pop(
+                field_name,
+                None
             )
 
     # ========================================================
@@ -2190,6 +2419,15 @@ class CommunicationDispatcher:
         if self.sender_manager is None:
 
             return False
+
+        if (
+            self.active_transport == WIFI
+            and self._extract_event_type(message) == AVIS_LITE
+        ):
+
+            self._prepare_avis_lite_http_reference(
+                message
+            )
 
         self.apply_send_stagger(
             message

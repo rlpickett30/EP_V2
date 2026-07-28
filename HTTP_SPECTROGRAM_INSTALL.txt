@@ -1,0 +1,90 @@
+EnviroPulse V2 — HTTP Spectrogram Transfer
+Base commit: c9e6e2289717fcd0f8acbb6f6fe871a50f2b2b45
+Prepared: July 27, 2026
+
+PURPOSE
+
+This update removes PNG image bytes from AVIS_LITE UDP packets.
+
+New path:
+
+1. BirdNET writes the full spectrogram PNG beside the source WAV.
+2. Node Communication uploads the PNG to the existing server HTTP port.
+3. The server verifies and stores the PNG.
+4. AVIS_LITE travels through UDP with only the image URL, checksum, and metadata.
+5. GUI Communication downloads and verifies the PNG before the Interface renders it.
+
+If image upload or download fails, the BirdNET detection still travels through
+UDP. A picture failure can no longer suppress the species detection.
+
+CONFIGURATION
+
+No configuration-file replacement is required.
+
+- Nodes derive the HTTP server host from the existing UDP send_host.
+- The existing server HTTP port 5007 is reused.
+- The new upload path is /media/spectrogram.
+- The server stores images under media/spectrograms by default.
+- The GUI caches images under communication/data/spectrogram_cache by default.
+
+The current BirdNET settings are now honored at 320 x 128 pixels and up to
+12 kHz. The old transport code silently hard-capped the image at 160 x 64
+pixels and 6 kHz.
+
+INSTALL ORDER
+
+1. Stop the server.
+2. Copy the ZIP's server files into the server repository.
+3. Restart the server.
+4. Stop the GUI.
+5. Copy the ZIP's GUI files into the GUI repository.
+6. Restart the GUI.
+7. Stop EnviroPulse on each node.
+8. Copy the ZIP's node files into each node repository.
+9. Restart each node.
+
+The ZIP preserves repository-relative paths. Copy or extract it at the EP_V2
+repository root.
+
+EXPECTED EVIDENCE
+
+Node:
+
+[SpectrogramManager] Spectrogram generated: 320x128, ... PNG bytes
+[Communication] Spectrogram upload accepted: ...
+
+Server:
+
+[Communication] Spectrogram upload accepted: ...
+
+GUI:
+
+[Communication] Spectrogram downloaded: ...
+
+The AVIS_LITE payload should contain:
+
+spectrogram.transport = "http"
+spectrogram.encoding = "url"
+spectrogram.download_url
+spectrogram.byte_count
+spectrogram.sha256
+
+It must not contain:
+
+spectrogram.image_png_b64
+spectrogram.local_path
+
+VALIDATION COMPLETED
+
+- Python compilation passed for node, server, GUI, and installer sources.
+- New full HTTP path passed:
+  node PNG upload -> server validation/storage -> GUI download/cache.
+- Downloaded PNG matched the node PNG byte-for-byte.
+- Existing TDOA WAV HTTP upload passed through the shared HTTP server.
+- Existing RTK, microphone-clock, and server TDOA suites passed.
+
+ROLLBACK
+
+Restore the previous versions of the files listed in ZIP_MANIFEST_SHA256.txt
+and restart server, GUI, and nodes. No database migration or configuration
+rollback is required.

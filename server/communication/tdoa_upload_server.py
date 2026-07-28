@@ -10,7 +10,8 @@
 #   Helper Script
 #
 # Purpose:
-#   Own the threaded HTTP transport used to receive guarded TDOA WAV uploads.
+#   Own the threaded HTTP transport used for guarded TDOA WAV uploads and
+#   BirdNET spectrogram PNG upload/download transactions.
 #
 # Expected config source:
 #   communication_config.json
@@ -22,6 +23,8 @@
 #   - Start and stop a threaded HTTP server
 #   - Enforce the configured request-body ceiling before reading
 #   - Parse the expected multipart metadata and WAV fields
+#   - Parse spectrogram metadata and PNG fields
+#   - Serve accepted spectrogram PNGs to GUI clients
 #   - Forward normalized upload transactions to Communication Dispatcher
 #   - Return JSON acceptance or rejection receipts
 #
@@ -49,13 +52,17 @@ from email import policy
 from email.parser import BytesParser
 from http.server import BaseHTTPRequestHandler
 from http.server import ThreadingHTTPServer
+from urllib.parse import unquote
 from urllib.parse import urlsplit
 
 
 DEFAULT_LISTEN_HOST = "0.0.0.0"
 DEFAULT_LISTEN_PORT = 5007
 DEFAULT_UPLOAD_PATH = "/tdoa/upload"
+DEFAULT_SPECTROGRAM_UPLOAD_PATH = "/media/spectrogram"
+DEFAULT_SPECTROGRAM_DOWNLOAD_PATH = "/media/spectrogram"
 DEFAULT_MAX_UPLOAD_BYTES = 16 * 1024 * 1024
+DEFAULT_MAX_SPECTROGRAM_UPLOAD_BYTES = 4 * 1024 * 1024
 DEFAULT_MAX_METADATA_BYTES = 256 * 1024
 DEFAULT_UPLOAD_TIMEOUT_SECONDS = 30.0
 
@@ -120,6 +127,41 @@ class TDOAUploadServer:
         ):
             self.upload_path = "/" + self.upload_path
 
+        self.spectrogram_enabled = bool(
+            self.config.get(
+                "spectrogram_enabled",
+                True
+            )
+        )
+
+        self.spectrogram_upload_path = str(
+            self.config.get(
+                "spectrogram_upload_path",
+                DEFAULT_SPECTROGRAM_UPLOAD_PATH
+            )
+        ).strip()
+
+        if not self.spectrogram_upload_path.startswith("/"):
+            self.spectrogram_upload_path = (
+                "/" + self.spectrogram_upload_path
+            )
+
+        self.spectrogram_download_path = str(
+            self.config.get(
+                "spectrogram_download_path",
+                DEFAULT_SPECTROGRAM_DOWNLOAD_PATH
+            )
+        ).strip()
+
+        if not self.spectrogram_download_path.startswith("/"):
+            self.spectrogram_download_path = (
+                "/" + self.spectrogram_download_path
+            )
+
+        self.spectrogram_download_path = (
+            self.spectrogram_download_path.rstrip("/")
+        )
+
         self.advertise_host = self.config.get(
             "advertise_host"
         )
@@ -135,6 +177,13 @@ class TDOAUploadServer:
             self.config.get(
                 "max_upload_bytes",
                 DEFAULT_MAX_UPLOAD_BYTES
+            )
+        )
+
+        self.max_spectrogram_upload_bytes = int(
+            self.config.get(
+                "max_spectrogram_upload_bytes",
+                DEFAULT_MAX_SPECTROGRAM_UPLOAD_BYTES
             )
         )
 
@@ -170,6 +219,11 @@ class TDOAUploadServer:
         if self.max_upload_bytes < 1:
             raise ValueError(
                 "HTTP upload max_upload_bytes must be positive."
+            )
+
+        if self.max_spectrogram_upload_bytes < 1:
+            raise ValueError(
+                "HTTP spectrogram max upload bytes must be positive."
             )
 
         if self.max_metadata_bytes < 1:
@@ -225,10 +279,10 @@ class TDOAUploadServer:
         self.running = True
 
         logging.info(
-            "[Communication] TDOA HTTP upload receiver started: "
+            "[Communication] HTTP transfer receiver started: "
             f"listen={self.listen_host}:{self.bound_port} "
-            f"path={self.upload_path} "
-            f"max_bytes={self.max_upload_bytes}"
+            f"tdoa_path={self.upload_path} "
+            f"spectrogram_path={self.spectrogram_upload_path}"
         )
 
     def stop(
@@ -254,7 +308,7 @@ class TDOAUploadServer:
         self.running = False
 
         logging.info(
-            "[Communication] TDOA HTTP upload receiver stopped."
+            "[Communication] HTTP transfer receiver stopped."
         )
 
     # ========================================================
@@ -338,7 +392,19 @@ class TDOAUploadServer:
                     self.path
                 ).path
 
-                if request_path != owner.upload_path:
+                is_tdoa_upload = (
+                    request_path == owner.upload_path
+                )
+
+                is_spectrogram_upload = (
+                    owner.spectrogram_enabled
+                    and request_path == owner.spectrogram_upload_path
+                )
+
+                if not (
+                    is_tdoa_upload
+                    or is_spectrogram_upload
+                ):
 
                     self._send_result(
                         owner._transport_rejection(
@@ -349,6 +415,12 @@ class TDOAUploadServer:
                     )
 
                     return
+
+                max_upload_bytes = (
+                    owner.max_upload_bytes
+                    if is_tdoa_upload
+                    else owner.max_spectrogram_upload_bytes
+                )
 
                 length_header = self.headers.get(
                     "Content-Length"
@@ -392,14 +464,14 @@ class TDOAUploadServer:
 
                     return
 
-                if content_length > owner.max_upload_bytes:
+                if content_length > max_upload_bytes:
 
                     self._send_result(
                         owner._transport_rejection(
                             "upload_too_large",
                             (
                                 "Upload body exceeds the configured "
-                                f"{owner.max_upload_bytes}-byte limit."
+                                f"{max_upload_bytes}-byte limit."
                             ),
                             413
                         )
@@ -423,10 +495,19 @@ class TDOAUploadServer:
                         content_length
                     )
 
-                    parts = owner._parse_multipart(
-                        content_type=content_type,
-                        body=body
-                    )
+                    if is_tdoa_upload:
+
+                        parts = owner._parse_multipart(
+                            content_type=content_type,
+                            body=body
+                        )
+
+                    else:
+
+                        parts = owner._parse_spectrogram_multipart(
+                            content_type=content_type,
+                            body=body
+                        )
 
                 except socket.timeout:
 
@@ -452,34 +533,73 @@ class TDOAUploadServer:
 
                     return
 
-                transaction = {
-                    "transport": "http_multipart",
-                    "received_path": request_path,
-                    "source_ip": self.client_address[0],
-                    "source_port": self.client_address[1],
-                    "token": self.headers.get(
-                        "X-EnviroPulse-Upload-Token"
-                    ),
-                    "metadata_bytes": parts["metadata_bytes"],
-                    "metadata_content_type": parts[
-                        "metadata_content_type"
-                    ],
-                    "wav_bytes": parts["wav_bytes"],
-                    "wav_filename": parts["wav_filename"],
-                    "wav_content_type": parts["wav_content_type"],
-                    "request_byte_count": content_length
-                }
+                if is_tdoa_upload:
+
+                    transaction = {
+                        "transport": "http_multipart",
+                        "received_path": request_path,
+                        "source_ip": self.client_address[0],
+                        "source_port": self.client_address[1],
+                        "token": self.headers.get(
+                            "X-EnviroPulse-Upload-Token"
+                        ),
+                        "metadata_bytes": parts["metadata_bytes"],
+                        "metadata_content_type": parts[
+                            "metadata_content_type"
+                        ],
+                        "wav_bytes": parts["wav_bytes"],
+                        "wav_filename": parts["wav_filename"],
+                        "wav_content_type": parts["wav_content_type"],
+                        "request_byte_count": content_length
+                    }
+
+                else:
+
+                    transaction = {
+                        "transport": "http_multipart",
+                        "received_path": request_path,
+                        "source_ip": self.client_address[0],
+                        "source_port": self.client_address[1],
+                        "metadata_bytes": parts["metadata_bytes"],
+                        "metadata_content_type": parts[
+                            "metadata_content_type"
+                        ],
+                        "image_bytes": parts["image_bytes"],
+                        "image_filename": parts["image_filename"],
+                        "image_content_type": parts[
+                            "image_content_type"
+                        ],
+                        "request_byte_count": content_length
+                    }
 
                 try:
 
-                    result = owner.dispatcher.handle_tdoa_http_upload(
-                        transaction
-                    )
+                    if is_tdoa_upload:
+
+                        result = owner.dispatcher.handle_tdoa_http_upload(
+                            transaction
+                        )
+
+                    else:
+
+                        result = (
+                            owner.dispatcher
+                            .handle_spectrogram_http_upload(
+                                transaction
+                            )
+                        )
+
+                        owner._attach_spectrogram_download_reference(
+                            result=result,
+                            request_host=self.headers.get(
+                                "Host"
+                            )
+                        )
 
                 except Exception as error:
 
                     logging.exception(
-                        "[Communication] TDOA HTTP dispatcher failure."
+                        "[Communication] HTTP transfer dispatcher failure."
                     )
 
                     result = owner._transport_rejection(
@@ -496,13 +616,134 @@ class TDOAUploadServer:
                 self
             ):
 
+                request_path = unquote(
+                    urlsplit(
+                        self.path
+                    ).path
+                )
+
+                prefix = (
+                    owner.spectrogram_download_path
+                    + "/"
+                )
+
+                if (
+                    owner.spectrogram_enabled
+                    and request_path.startswith(prefix)
+                ):
+
+                    media_id = request_path[
+                        len(prefix):
+                    ]
+
+                    if media_id.endswith(".png"):
+                        media_id = media_id[:-4]
+
+                    result = (
+                        owner.dispatcher
+                        .handle_spectrogram_http_download(
+                            media_id
+                        )
+                    )
+
+                    if result.get(
+                        "success",
+                        False
+                    ):
+
+                        self._send_binary_result(
+                            result
+                        )
+
+                    else:
+
+                        self._send_result(
+                            owner._download_rejection(
+                                result
+                            )
+                        )
+
+                    return
+
                 self._send_result(
                     owner._transport_rejection(
-                        "upload_method_invalid",
-                        "Only POST is supported.",
-                        405
+                        "download_path_invalid",
+                        "The requested media path does not exist.",
+                        404
                     )
                 )
+
+            def _send_binary_result(
+                self,
+                result: dict
+            ):
+
+                content = result.get(
+                    "content",
+                    b""
+                )
+
+                if not isinstance(content, bytes):
+                    content = b""
+
+                try:
+
+                    self.send_response(
+                        int(
+                            result.get(
+                                "http_status",
+                                200
+                            )
+                        )
+                    )
+
+                    self.send_header(
+                        "Content-Type",
+                        result.get(
+                            "content_type",
+                            "application/octet-stream"
+                        )
+                    )
+
+                    self.send_header(
+                        "Content-Length",
+                        str(len(content))
+                    )
+
+                    self.send_header(
+                        "Cache-Control",
+                        "private, max-age=86400"
+                    )
+
+                    self.send_header(
+                        "ETag",
+                        '"' + str(
+                            result.get(
+                                "sha256",
+                                ""
+                            )
+                        ) + '"'
+                    )
+
+                    self.send_header(
+                        "Connection",
+                        "close"
+                    )
+
+                    self.end_headers()
+                    self.wfile.write(content)
+
+                except (
+                    BrokenPipeError,
+                    ConnectionResetError
+                ):
+
+                    logging.warning(
+                        "[Communication] GUI disconnected before "
+                        "the spectrogram download completed."
+                    )
+
+                self.close_connection = True
 
             def _send_result(
                 self,
@@ -779,6 +1020,278 @@ class TDOAUploadServer:
             "wav_content_type": parts[
                 "wav"
             ]["content_type"]
+        }
+
+    def _parse_spectrogram_multipart(
+        self,
+        content_type: str,
+        body: bytes
+    ) -> dict:
+
+        if not isinstance(content_type, str):
+            content_type = ""
+
+        synthetic_message = (
+            "Content-Type: "
+            + content_type
+            + "\r\n"
+            + "MIME-Version: 1.0\r\n"
+            + "\r\n"
+        ).encode("utf-8") + body
+
+        try:
+
+            message = BytesParser(
+                policy=policy.default
+            ).parsebytes(
+                synthetic_message
+            )
+
+        except Exception as error:
+
+            raise UploadTransportError(
+                "spectrogram_multipart_invalid",
+                f"Multipart body could not be parsed: {error}.",
+                400
+            ) from error
+
+        if (
+            message.get_content_type() != "multipart/form-data"
+            or not message.is_multipart()
+        ):
+            raise UploadTransportError(
+                "spectrogram_content_type_invalid",
+                "Content-Type must be multipart/form-data with a boundary.",
+                415
+            )
+
+        parts = {}
+
+        for part in message.iter_parts():
+
+            field_name = part.get_param(
+                "name",
+                header="content-disposition"
+            )
+
+            if field_name not in {
+                "metadata",
+                "image",
+            }:
+                raise UploadTransportError(
+                    "spectrogram_multipart_field_invalid",
+                    f"Unexpected multipart field: {field_name!r}.",
+                    400
+                )
+
+            if field_name in parts:
+                raise UploadTransportError(
+                    "spectrogram_multipart_field_duplicate",
+                    f"Multipart field {field_name!r} was repeated.",
+                    400
+                )
+
+            payload = part.get_payload(
+                decode=True
+            )
+
+            if not isinstance(payload, bytes):
+                raise UploadTransportError(
+                    "spectrogram_multipart_field_invalid",
+                    f"Multipart field {field_name!r} has no binary payload.",
+                    400
+                )
+
+            parts[field_name] = {
+                "bytes": payload,
+                "content_type": part.get_content_type(),
+                "filename": part.get_filename()
+            }
+
+        if set(parts) != {
+            "metadata",
+            "image",
+        }:
+            raise UploadTransportError(
+                "spectrogram_multipart_incomplete",
+                "Multipart body must contain metadata and image fields.",
+                400
+            )
+
+        if len(parts["metadata"]["bytes"]) > self.max_metadata_bytes:
+            raise UploadTransportError(
+                "spectrogram_metadata_too_large",
+                "Multipart metadata exceeds the configured limit.",
+                413
+            )
+
+        if parts["metadata"]["content_type"] != "application/json":
+            raise UploadTransportError(
+                "spectrogram_metadata_content_type_invalid",
+                "Multipart metadata content type must be application/json.",
+                415
+            )
+
+        if parts["image"]["content_type"] != "image/png":
+            raise UploadTransportError(
+                "spectrogram_image_content_type_invalid",
+                "Multipart image content type must be image/png.",
+                415
+            )
+
+        image_filename = parts["image"]["filename"]
+
+        if not isinstance(image_filename, str) or not image_filename.strip():
+            raise UploadTransportError(
+                "spectrogram_image_filename_missing",
+                "Multipart image filename is missing.",
+                400
+            )
+
+        return {
+            "metadata_bytes": parts["metadata"]["bytes"],
+            "metadata_content_type": parts[
+                "metadata"
+            ]["content_type"],
+            "image_bytes": parts["image"]["bytes"],
+            "image_filename": image_filename,
+            "image_content_type": parts[
+                "image"
+            ]["content_type"]
+        }
+
+    # ========================================================
+    # SPECTROGRAM REFERENCES
+    # ========================================================
+
+    def _attach_spectrogram_download_reference(
+        self,
+        result: dict,
+        request_host
+    ):
+
+        if not isinstance(result, dict):
+            return
+
+        receipt = result.get(
+            "receipt"
+        )
+
+        if (
+            not isinstance(receipt, dict)
+            or receipt.get("accepted") is not True
+        ):
+            return
+
+        media_id = receipt.get(
+            "media_id"
+        )
+
+        if not media_id:
+            return
+
+        download_path = (
+            self.spectrogram_download_path
+            + "/"
+            + str(media_id)
+            + ".png"
+        )
+
+        normalized_host = self._normalize_request_host(
+            request_host
+        )
+
+        receipt["download_path"] = download_path
+        receipt["download_url"] = (
+            self.scheme
+            + "://"
+            + normalized_host
+            + download_path
+        )
+
+    def _normalize_request_host(
+        self,
+        request_host
+    ) -> str:
+
+        host = str(
+            request_host or ""
+        ).strip()
+
+        allowed_characters = set(
+            "abcdefghijklmnopqrstuvwxyz"
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+            "0123456789"
+            ".-:[]"
+        )
+
+        if (
+            not host
+            or any(
+                character not in allowed_characters
+                for character in host
+            )
+        ):
+
+            advertise_host = str(
+                self.advertise_host or ""
+            ).strip()
+
+            if (
+                advertise_host
+                and advertise_host.lower() not in {
+                    "auto",
+                    "source_ip",
+                    "udp_source_ip",
+                }
+            ):
+                host = advertise_host
+
+            elif self.listen_host not in {
+                "",
+                "0.0.0.0",
+                "::",
+            }:
+                host = self.listen_host
+
+            else:
+                host = "127.0.0.1"
+
+            if ":" not in host:
+                host = (
+                    host
+                    + ":"
+                    + str(self.bound_port)
+                )
+
+        return host
+
+    def _download_rejection(
+        self,
+        result: dict
+    ) -> dict:
+
+        return {
+            "accepted": False,
+            "success": False,
+            "http_status": int(
+                result.get(
+                    "http_status",
+                    404
+                )
+            ),
+            "receipt": {
+                "accepted": False,
+                "status": "rejected",
+                "failure_reason": result.get(
+                    "failure_reason",
+                    "spectrogram_not_found"
+                ),
+                "failure_detail": result.get(
+                    "failure_detail",
+                    "Spectrogram image could not be served."
+                )
+            }
         }
 
     # ========================================================

@@ -25,6 +25,7 @@
 #   - Create and own sender_manager.py
 #   - Start inbound UDP listening
 #   - Handle decoded inbound server events
+#   - Download referenced SERVER_AVIS_LITE spectrogram PNGs through HTTP
 #   - Publish approved inbound events to the GUI event bus
 #   - Handle approved outbound GUI events
 #   - Send outbound GUI events through sender_manager.py
@@ -78,6 +79,10 @@ from communication.listener_manager import (
 
 from communication.sender_manager import (
     SenderManager
+)
+
+from communication.spectrogram_download_client import (
+    SpectrogramDownloadClient
 )
 
 
@@ -139,6 +144,13 @@ class CommunicationDispatcher:
 
         self.sender_manager = SenderManager(
             config=self.config
+        )
+
+        self.spectrogram_download_client = SpectrogramDownloadClient(
+            config=self.config.get(
+                "http_media",
+                {}
+            )
         )
 
         self.wifi_enabled = self.config.get(
@@ -400,6 +412,12 @@ class CommunicationDispatcher:
                 listener_event=listener_event
             )
 
+            if event_name == SERVER_AVIS_LITE:
+
+                self._hydrate_spectrogram_reference(
+                    normalized_message
+                )
+
             publish_method(
                 normalized_message
             )
@@ -412,6 +430,107 @@ class CommunicationDispatcher:
                 "[Communication] Inbound dispatcher error: %s",
                 error
             )
+
+    # ========================================================
+    # SPECTROGRAM HTTP DOWNLOAD
+    # ========================================================
+
+    def _hydrate_spectrogram_reference(
+        self,
+        data
+    ) -> bool:
+        """
+        Find one spectrogram reference, download it, and attach a GUI-local
+        cache path before the event enters the GUI event bus.
+        """
+
+        if not isinstance(data, dict):
+            return False
+
+        spectrogram = data.get(
+            "spectrogram"
+        )
+
+        if isinstance(
+            spectrogram,
+            dict
+        ) and spectrogram.get(
+            "download_url"
+        ):
+
+            hydrated = dict(
+                spectrogram
+            )
+
+            result = self.spectrogram_download_client.download(
+                hydrated
+            )
+
+            if result.get(
+                "success",
+                False
+            ):
+
+                hydrated.update({
+                    "available": True,
+                    "download_status": "accepted",
+                    "local_path": result.get(
+                        "local_path"
+                    ),
+                    "byte_count": result.get(
+                        "byte_count",
+                        hydrated.get("byte_count")
+                    ),
+                    "sha256": result.get(
+                        "sha256",
+                        hydrated.get("sha256")
+                    ),
+                    "cached": result.get(
+                        "cached",
+                        False
+                    )
+                })
+
+                logging.info(
+                    "[Communication] Spectrogram downloaded: "
+                    "media_id=%s path=%s",
+                    hydrated.get("media_id"),
+                    hydrated.get("local_path")
+                )
+
+            else:
+
+                hydrated.update({
+                    "available": False,
+                    "download_status": "failed",
+                    "failure_reason": result.get(
+                        "failure_reason"
+                    ),
+                    "failure_detail": result.get(
+                        "failure_detail"
+                    )
+                })
+
+                logging.warning(
+                    "[Communication] Spectrogram download failed: "
+                    "media_id=%s reason=%s detail=%s",
+                    hydrated.get("media_id"),
+                    result.get("failure_reason"),
+                    result.get("failure_detail")
+                )
+
+            data["spectrogram"] = hydrated
+
+            return True
+
+        for value in data.values():
+
+            if self._hydrate_spectrogram_reference(
+                value
+            ):
+                return True
+
+        return False
 
     # ========================================================
     # OUTBOUND SEND HANDLING

@@ -29,7 +29,7 @@
 #   - Handle RECORDING_AVAILABLE events
 #   - Coordinate BirdNetManager
 #   - Build canonical AVIS_LITE events
-#   - Attach payload-safe spectrogram packages when available
+#   - Attach lightweight spectrogram file metadata when available
 #   - Publish AVIS_LITE events through BirdNetEventServices
 #
 # Does NOT:
@@ -847,10 +847,10 @@ class BirdNetDispatcher:
         detection_package
     ):
         """
-        Attach the serialized spectrogram package to AVIS_LITE.
+        Attach lightweight spectrogram file metadata to AVIS_LITE.
 
-        The large base64 image string is stored only once inside the nested
-        payload["spectrogram"] dictionary.
+        The PNG remains a node-local file until Communication uploads it.
+        AVIS_LITE never contains the PNG bytes.
         """
 
         spectrogram_package = detection_package.get(

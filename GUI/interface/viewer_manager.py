@@ -42,6 +42,7 @@
 # ============================================================
 
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Optional
 
 import base64
@@ -1213,13 +1214,24 @@ class ViewerManager(QMainWindow):
             or spectrogram.get("spectrogram_png_b64")
         )
 
-        if not image_png_b64:
+        local_path = spectrogram.get(
+            "local_path"
+        )
+
+        if (
+            not image_png_b64
+            and not local_path
+        ):
             return {}
 
         normalized = dict(
             spectrogram
         )
-        normalized["image_png_b64"] = image_png_b64
+        if image_png_b64:
+            normalized["image_png_b64"] = image_png_b64
+
+        if local_path:
+            normalized["local_path"] = local_path
 
         return normalized
 
@@ -1229,6 +1241,15 @@ class ViewerManager(QMainWindow):
         audio_path=None
     ):
         if spectrogram:
+            local_path = spectrogram.get(
+                "local_path"
+            )
+
+            if self._set_spectrogram_pixmap_from_file(
+                local_path=local_path
+            ):
+                return
+
             image_png_b64 = (
                 spectrogram.get("image_png_b64")
                 or spectrogram.get("spectrogram_png_b64")
@@ -1290,6 +1311,55 @@ class ViewerManager(QMainWindow):
         self.spectrogram_placeholder.clear()
         self.spectrogram_placeholder.setText("")
         self.spectrogram_placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.spectrogram_placeholder.setStyleSheet(
+            """
+            background-color: #000000;
+            border: 1px solid #444;
+            padding: 8px;
+            """
+        )
+        self.spectrogram_placeholder.setPixmap(
+            pixmap
+        )
+
+        return True
+
+    def _set_spectrogram_pixmap_from_file(
+        self,
+        local_path
+    ) -> bool:
+
+        if not local_path:
+            return False
+
+        image_path = Path(
+            str(local_path)
+        )
+
+        if not image_path.is_file():
+            return False
+
+        pixmap = QPixmap(
+            str(image_path)
+        )
+
+        if pixmap.isNull():
+            return False
+
+        target_size = self.spectrogram_placeholder.size()
+
+        if target_size.width() > 0 and target_size.height() > 0:
+            pixmap = pixmap.scaled(
+                target_size,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation
+            )
+
+        self.spectrogram_placeholder.clear()
+        self.spectrogram_placeholder.setText("")
+        self.spectrogram_placeholder.setAlignment(
+            Qt.AlignmentFlag.AlignCenter
+        )
         self.spectrogram_placeholder.setStyleSheet(
             """
             background-color: #000000;
