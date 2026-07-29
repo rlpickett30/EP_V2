@@ -98,7 +98,29 @@ class DPS310Driver:
             return
 
         self._i2c = busio.I2C(board.SCL, board.SDA)
-        self._sensor = adafruit_dps310.DPS310(self._i2c)
+
+        last_error = None
+
+        for address in (0x77, 0x76):
+            try:
+                self._sensor = adafruit_dps310.DPS310(
+                    self._i2c,
+                    address=address,
+                )
+                print(
+                    f"[DPS310Driver] DPS310 detected at "
+                    f"0x{address:02X}"
+                )
+                break
+
+            except Exception as error:
+                last_error = error
+
+        if self._sensor is None:
+            raise RuntimeError(
+                "Could not initialize DPS310 at "
+                f"0x77 or 0x76: {last_error}"
+            )
 
         with self._lock:
             self._state["driver_start_monotonic"] = time.monotonic()
