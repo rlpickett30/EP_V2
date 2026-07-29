@@ -23,6 +23,8 @@
 #   - Start and stop TDOA subscriptions and deadline monitoring
 #   - Track node readiness and recent AVIS_LITE events
 #   - Select TDOA candidates
+#   - Permit one active TDOA attempt at a time
+#   - Consume each recording frame at most once
 #   - Build and publish request-scoped TDOA_REQUEST events
 #   - Coordinate request-scoped recording collection
 #   - Count only TDOA_VALID_RECORDING events toward quorum
@@ -136,6 +138,14 @@ class TDOADispatcher:
             "max_processed_candidate_keys",
             500
         )
+
+        self.candidate_workflow_lock = threading.RLock()
+
+        self.candidate_attempt_armed = True
+
+        self.active_tdoa_request_id = None
+
+        self.active_candidate_key = None
 
         self.event_services = TDOAEventServices(
             event_bus=event_bus
@@ -738,9 +748,33 @@ class TDOADispatcher:
             "raw_event": event
         }
 
-        self.recent_avis_lite_events.append(
-            normalized_event
-        )
+        with self.candidate_workflow_lock:
+
+            self.recent_avis_lite_events.append(
+                normalized_event
+            )
+
+            if (
+                len(self.recent_avis_lite_events)
+                >
+                self.max_recent_avis_lite_events
+            ):
+
+                overflow = (
+                    len(self.recent_avis_lite_events)
+                    -
+                    self.max_recent_avis_lite_events
+                )
+
+                self.recent_avis_lite_events = (
+                    self.recent_avis_lite_events[
+                        overflow:
+                    ]
+                )
+
+            recent_count = len(
+                self.recent_avis_lite_events
+            )
 
         logging.info(
             "[TDOA] Stored AVIS_LITE for candidate filter: "
@@ -750,20 +784,8 @@ class TDOADispatcher:
             f"species={normalized_event.get('species_common')} "
             f"birdnet_start={normalized_event.get('birdnet_start_time')} "
             f"recording_id={normalized_event.get('recording_id')} "
-            f"recent_count={len(self.recent_avis_lite_events)}"
+            f"recent_count={recent_count}"
         )
-
-        if len(self.recent_avis_lite_events) > self.max_recent_avis_lite_events:
-
-            overflow = (
-                len(self.recent_avis_lite_events)
-                -
-                self.max_recent_avis_lite_events
-            )
-
-            self.recent_avis_lite_events = self.recent_avis_lite_events[
-                overflow:
-            ]
 
     def _parse_utc_epoch(
         self,
@@ -802,11 +824,11 @@ class TDOADispatcher:
         self
     ) -> None:
         """
-        Ask candidate_filter.py whether a valid TDOA candidate exists.
+        Launch the highest-priority unprocessed recording frame.
 
-        Dispatcher only advances a candidate once. Duplicate candidate
-        detections are ignored so the same AVIS group does not repeatedly
-        trigger downstream workflow.
+        The dispatcher is disarmed while one request is active. AVIS_LITE
+        events continue accumulating and are scanned after the active attempt
+        reaches a terminal outcome.
         """
 
         if not self.enable_candidate_filter:
@@ -815,56 +837,73 @@ class TDOADispatcher:
             )
             return
 
-        state_snapshot = self.state_manager.get_state_snapshot()
+        with self.candidate_workflow_lock:
 
-        logging.info(
-            "[TDOA] Candidate filter check: "
-            f"allowed={state_snapshot.get('candidate_filter_allowed')} "
-            f"recent_avis={len(self.recent_avis_lite_events)} "
-            f"capable_nodes={state_snapshot.get('tdoa_capable_node_ids')}"
-        )
+            if not self.candidate_attempt_armed:
+                logging.info(
+                    "[TDOA] Candidate filter disarmed: "
+                    f"active_request_id={self.active_tdoa_request_id} "
+                    f"active_candidate_key={self.active_candidate_key}"
+                )
+                return
 
-        if not state_snapshot.get("candidate_filter_allowed", False):
-            return
+            state_snapshot = self.state_manager.get_state_snapshot()
 
-        candidate = self.candidate_filter.find_candidate(
-            capability_event=state_snapshot,
-            recent_avis_lite_events=self.recent_avis_lite_events
-        )
-
-        if candidate is None:
             logging.info(
-                "[TDOA] Candidate filter found no candidate."
+                "[TDOA] Candidate filter check: "
+                f"allowed={state_snapshot.get('candidate_filter_allowed')} "
+                f"recent_avis={len(self.recent_avis_lite_events)} "
+                f"capable_nodes={state_snapshot.get('tdoa_capable_node_ids')}"
             )
-            return
 
-        candidate_key = self._build_candidate_key(
-            candidate
-        )
+            if not state_snapshot.get("candidate_filter_allowed", False):
+                return
 
-        if candidate_key in self.processed_candidate_keys:
+            candidates = self.candidate_filter.find_candidates(
+                capability_event=state_snapshot,
+                recent_avis_lite_events=self.recent_avis_lite_events
+            )
+
+            if not candidates:
+                logging.info(
+                    "[TDOA] Candidate filter found no candidate."
+                )
+                return
+
+            duplicate_count = 0
+
+            for candidate in candidates:
+
+                candidate_key = self._build_candidate_key(
+                    candidate
+                )
+
+                if candidate_key in self.processed_candidate_keys:
+                    duplicate_count += 1
+                    continue
+
+                logging.info(
+                    "[TDOA] Candidate filter found candidate: "
+                    f"avis_lite_id={candidate.get('avis_lite_id')} "
+                    f"node_count={candidate.get('node_count')} "
+                    f"node_ids={candidate.get('node_ids')} "
+                    f"time_spread={candidate.get('time_spread_seconds')} "
+                    f"candidate_key={candidate_key}"
+                )
+
+                launched = self._handle_candidate_ready(
+                    candidate=candidate,
+                    candidate_key=candidate_key
+                )
+
+                if launched:
+                    return
+
             logging.info(
-                "[TDOA] Duplicate candidate ignored: "
-                f"candidate_key={candidate_key}"
+                "[TDOA] Candidate filter found no unprocessed frame: "
+                f"candidate_count={len(candidates)} "
+                f"duplicate_count={duplicate_count}"
             )
-            return
-
-        self._mark_candidate_processed(
-            candidate_key
-        )
-
-        logging.info(
-            "[TDOA] Candidate filter found candidate: "
-            f"avis_lite_id={candidate.get('avis_lite_id')} "
-            f"node_count={candidate.get('node_count')} "
-            f"node_ids={candidate.get('node_ids')} "
-            f"time_spread={candidate.get('time_spread_seconds')} "
-            f"candidate_key={candidate_key}"
-        )
-
-        self._handle_candidate_ready(
-            candidate
-        )
 
     def _build_candidate_key(
         self,
@@ -873,6 +912,18 @@ class TDOADispatcher:
         """
         Build a stable duplicate-detection key for one candidate.
         """
+
+        frame_key = candidate.get(
+            "frame_key"
+        )
+
+        if frame_key not in (
+            None,
+            ""
+        ):
+            return str(
+                frame_key
+            )
 
         avis_lite_id = candidate.get(
             "avis_lite_id",
@@ -988,8 +1039,9 @@ class TDOADispatcher:
 
     def _handle_candidate_ready(
         self,
-        candidate: dict
-    ) -> None:
+        candidate: dict,
+        candidate_key: str
+    ) -> bool:
         """
         Publish candidate readiness and open the request path.
 
@@ -998,19 +1050,38 @@ class TDOADispatcher:
         TDOA_COMPLETE_SET has been assembled.
         """
 
-        self.event_services.publish_tdoa_candidate_ready(
-            candidate
-        )
-
         request = self._build_tdoa_request(
             candidate=candidate
         )
 
         if request is None:
-            logging.warning(
-                "[TDOA] Candidate ready but no TDOA_REQUEST could be built."
+            self._mark_candidate_processed(
+                candidate_key
             )
-            return
+
+            logging.warning(
+                "[TDOA] Candidate frame consumed without request: "
+                f"candidate_key={candidate_key} "
+                "reason=request_build_failed"
+            )
+            return False
+
+        request_id = request.get(
+            "tdoa_request_id"
+        )
+
+        self._mark_candidate_processed(
+            candidate_key
+        )
+
+        self._disarm_candidate_attempt(
+            request_id=request_id,
+            candidate_key=candidate_key
+        )
+
+        self.event_services.publish_tdoa_candidate_ready(
+            candidate
+        )
 
         try:
 
@@ -1025,25 +1096,34 @@ class TDOADispatcher:
                 "[TDOA] Could not open recording collection transaction."
             )
 
-            self.event_services.publish_tdoa_request_failed(
-                {
-                    "success": False,
-                    "status": "failed",
-                    "tdoa_request_id": request.get(
-                        "tdoa_request_id"
-                    ),
-                    "request_id": request.get(
-                        "tdoa_request_id"
-                    ),
-                    "candidate": candidate,
-                    "request": request,
-                    "closure_reason": "request_open_failed",
-                    "failure_reason": "transaction_open_failed",
-                    "failure_detail": str(error)
-                }
-            )
+            try:
 
-            return
+                self.event_services.publish_tdoa_request_failed(
+                    {
+                        "success": False,
+                        "status": "failed",
+                        "tdoa_request_id": request.get(
+                            "tdoa_request_id"
+                        ),
+                        "request_id": request.get(
+                            "tdoa_request_id"
+                        ),
+                        "candidate": candidate,
+                        "request": request,
+                        "closure_reason": "request_open_failed",
+                        "failure_reason": "transaction_open_failed",
+                        "failure_detail": str(error)
+                    }
+                )
+
+            finally:
+                self._rearm_candidate_attempt(
+                    request_id=request_id,
+                    terminal_outcome="request_open_failed",
+                    rescan=False
+                )
+
+            return False
 
         self.event_services.publish_tdoa_request(
             request
@@ -1055,6 +1135,64 @@ class TDOADispatcher:
             f"target_nodes={request.get('target_nodes')} "
             f"deadline={transaction.get('collection_deadline_at_utc')}"
         )
+
+        return True
+
+    def _disarm_candidate_attempt(
+        self,
+        request_id: str,
+        candidate_key: str
+    ) -> None:
+        """
+        Reserve the single active TDOA attempt slot.
+        """
+
+        self.candidate_attempt_armed = False
+        self.active_tdoa_request_id = request_id
+        self.active_candidate_key = candidate_key
+
+        logging.info(
+            "[TDOA] Candidate filter disarmed for active attempt: "
+            f"request_id={request_id} "
+            f"candidate_key={candidate_key}"
+        )
+
+    def _rearm_candidate_attempt(
+        self,
+        request_id: str,
+        terminal_outcome: str,
+        rescan: bool = True
+    ) -> None:
+        """
+        Release the active attempt and optionally scan buffered detections.
+        """
+
+        with self.candidate_workflow_lock:
+
+            if request_id != self.active_tdoa_request_id:
+                logging.debug(
+                    "[TDOA] Terminal update did not own active attempt: "
+                    f"request_id={request_id} "
+                    f"active_request_id={self.active_tdoa_request_id} "
+                    f"outcome={terminal_outcome}"
+                )
+                return
+
+            completed_candidate_key = self.active_candidate_key
+
+            self.active_tdoa_request_id = None
+            self.active_candidate_key = None
+            self.candidate_attempt_armed = True
+
+        logging.info(
+            "[TDOA] Candidate filter rearmed after terminal outcome: "
+            f"request_id={request_id} "
+            f"candidate_key={completed_candidate_key} "
+            f"outcome={terminal_outcome}"
+        )
+
+        if rescan and self.running:
+            self._run_candidate_filter_if_allowed()
 
     def _build_tdoa_request(
         self,
@@ -1270,18 +1408,26 @@ class TDOADispatcher:
 
         if action == "failed":
 
-            self.event_services.publish_tdoa_request_failed(
-                payload
-            )
+            try:
 
-            logging.warning(
-                "[TDOA] Recording collection failed: "
-                f"request_id={request_id} "
-                f"closure={payload.get('closure_reason')} "
-                f"valid={payload.get('valid_recording_count')}/"
-                f"{payload.get('required_valid_recordings')} "
-                f"missing={payload.get('missing_node_ids')}"
-            )
+                self.event_services.publish_tdoa_request_failed(
+                    payload
+                )
+
+                logging.warning(
+                    "[TDOA] Recording collection failed: "
+                    f"request_id={request_id} "
+                    f"closure={payload.get('closure_reason')} "
+                    f"valid={payload.get('valid_recording_count')}/"
+                    f"{payload.get('required_valid_recordings')} "
+                    f"missing={payload.get('missing_node_ids')}"
+                )
+
+            finally:
+                self._rearm_candidate_attempt(
+                    request_id=request_id,
+                    terminal_outcome="recording_collection_failed"
+                )
 
             return
 
@@ -1303,28 +1449,36 @@ class TDOADispatcher:
                 "[TDOA] Server clock alignment failed unexpectedly."
             )
 
-            self.event_services.publish_tdoa_request_failed(
-                {
-                    **payload,
-                    "schema_version": 2,
-                    "success": False,
-                    "status": "failed",
-                    "raw_collection_closure_reason": (
-                        payload.get(
-                            "closure_reason"
+            try:
+
+                self.event_services.publish_tdoa_request_failed(
+                    {
+                        **payload,
+                        "schema_version": 2,
+                        "success": False,
+                        "status": "failed",
+                        "raw_collection_closure_reason": (
+                            payload.get(
+                                "closure_reason"
+                            )
+                        ),
+                        "closure_reason": (
+                            "clock_alignment_exception"
+                        ),
+                        "failure_reason": (
+                            "clock_alignment_exception"
+                        ),
+                        "failure_detail": (
+                            f"{type(error).__name__}: {error}"
                         )
-                    ),
-                    "closure_reason": (
-                        "clock_alignment_exception"
-                    ),
-                    "failure_reason": (
-                        "clock_alignment_exception"
-                    ),
-                    "failure_detail": (
-                        f"{type(error).__name__}: {error}"
-                    )
-                }
-            )
+                    }
+                )
+
+            finally:
+                self._rearm_candidate_attempt(
+                    request_id=request_id,
+                    terminal_outcome="clock_alignment_exception"
+                )
 
             return
 
@@ -1338,24 +1492,32 @@ class TDOADispatcher:
                 {}
             )
 
-            self.event_services.publish_tdoa_request_failed(
-                failure_payload
-            )
-
             clock_alignment = alignment_result.get(
                 "clock_alignment",
                 {}
             )
 
-            logging.warning(
-                "[TDOA] Server clock alignment rejected set: "
-                f"request_id={request_id} "
-                f"aligned="
-                f"{clock_alignment.get('aligned_recording_count')}/"
-                f"{clock_alignment.get('required_aligned_recordings')} "
-                f"rejected="
-                f"{clock_alignment.get('rejected_node_ids')}"
-            )
+            try:
+
+                self.event_services.publish_tdoa_request_failed(
+                    failure_payload
+                )
+
+                logging.warning(
+                    "[TDOA] Server clock alignment rejected set: "
+                    f"request_id={request_id} "
+                    f"aligned="
+                    f"{clock_alignment.get('aligned_recording_count')}/"
+                    f"{clock_alignment.get('required_aligned_recordings')} "
+                    f"rejected="
+                    f"{clock_alignment.get('rejected_node_ids')}"
+                )
+
+            finally:
+                self._rearm_candidate_attempt(
+                    request_id=request_id,
+                    terminal_outcome="clock_alignment_rejected"
+                )
 
             return
 
@@ -1429,13 +1591,34 @@ class TDOADispatcher:
             }
         )
 
-        result = self.manager.tdoa_estimate(
-            candidate=candidate,
-            recording_events=complete_set.get(
-                "recording_events",
-                []
+        try:
+
+            result = self.manager.tdoa_estimate(
+                candidate=candidate,
+                recording_events=complete_set.get(
+                    "recording_events",
+                    []
+                )
             )
-        )
+
+        except Exception as error:
+
+            result = {
+                "success": False,
+                "status": "failed",
+                "tdoa_request_id": request_id,
+                "candidate": candidate,
+                "errors": [
+                    (
+                        "TDOA calculation raised "
+                        f"{type(error).__name__}: {error}"
+                    )
+                ]
+            }
+
+            logging.exception(
+                "[TDOA] Calculation handoff raised unexpectedly."
+            )
 
         input_request_id = result.get(
             "calculation_input",
@@ -1494,29 +1677,47 @@ class TDOADispatcher:
             )
         }
 
-        if result.get("success", False):
-            self.event_services.publish_tdoa_calc(
-                result
-            )
+        calculation_succeeded = result.get(
+            "success",
+            False
+        )
 
-            logging.info(
-                "[TDOA] Canonical calculation published: "
-                f"request_id={request_id} "
-                f"solver_attempts="
-                f"{result.get('solver_attempt_count')} "
-                f"localization_valid="
-                f"{result.get('localization_valid')}"
-            )
+        try:
 
-        else:
-            self.event_services.publish_tdoa_calc_failed(
-                result
-            )
+            if calculation_succeeded:
+                self.event_services.publish_tdoa_calc(
+                    result
+                )
 
-            logging.warning(
-                "[TDOA] Calculation handoff failed: "
-                f"request_id={request_id} "
-                f"errors={result.get('errors')}"
+                logging.info(
+                    "[TDOA] Canonical calculation published: "
+                    f"request_id={request_id} "
+                    f"solver_attempts="
+                    f"{result.get('solver_attempt_count')} "
+                    f"localization_valid="
+                    f"{result.get('localization_valid')}"
+                )
+
+            else:
+                self.event_services.publish_tdoa_calc_failed(
+                    result
+                )
+
+                logging.warning(
+                    "[TDOA] Calculation handoff failed: "
+                    f"request_id={request_id} "
+                    f"errors={result.get('errors')}"
+                )
+
+        finally:
+            self._rearm_candidate_attempt(
+                request_id=request_id,
+                terminal_outcome=(
+                    "calculation_succeeded"
+                    if calculation_succeeded
+                    else
+                    "calculation_failed"
+                )
             )
 
     def _handle_weather_update(

@@ -18,8 +18,8 @@
 #   - Accepts a TDOA capability event/snapshot
 #   - Accepts recent avis_lite events
 #   - Filters events by TDOA-capable node IDs
-#   - Finds matching avis_lite_id groups
-#   - Returns a candidate package
+#   - Finds matching avis_lite_id groups by recording frame
+#   - Returns ranked candidate packages
 #
 # Does NOT:
 #   - Track node capability state
@@ -94,8 +94,30 @@ class CandidateFilter:
             None if no candidate should be sent to TDOA_manager.py.
         """
 
-        if not capability_event.get("candidate_filter_allowed", False):
+        candidates = self.find_candidates(
+            capability_event=capability_event,
+            recent_avis_lite_events=recent_avis_lite_events
+        )
+
+        if not candidates:
             return None
+
+        return candidates[0]
+
+    def find_candidates(
+        self,
+        capability_event: dict,
+        recent_avis_lite_events: List[dict]
+    ) -> List[dict]:
+        """
+        Return every valid recording-frame candidate in priority order.
+
+        The dispatcher uses the complete list so an already-consumed frame
+        cannot hide a later unprocessed frame.
+        """
+
+        if not capability_event.get("candidate_filter_allowed", False):
+            return []
 
         capable_node_ids = capability_event.get(
             "tdoa_capable_node_ids",
@@ -103,7 +125,7 @@ class CandidateFilter:
         )
 
         if len(capable_node_ids) < self.min_matching_nodes:
-            return None
+            return []
 
         eligible_events = self._filter_events_by_capable_nodes(
             recent_avis_lite_events,
@@ -111,18 +133,18 @@ class CandidateFilter:
         )
 
         if len(eligible_events) < self.min_matching_nodes:
-            return None
+            return []
 
-        candidate = self._find_matching_event_group(
+        candidates = self._find_matching_event_groups(
             eligible_events
         )
 
-        if candidate is None:
+        if not candidates:
             logging.debug(
                 "Candidate filter found no matching avis_lite group."
             )
 
-        return candidate
+        return candidates
 
     # ========================================================
     # EVENT FILTERING
@@ -154,22 +176,23 @@ class CandidateFilter:
     # MATCHING LOGIC
     # ========================================================
 
-    def _find_matching_event_group(
+    def _find_matching_event_groups(
         self,
         events: List[dict]
-    ) -> Optional[dict]:
+    ) -> List[dict]:
         """
-        Find a group of avis_lite events with the same avis_lite_id
-        inside the configured timing window.
+        Find every recording frame with a matching avis_lite group.
         """
 
-        grouped_events = self._group_events_by_avis_lite_id(
+        grouped_events = self._group_events_by_candidate_frame(
             events
         )
 
         candidates = []
 
-        for avis_lite_id, group in grouped_events.items():
+        for group_key, group in grouped_events.items():
+
+            avis_lite_id, frame_key = group_key
 
             candidate = self._evaluate_group(
                 avis_lite_id,
@@ -177,24 +200,30 @@ class CandidateFilter:
             )
 
             if candidate is not None:
+                candidate["frame_key"] = frame_key
                 candidates.append(candidate)
 
         if not candidates:
-            return None
+            return []
 
-        return self._select_best_candidate(
+        return self._sort_candidates(
             candidates
         )
 
-    def _group_events_by_avis_lite_id(
+    def _group_events_by_candidate_frame(
         self,
         events: List[dict]
-    ) -> Dict[Any, List[dict]]:
+    ) -> Dict[tuple, List[dict]]:
         """
-        Group avis_lite events by avis_lite_id.
+        Group events by species identity and source recording frame.
+
+        Recording identity is preferred because it remains stable when a
+        fifth node reports after a four-node candidate already launched.
+        Events without recording identity use a temporal fallback.
         """
 
         grouped = {}
+        fallback_by_avis_lite_id = {}
 
         for event in events:
 
@@ -203,12 +232,149 @@ class CandidateFilter:
             if avis_lite_id is None:
                 continue
 
-            if avis_lite_id not in grouped:
-                grouped[avis_lite_id] = []
+            frame_key = self._event_frame_key(
+                event
+            )
 
-            grouped[avis_lite_id].append(event)
+            if frame_key is None:
+                fallback_by_avis_lite_id.setdefault(
+                    avis_lite_id,
+                    []
+                ).append(
+                    event
+                )
+                continue
+
+            grouped.setdefault(
+                (
+                    avis_lite_id,
+                    frame_key
+                ),
+                []
+            ).append(
+                event
+            )
+
+        for avis_lite_id, fallback_events in (
+            fallback_by_avis_lite_id.items()
+        ):
+
+            temporal_frames = self._cluster_events_by_time(
+                fallback_events
+            )
+
+            for frame_events in temporal_frames:
+
+                frame_start = min(
+                    event.get("node_time")
+                    for event in frame_events
+                )
+
+                frame_key = (
+                    f"node_time:{float(frame_start):.6f}"
+                )
+
+                grouped[
+                    (
+                        avis_lite_id,
+                        frame_key
+                    )
+                ] = frame_events
 
         return grouped
+
+    def _event_frame_key(
+        self,
+        event: dict
+    ) -> Optional[str]:
+        """
+        Return a stable recording-frame identity for one detection.
+        """
+
+        payload = event.get(
+            "payload",
+            {}
+        )
+
+        if not isinstance(payload, dict):
+            payload = {}
+
+        recording_id = (
+            event.get("recording_id")
+            or payload.get("recording_id")
+        )
+
+        if recording_id not in (
+            None,
+            ""
+        ):
+            return f"recording_id:{recording_id}"
+
+        recording_utc = (
+            event.get("recording_utc")
+            or payload.get("recording_utc")
+        )
+
+        if recording_utc not in (
+            None,
+            ""
+        ):
+            return f"recording_utc:{recording_utc}"
+
+        return None
+
+    def _cluster_events_by_time(
+        self,
+        events: List[dict]
+    ) -> List[List[dict]]:
+        """
+        Build temporal frames only when recording identity is unavailable.
+        """
+
+        sorted_events = sorted(
+            (
+                event
+                for event in events
+                if event.get("node_time") is not None
+            ),
+            key=lambda event: event.get("node_time")
+        )
+
+        frames = []
+
+        for event in sorted_events:
+
+            node_time = float(
+                event.get("node_time")
+            )
+
+            if not frames:
+                frames.append(
+                    [event]
+                )
+                continue
+
+            frame_start = float(
+                frames[-1][0].get("node_time")
+            )
+
+            if (
+                node_time
+                -
+                frame_start
+                >
+                self.match_window_seconds
+            ):
+                frames.append(
+                    [event]
+                )
+                continue
+
+            frames[-1].append(
+                event
+            )
+
+        return frames
 
     def _evaluate_group(
         self,
@@ -224,6 +390,8 @@ class CandidateFilter:
             events,
             key=lambda event: event.get("node_time", 0.0)
         )
+
+        candidates = []
 
         for start_index in range(len(sorted_events)):
 
@@ -253,13 +421,20 @@ class CandidateFilter:
                 window_events.append(event)
                 used_node_ids.add(node_id)
 
-                if len(used_node_ids) >= self.min_matching_nodes:
-                    return self._build_candidate_package(
+            if len(used_node_ids) >= self.min_matching_nodes:
+                candidates.append(
+                    self._build_candidate_package(
                         avis_lite_id,
                         window_events
                     )
+                )
 
-        return None
+        if not candidates:
+            return None
+
+        return self._select_best_candidate(
+            candidates
+        )
 
     # ========================================================
     # CANDIDATE SELECTION
@@ -277,13 +452,27 @@ class CandidateFilter:
             2. Smallest time spread
         """
 
+        return self._sort_candidates(
+            candidates
+        )[0]
+
+    def _sort_candidates(
+        self,
+        candidates: List[dict]
+    ) -> List[dict]:
+        """
+        Return candidates in deterministic dispatcher priority order.
+        """
+
         return sorted(
             candidates,
             key=lambda candidate: (
                 -candidate.get("node_count", 0),
-                candidate.get("time_spread_seconds", float("inf"))
+                candidate.get("time_spread_seconds", float("inf")),
+                str(candidate.get("frame_key", "")),
+                str(candidate.get("avis_lite_id", ""))
             )
-        )[0]
+        )
 
     def _build_candidate_package(
         self,
