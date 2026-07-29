@@ -92,7 +92,7 @@ GUI/node_repository/data/node_state.json
 *.db
 *.sqlite
 *.sqlite3
-
+*.png
 
 # ------------------------------------------------------------
 # Machine- and deployment-specific configuration
